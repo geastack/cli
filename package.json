@@ -1,0 +1,19 @@
+{
+  "name": "@geastack/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
+  "bin": {
+    "gea": "./bin/gea.mjs",
+    "create-geastack": "./bin/create-geastack.mjs"
+  },
+  "scripts": {
+    "check": "node --check bin/gea.mjs && node --check bin/create-geastack.mjs && find src test -name '*.mjs' -print0 | xargs -0 -n1 node --check",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}
