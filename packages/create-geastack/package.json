@@ -13,7 +13,7 @@
     "create-geastack": "./bin/create-geastack.mjs"
   },
   "dependencies": {
-    "@geastack/gea": "^0.1.0"
+    "@geastack/cli": "^0.1.0"
   },
   "engines": {
     "node": ">=20.19"

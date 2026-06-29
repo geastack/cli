@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { runCreateGeastack } from '@geastack/gea/create'
-import { CliError } from '@geastack/gea/errors'
+import { runCreateGeastack } from '@geastack/cli/create'
+import { CliError } from '@geastack/cli/errors'
 
 try {
   const exitCode = await runCreateGeastack(process.argv.slice(2))

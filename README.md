@@ -1,4 +1,4 @@
-# @geastack/gea
+# @geastack/cli
 
 Command-line front door for GeaStack.
 
@@ -38,8 +38,8 @@ flowchart TD
   fetchExample --> copyExample["Copy fetched example files"]
   copyExample --> rewriteExample["Rewrite package name and gea manifest"]
 
-  counter --> projectWiring["Add @geastack/core and @geastack/gea"]
-  rewriteExample --> projectWiring["Add @geastack/core and @geastack/gea"]
+  counter --> projectWiring["Add @geastack/core and @geastack/cli"]
+  rewriteExample --> projectWiring["Add @geastack/core and @geastack/cli"]
   emptyFiles --> projectWiring
   projectWiring --> boardConfig["Create .gea/boards.json"]
   boardConfig --> install["Install npm dependencies<br/>(interactive default)"]

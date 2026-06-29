@@ -237,7 +237,7 @@ function packageJson({ appId, displayName, targets, coreDependency, cliDependenc
     },
     devDependencies: {
       ...(sourcePackage.devDependencies || {}),
-      '@geastack/gea': cliDependency,
+      '@geastack/cli': cliDependency,
       typescript: sourcePackage.devDependencies?.typescript || 'latest',
       vite: sourcePackage.devDependencies?.vite || 'latest'
     },

@@ -21,19 +21,19 @@ Use these release packages instead:
 
 - `@geastack/create-geastack`: scoped private project/app scaffolder exposing
   the `create-geastack` bin.
-- `@geastack/gea`: scoped private Gea CLI package exposing the `gea` bin.
+- `@geastack/cli`: scoped private Gea CLI package exposing the `gea` bin.
 
-From outside a project, run the scoped CLI package directly:
-
-```sh
-npx @geastack/gea setup
-npx @geastack/gea flash --app my-app --board amoled --monitor
-```
-
-`create-geastack` should add `@geastack/gea` as a devDependency in generated
+`create-geastack` should add `@geastack/cli` as a devDependency in generated
 projects and install dependencies by default in interactive terminals. After
 that, inside the project, `npx gea ...` works because npm finds the local
 `node_modules/.bin/gea` binary. It does not require an npm package named `gea`.
+
+If someone is wiring an existing app by hand, install the package first:
+
+```sh
+npm install --save-dev @geastack/cli
+npx gea setup
+```
 
 Creator-style scaffolding is:
 
@@ -58,11 +58,11 @@ JSX, one `store.ts`, and enough styling to run.
 `.gea/boards.json`.
 
 `Rich example` opens an example picker populated from the hard-coded
-`examples/catalog.json` shipped inside `@geastack/gea`. The catalog contains web,
+`examples/catalog.json` shipped inside `@geastack/cli`. The catalog contains web,
 ESP32, GeaOS, iOS, and macOS examples with names, descriptions, target flags, and
 GitHub paths. When the user selects an example, the CLI fetches that app from
 `geastack/examples`, copies it into the new project, then rewrites
-`package.json`, app id, app name, `@geastack/core`, `@geastack/gea`, and
+`package.json`, app id, app name, `@geastack/core`, `@geastack/cli`, and
 `.gea/boards.json`.
 
 Automation can skip prompts:

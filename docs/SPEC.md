@@ -132,7 +132,7 @@ Interactive starter choices must explain the tradeoff in-line:
   package name, app id, dependencies, and board config for the new project.
 
 Rich example choices come from the hard-coded `examples/catalog.json`
-included in the `@geastack/gea` package. The package does not vendor rich
+included in the `@geastack/cli` package. The package does not vendor rich
 example source files; it fetches the selected example from GitHub when the user
 chooses it. Native examples are first-class catalog entries: an iOS example must
 preserve `gea.targets.ios: true` so `npx gea build --target ios` routes through

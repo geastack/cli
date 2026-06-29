@@ -25,7 +25,7 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.gea.targets.macos, true)
   assert.equal(packageJson.gea.targets.esp32, false)
   assert.equal(packageJson.dependencies['@geastack/core'].startsWith('file:'), true)
-  assert.equal(packageJson.devDependencies['@geastack/gea'].startsWith('file:'), true)
+  assert.equal(packageJson.devDependencies['@geastack/cli'].startsWith('file:'), true)
   assert.equal(fs.existsSync(path.join(tmp, 'index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'store.ts')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
@@ -59,7 +59,7 @@ test('create-geastack uses explicit id, display name, and core dependency', asyn
   assert.equal(packageJson.gea.id, 'factory-console')
   assert.equal(packageJson.gea.name, 'Factory Control')
   assert.equal(packageJson.dependencies['@geastack/core'], 'workspace:*')
-  assert.equal(packageJson.devDependencies['@geastack/gea'], 'workspace:*')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], 'workspace:*')
   assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /Factory Control/)
 })
 
@@ -74,7 +74,7 @@ test('create-geastack defaults to local file dependency when collection root is 
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
   assert.equal(packageJson.dependencies['@geastack/core'], 'file:../core/packages/core')
-  assert.equal(path.resolve(targetDir, packageJson.devDependencies['@geastack/gea'].slice('file:'.length)), cliRoot)
+  assert.equal(path.resolve(targetDir, packageJson.devDependencies['@geastack/cli'].slice('file:'.length)), cliRoot)
 })
 
 test('create-geastack can interactively fetch a rich GitHub example', async () => {
@@ -105,7 +105,7 @@ test('create-geastack can interactively fetch a rich GitHub example', async () =
   assert.equal(packageJson.gea.name, 'Example App')
   assert.equal(packageJson.gea.entry, 'index.tsx')
   assert.equal(packageJson.gea.targets.esp32, true)
-  assert.equal(packageJson.devDependencies['@geastack/gea'], '^0.1.0')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.0')
   assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /watch\.init/)
   assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /Started from GitHub example: `Watch`/)
   assert.match(prompt.questions.join('\n'), /Starter app/)
@@ -215,7 +215,7 @@ test('create-geastack can emit published dependency instead of local file depend
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
   assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.0')
-  assert.equal(packageJson.devDependencies['@geastack/gea'], '^0.1.0')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.0')
 })
 
 test('create-geastack rejects missing and unsluggable names with usage exit code', async () => {
