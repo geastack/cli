@@ -108,7 +108,7 @@ function parseArgs(argv) {
     registry: DEFAULT_REGISTRY,
     root: null,
     skipExisting: true,
-    tag: 'latest',
+    tag: 'alpha',
     yes: false,
   }
 
@@ -152,7 +152,7 @@ Options:
   --dry-run              Run npm publish --dry-run for every package.
   --yes, --publish       Actually publish to npm.
   --otp <code>           Pass an npm 2FA one-time password to publish.
-  --tag <tag>            npm dist-tag to publish with. Default: latest.
+  --tag <tag>            npm dist-tag to publish with. Default: alpha.
   --registry <url>       npm registry. Default: ${DEFAULT_REGISTRY}
   --package <name>       Publish only one package. Can be repeated.
   --from <name>          Resume from a package name in the ordered list.
