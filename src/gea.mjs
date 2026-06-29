@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { flag, option, parseArgs } from './args.mjs'
@@ -7,6 +6,7 @@ import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson } from './fs-utils.mjs'
 import {
   assertTargetEnabled,
+  boardConfigPath,
   assertValidApp,
   discoverApps,
   loadBoardConfig,
@@ -15,6 +15,8 @@ import {
   validateApp
 } from './manifest.mjs'
 import { runExternal } from './run.mjs'
+import { runSetupWizard } from './setup-wizard.mjs'
+import { commandVersion, nodeAtLeast } from './toolchain.mjs'
 
 const version = '0.1.0'
 
@@ -24,6 +26,9 @@ export async function runGea(argv, io = {}) {
   const stderr = io.stderr || console.error
   const env = io.env || process.env
   const cwd = io.cwd || process.cwd()
+  const stdin = io.stdin || process.stdin
+  const output = io.output || process.stdout
+  const prompt = io.prompt
   const command = parsed.positionals[0]
 
   if (flag(parsed, 'version')) {
@@ -45,6 +50,8 @@ export async function runGea(argv, io = {}) {
       return dev(ctx, parsed, rest, { stdout, env })
     case 'build':
       return build(ctx, parsed, rest, { stdout, env })
+    case 'setup':
+      return setup(ctx, parsed, { stdout, env, stdin, output, prompt })
     case 'flash':
       return flash(ctx, parsed, rest, { stdout, env })
     case 'monitor':
@@ -127,6 +134,21 @@ function build(ctx, parsed, rest, io) {
 
   return runBoard(ctx, 'build', parsed, {
     appId: app.id,
+    board,
+    target,
+    failureCode: ExitCode.buildFailed,
+    stdout: io.stdout,
+    env: io.env
+  })
+}
+
+function setup(ctx, parsed, io) {
+  const board = option(parsed, 'board', '')
+  const target = option(parsed, 'target', '')
+  if (!board && !target) {
+    return runSetupWizard(ctx, parsed, io)
+  }
+  return runBoard(ctx, 'setup', parsed, {
     board,
     target,
     failureCode: ExitCode.buildFailed,
@@ -250,7 +272,7 @@ function doctor(ctx, parsed, io) {
   addCheck(checks, 'Emscripten', Boolean(emccVersion), emccVersion.split('\n')[0], false)
   addCheck(checks, 'Xcode', Boolean(xcodeVersion), xcodeVersion.split('\n')[0], false)
 
-  const boardFile = path.join(ctx.targetsRoot, 'boards.json')
+  const boardFile = boardConfigPath(ctx)
   try {
     if (exists(boardFile)) readJson(boardFile)
     addCheck(checks, 'boards.json', exists(boardFile), exists(boardFile) ? boardFile : 'not configured', false)
@@ -301,23 +323,10 @@ function requirePath(filePath, label) {
   if (!exists(filePath)) fail(`Missing ${label}: ${filePath}`, ExitCode.missingDependency)
 }
 
-function nodeAtLeast(major, minor) {
-  const [actualMajor, actualMinor] = process.versions.node.split('.').map((value) => Number.parseInt(value, 10))
-  return actualMajor > major || (actualMajor === major && actualMinor >= minor)
-}
-
-function commandVersion(command, args, env) {
-  if (!command) return ''
-  try {
-    return execFileSync(command, args, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-  } catch {
-    return ''
-  }
-}
-
 function usage() {
   return `Usage:
   gea doctor [--strict] [--json]
+  gea setup --board <alias>
   gea dev [app] [--target web] [--port 5181]
   gea build [app] [--target web|macos|ios|<target>] [--board <alias>]
   gea flash [app] --board <alias> [--monitor] [--port auto]
@@ -332,6 +341,7 @@ Global options:
   --compiler-root <dir>
   --simulator-root <dir>
   --targets-root <dir>
+  --boards-config <file>
   --dry-run
 `
 }

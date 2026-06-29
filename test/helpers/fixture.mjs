@@ -136,6 +136,23 @@ export function capture() {
   }
 }
 
+export function scriptedPrompt(answers) {
+  const questions = []
+  const writes = []
+  return {
+    questions,
+    writes,
+    async ask(question) {
+      questions.push(question)
+      return answers.length > 0 ? answers.shift() : ''
+    },
+    write(line) {
+      writes.push(String(line))
+    },
+    async close() {}
+  }
+}
+
 export function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'))
 }

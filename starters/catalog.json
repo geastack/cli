@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "starters": [
+    {
+      "id": "counter",
+      "name": "Counter",
+      "description": "Minimal JSX counter with one tiny store.",
+      "path": "bundled/counter",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    }
+  ]
+}

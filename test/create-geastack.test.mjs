@@ -6,7 +6,8 @@ import test from 'node:test'
 
 import { CliError, ExitCode } from '../src/errors.mjs'
 import { runCreateGeastack } from '../src/create-geastack.mjs'
-import { createFixture, readJson } from './helpers/fixture.mjs'
+import { runGea } from '../src/gea.mjs'
+import { cliRoot, createFixture, readJson, scriptedPrompt } from './helpers/fixture.mjs'
 
 test('create-geastack scaffolds a valid app manifest', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-'))
@@ -24,9 +25,14 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.gea.targets.macos, true)
   assert.equal(packageJson.gea.targets.esp32, false)
   assert.equal(packageJson.dependencies['@geastack/core'].startsWith('file:'), true)
+  assert.equal(packageJson.devDependencies['@geastack/gea'].startsWith('file:'), true)
   assert.equal(fs.existsSync(path.join(tmp, 'index.tsx')), true)
+  assert.equal(fs.existsSync(path.join(tmp, 'store.ts')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
+  assert.deepEqual(readJson(path.join(tmp, '.gea/boards.json')), {})
+  assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /bundled starter: `Counter`/)
   assert.match(out.join('\n'), /Created Hello Panel/)
+  assert.match(out.join('\n'), /npx gea setup/)
 })
 
 test('create-geastack uses explicit id, display name, and core dependency', async () => {
@@ -41,7 +47,11 @@ test('create-geastack uses explicit id, display name, and core dependency', asyn
     '--name',
     'Factory Control',
     '--core-dependency',
-    'workspace:*'
+    'workspace:*',
+    '--cli-dependency',
+    'workspace:*',
+    '--starter',
+    'empty'
   ], { cwd: tmp, stdout: () => {} })
 
   const packageJson = readJson(path.join(tmp, 'package.json'))
@@ -49,6 +59,7 @@ test('create-geastack uses explicit id, display name, and core dependency', asyn
   assert.equal(packageJson.gea.id, 'factory-console')
   assert.equal(packageJson.gea.name, 'Factory Control')
   assert.equal(packageJson.dependencies['@geastack/core'], 'workspace:*')
+  assert.equal(packageJson.devDependencies['@geastack/gea'], 'workspace:*')
   assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /Factory Control/)
 })
 
@@ -63,6 +74,134 @@ test('create-geastack defaults to local file dependency when collection root is 
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
   assert.equal(packageJson.dependencies['@geastack/core'], 'file:../core/packages/core')
+  assert.equal(path.resolve(targetDir, packageJson.devDependencies['@geastack/gea'].slice('file:'.length)), cliRoot)
+})
+
+test('create-geastack can interactively fetch a rich GitHub example', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-example-'))
+  const out = []
+  const prompt = scriptedPrompt([
+    '3',
+    'watch'
+  ])
+
+  await runCreateGeastack([
+    'Example App',
+    '--dir',
+    tmp,
+    '--published',
+    '--no-install',
+    '--examples-repo',
+    path.join(cliRoot, '..', 'examples')
+  ], {
+    cwd: tmp,
+    stdout: (line) => out.push(line),
+    prompt
+  })
+
+  const packageJson = readJson(path.join(tmp, 'package.json'))
+  assert.equal(packageJson.name, 'gea-example-app')
+  assert.equal(packageJson.gea.id, 'example-app')
+  assert.equal(packageJson.gea.name, 'Example App')
+  assert.equal(packageJson.gea.entry, 'index.tsx')
+  assert.equal(packageJson.gea.targets.esp32, true)
+  assert.equal(packageJson.devDependencies['@geastack/gea'], '^0.1.0')
+  assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /watch\.init/)
+  assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /Started from GitHub example: `Watch`/)
+  assert.match(prompt.questions.join('\n'), /Starter app/)
+  assert.match(prompt.questions.join('\n'), /Rich example - fetch from GitHub examples repo/)
+  assert.match(prompt.questions.join('\n'), /Example to copy/)
+  assert.match(out.join('\n'), /Example: fetched Watch/)
+})
+
+test('create-geastack installs dependencies by default in interactive terminals', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-install-'))
+  const out = []
+  const prompt = scriptedPrompt(['1'])
+
+  await runCreateGeastack(['Panel', '--dir', tmp, '--dry-run'], {
+    cwd: tmp,
+    stdout: (line) => out.push(line),
+    prompt
+  })
+
+  const text = out.join('\n')
+  assert.match(text, /Installing npm dependencies/)
+  assert.match(text, /npm install/)
+  assert.match(text, /Next: cd .* && npx gea setup/)
+  assert.doesNotMatch(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /npm install/)
+})
+
+test('create-geastack can fetch a named rich example from a local repo path non-interactively', async (t) => {
+  const fixture = createFixture(t)
+  const targetDir = path.join(fixture.root, 'watch-copy')
+
+  await runCreateGeastack([
+    'watch-copy',
+    '--collection-root',
+    fixture.root,
+    '--dir',
+    targetDir,
+    '--starter',
+    'example',
+    '--example',
+    'watch',
+    '--examples-repo',
+    path.join(fixture.root, 'examples')
+  ], {
+    cwd: fixture.root,
+    stdout: () => {}
+  })
+
+  const packageJson = readJson(path.join(targetDir, 'package.json'))
+  assert.equal(packageJson.gea.id, 'watch-copy')
+  assert.equal(packageJson.gea.name, 'Watch Copy')
+  assert.equal(packageJson.gea.targets.ios, true)
+  assert.equal(fs.readFileSync(path.join(targetDir, 'index.tsx'), 'utf8'), 'export const value = 1\n')
+})
+
+test('create-geastack can fetch a native iOS example and build it through gea', async (t) => {
+  const fixture = createFixture(t)
+  const targetDir = path.join(fixture.root, 'ios-copy')
+
+  await runCreateGeastack([
+    'ios-copy',
+    '--collection-root',
+    fixture.root,
+    '--dir',
+    targetDir,
+    '--starter',
+    'example',
+    '--example',
+    'ios-native-showcase',
+    '--examples-repo',
+    path.join(cliRoot, '..', 'examples')
+  ], {
+    cwd: fixture.root,
+    stdout: () => {}
+  })
+
+  const packageJson = readJson(path.join(targetDir, 'package.json'))
+  assert.equal(packageJson.gea.id, 'ios-copy')
+  assert.equal(packageJson.gea.targets.ios, true)
+  assert.equal(packageJson.gea.targets.web, false)
+  assert.equal(packageJson.gea.entry, 'index.ts')
+
+  const out = []
+  await runGea(['--collection-root', fixture.root, 'build', '--target=ios', '--mode=device', '--dry-run'], {
+    cwd: targetDir,
+    stdout: (line) => out.push(line)
+  })
+  assert.match(out.join('\n'), /apple\/targets\/ios\/build-ios\.sh ios-copy device/)
+})
+
+test('create-geastack requires an example id for non-interactive example starters', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-'))
+
+  await assert.rejects(
+    runCreateGeastack(['needs-example', '--dir', tmp, '--starter', 'example'], { cwd: tmp, stdout: () => {} }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /requires --example/.test(error.message)
+  )
 })
 
 test('create-geastack can emit published dependency instead of local file dependency', async (t) => {
@@ -76,6 +215,7 @@ test('create-geastack can emit published dependency instead of local file depend
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
   assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.0')
+  assert.equal(packageJson.devDependencies['@geastack/gea'], '^0.1.0')
 })
 
 test('create-geastack rejects missing and unsluggable names with usage exit code', async () => {

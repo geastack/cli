@@ -1,15 +1,33 @@
 {
-  "name": "@geastack/cli",
+  "name": "@geastack/gea",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "files": [
+    "bin/",
+    "src/",
+    "starters/",
+    "examples/",
+    "docs/",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/gea.mjs",
+    "./create": "./src/create-geastack.mjs",
+    "./errors": "./src/errors.mjs"
+  },
   "bin": {
     "gea": "./bin/gea.mjs",
     "create-geastack": "./bin/create-geastack.mjs"
   },
   "scripts": {
-    "check": "node --check bin/gea.mjs && node --check bin/create-geastack.mjs && find src test -name '*.mjs' -print0 | xargs -0 -n1 node --check",
+    "check": "node --check bin/gea.mjs && node --check bin/create-geastack.mjs && find src test packages -name '*.mjs' -print0 | xargs -0 -n1 node --check",
     "test": "node --test"
   },
   "engines": {

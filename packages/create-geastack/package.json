@@ -1,0 +1,22 @@
+{
+  "name": "@geastack/create-geastack",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Project scaffolder for GeaStack apps.",
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "files": [
+    "bin/"
+  ],
+  "bin": {
+    "create-geastack": "./bin/create-geastack.mjs"
+  },
+  "dependencies": {
+    "@geastack/gea": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

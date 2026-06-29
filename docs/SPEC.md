@@ -6,13 +6,13 @@ surface grows.
 
 ## Goals
 
-The CLI should make the split GeaStack repos feel like one toolchain:
+The CLI should make GeaStack feel like one npm-first toolchain:
 
 - start a web simulator for an app;
 - build an app for a selected target;
 - flash or install an app on hardware;
 - monitor logs;
-- diagnose missing toolchains, paths, and board configuration;
+- diagnose missing toolchains, target backends, and board configuration;
 - scaffold a new app with a valid `gea` manifest.
 
 ## Non-Goals
@@ -53,6 +53,22 @@ gea build --app bouncing-balls-jsx --target esp32-s3-touch-amoled-2.06
 gea build --app notes-native --target macos
 ```
 
+### `gea setup`
+
+Runs one-time target initialization for a board or built-in target.
+
+Expected options:
+
+```sh
+gea setup --board amoled
+gea setup --target esp32-s3-touch-amoled-2.06
+```
+
+Without `--board` or `--target`, `gea setup` opens the interactive setup wizard.
+The wizard should support known boards and rich custom board profiles. When the
+selected profile is flash-ready, the wizard initializes the board target before
+returning.
+
 ### `gea flash`
 
 Builds and deploys an app to a physical target.
@@ -64,8 +80,9 @@ gea flash --app bouncing-balls-jsx --board amoled
 gea flash --app bouncing-balls-jsx --board amoled --monitor
 ```
 
-The CLI should pass through board aliases from `targets-embedded/boards.json`
-and should show the resolved board, target, adapter, and port before flashing.
+The CLI should pass through board aliases from the active board config. Generated
+apps use `.gea/boards.json`; split-repo development can still fall back to
+`targets-embedded/boards.json`.
 
 ### `gea monitor`
 
@@ -84,7 +101,6 @@ Checks the local environment.
 
 Minimum checks:
 
-- split-repo sibling layout;
 - Node/npm availability where required;
 - ESP-IDF availability for ESP32 targets;
 - Xcode availability for Apple targets;
@@ -100,11 +116,27 @@ or optional dependency is missing.
 Scaffolds a new app folder with:
 
 - `package.json` containing a `gea` manifest;
+- a bundled counter starter, an empty starter, or a selected GitHub example;
 - `index.tsx` or `index.ts`;
 - `tsconfig.json`;
 - `vite.config.ts`;
+- `.gea/boards.json`;
 - optional icons;
 - target compatibility flags.
+
+Interactive starter choices must explain the tradeoff in-line:
+
+- `Counter starter`: copy the bundled minimal JSX counter with one tiny store.
+- `Empty app`: generate the smallest blank app with no example-specific code.
+- `Rich example`: fetch a selected app from `geastack/examples`, then rewrite
+  package name, app id, dependencies, and board config for the new project.
+
+Rich example choices come from the hard-coded `examples/catalog.json`
+included in the `@geastack/gea` package. The package does not vendor rich
+example source files; it fetches the selected example from GitHub when the user
+chooses it. Native examples are first-class catalog entries: an iOS example must
+preserve `gea.targets.ios: true` so `npx gea build --target ios` routes through
+the Apple backend, and a macOS example must preserve `gea.targets.macos: true`.
 
 ## App Manifest
 
@@ -151,7 +183,8 @@ Each target backend should expose enough metadata for the CLI to:
 - report useful errors in a structured way.
 
 A backend command can be a script, Node module, or binary. The CLI should keep
-the public command stable even if a backend changes implementation language.
+the user-facing command stable even if a backend changes implementation
+language.
 
 ## Exit Codes
 
@@ -169,7 +202,7 @@ Use predictable exit codes:
 
 ## First Implementation Slice
 
-1. Implement `gea doctor` for split-repo discovery and app manifest validation.
+1. Implement `gea doctor` for toolchain discovery and app manifest validation.
 2. Implement `gea dev --target web` by delegating to the simulator repo.
 3. Implement `gea build --target web`.
 4. Implement `gea flash --board <alias>` by delegating to

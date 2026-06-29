@@ -2,7 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { option } from './args.mjs'
-import { exists } from './fs-utils.mjs'
+import { exists, findUp, readJson } from './fs-utils.mjs'
 
 const srcDir = path.dirname(fileURLToPath(import.meta.url))
 export const cliPackageRoot = path.resolve(srcDir, '..')
@@ -24,9 +24,15 @@ export function createContext(parsed, env = process.env, cwd = process.cwd()) {
   const compilerRoot = normalizePackageRepoRoot(resolvePathOption(parsed, env, 'compiler-root', 'GEA_COMPILER_ROOT', 'GEA_COMPILER_DIR', path.join(collectionRoot, repoNames.compiler)), 'packages/geatsc')
   const examplesRoot = resolvePathOption(parsed, env, 'examples-root', 'GEA_EXAMPLES_ROOT', 'GEA_APPS_ROOT', path.join(collectionRoot, repoNames.examples))
   const companionRoot = resolvePathOption(parsed, env, 'companion-root', 'GEA_COMPANION_ROOT', '', path.join(collectionRoot, repoNames.companion))
+  const projectRoot = findGeaProjectRoot(cwd) || path.resolve(cwd)
+  const projectBoardsConfig = path.join(projectRoot, '.gea', 'boards.json')
+  const explicitBoardsConfig = option(parsed, 'boards-config') || env.GEA_BOARDS_CONFIG || ''
+  const boardsConfig = explicitBoardsConfig || (exists(projectBoardsConfig) ? projectBoardsConfig : '')
 
   const ctx = {
     cwd: path.resolve(cwd),
+    projectRoot,
+    projectBoardsConfig,
     cliPackageRoot,
     collectionRoot,
     appleRoot: resolvePathOption(parsed, env, 'apple-root', 'GEA_APPLE_ROOT', '', path.join(collectionRoot, repoNames.apple)),
@@ -35,6 +41,7 @@ export function createContext(parsed, env = process.env, cwd = process.cwd()) {
     compilerPackageDir: path.join(compilerRoot, 'packages', 'geatsc'),
     coreRoot,
     corePackageDir: path.join(coreRoot, 'packages', 'core'),
+    boardsConfig: boardsConfig ? path.resolve(cwd, boardsConfig) : '',
     examplesRoot,
     geaosRoot: resolvePathOption(parsed, env, 'geaos-root', 'GEA_GEAOS_ROOT', '', path.join(collectionRoot, repoNames.geaos)),
     simulatorRoot: resolvePathOption(parsed, env, 'simulator-root', 'GEA_SIMULATOR_ROOT', '', path.join(collectionRoot, repoNames.simulator)),
@@ -52,13 +59,15 @@ export function createContext(parsed, env = process.env, cwd = process.cwd()) {
 }
 
 export function createChildEnv(ctx, env = process.env) {
-  return {
+  const out = {
     ...env,
     GEA_COLLECTION_ROOT: ctx.collectionRoot,
     GEA_APPS_ROOT: env.GEA_APPS_ROOT || ctx.examplesRoot,
     GEA_CORE_DIR: env.GEA_CORE_DIR || ctx.corePackageDir,
     GEA_COMPILER_DIR: env.GEA_COMPILER_DIR || ctx.compilerPackageDir
   }
+  if (ctx.boardsConfig) out.GEA_BOARDS_CONFIG = ctx.boardsConfig
+  return out
 }
 
 function resolveCollectionRoot(parsed, env, cwd) {
@@ -102,4 +111,16 @@ function normalizePackageRepoRoot(input, packageSubdir) {
   if (exists(path.join(resolved, packageSubdir, 'package.json'))) return resolved
   if (exists(path.join(resolved, 'package.json'))) return path.resolve(resolved, '..', '..')
   return resolved
+}
+
+function findGeaProjectRoot(start) {
+  return findUp(start, (dir) => {
+    const packagePath = path.join(dir, 'package.json')
+    if (!exists(packagePath)) return false
+    try {
+      return Boolean(readJson(packagePath).gea)
+    } catch {
+      return false
+    }
+  })
 }

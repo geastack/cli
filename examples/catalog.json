@@ -1,0 +1,665 @@
+{
+  "version": 1,
+  "examples": [
+    {
+      "id": "analog-clock",
+      "name": "Analog Clock",
+      "description": "clock face",
+      "path": "apps/analog-clock",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "bouncing-balls",
+      "name": "Balls Canvas",
+      "description": "canvas demo",
+      "path": "apps/bouncing-balls",
+      "entry": "index.ts",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "bouncing-balls-jsx",
+      "name": "Balls JSX",
+      "description": "animation test",
+      "path": "apps/bouncing-balls-jsx",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "bubble-grid",
+      "name": "Bubble Grid",
+      "description": "watchOS-style pannable circle grid with edge fisheye",
+      "path": "apps/bubble-grid",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "bubble-grid-jsx",
+      "name": "Bubble Grid JSX",
+      "description": "watchOS-style pannable div bubble grid with edge fisheye",
+      "path": "apps/bubble-grid-jsx",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "button-tetris",
+      "name": "Tetris",
+      "description": "button game",
+      "path": "apps/button-tetris",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "camera-showcase",
+      "name": "Camera",
+      "description": "preview + cap",
+      "path": "apps/camera-showcase",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "camera-studio",
+      "name": "Camera Studio",
+      "description": "CSS-sized camera",
+      "path": "apps/camera-studio",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "canvas-3d",
+      "name": "Canvas 3D",
+      "description": "wireframe",
+      "path": "apps/canvas-3d",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "canvas-3d-cube",
+      "name": "Canvas 3D Cube",
+      "description": "canvas cube",
+      "path": "apps/canvas-3d-cube",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "car-dashboard",
+      "name": "Car Dashboard",
+      "description": "1280x720 cluster",
+      "path": "apps/car-dashboard",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "counter-jsx",
+      "name": "Counter",
+      "description": "JSX state",
+      "path": "apps/counter-jsx",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "css-3d-cube",
+      "name": "CSS 3D Cube",
+      "description": "3D CSS demo",
+      "path": "apps/css-3d-cube",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "css-animation-showcase",
+      "name": "CSS Animations",
+      "description": "gea::css demo",
+      "path": "apps/css-animation-showcase",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "dialer",
+      "name": "Dialer",
+      "description": "phone keypad",
+      "path": "apps/dialer",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "direct-psram-balls",
+      "name": "Direct PSRAM Balls",
+      "description": "flush perf",
+      "path": "apps/direct-psram-balls",
+      "entry": "index.ts",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "hid-clicker",
+      "name": "HID Clicker",
+      "description": "BLE remote",
+      "path": "apps/hid-clicker",
+      "entry": "src/index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "image-demo",
+      "name": "Image Demo",
+      "description": "Targets: web, esp32",
+      "path": "apps/image-demo",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": false,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "image-jsx",
+      "name": "Image",
+      "description": "png demo",
+      "path": "apps/image-jsx",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "ios-device-showcase",
+      "name": "iOS Device Showcase",
+      "description": "native iOS device APIs",
+      "path": "apps/ios-device-showcase",
+      "entry": "index.ts",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": false,
+        "macos": false,
+        "ios": true
+      }
+    },
+    {
+      "id": "ios-metal-shader-demo",
+      "name": "iOS Metal Shader Demo",
+      "description": "Metal shader demo",
+      "path": "apps/ios-metal-shader-demo",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": false,
+        "macos": false,
+        "ios": true
+      }
+    },
+    {
+      "id": "ios-metal-showcase",
+      "name": "iOS Metal Showcase",
+      "description": "Metal rendering showcase",
+      "path": "apps/ios-metal-showcase",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": false,
+        "macos": false,
+        "ios": true
+      }
+    },
+    {
+      "id": "ios-metal-world-game",
+      "name": "iOS Metal World Game",
+      "description": "Metal world game",
+      "path": "apps/ios-metal-world-game",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": false,
+        "macos": false,
+        "ios": true
+      }
+    },
+    {
+      "id": "ios-native-showcase",
+      "name": "iOS Native Showcase",
+      "description": "native iOS controls showcase",
+      "path": "apps/ios-native-showcase",
+      "entry": "index.ts",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": false,
+        "macos": false,
+        "ios": true
+      }
+    },
+    {
+      "id": "maps",
+      "name": "Maps",
+      "description": "OpenStreetMap viewer",
+      "path": "apps/maps",
+      "entry": "index.device.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": false,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "notes-jsx",
+      "name": "geaNotes",
+      "description": "macOS notes app in JSX",
+      "path": "apps/notes-jsx",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": false,
+        "macos": true,
+        "ios": false
+      }
+    },
+    {
+      "id": "notes-native",
+      "name": "geaNotes",
+      "description": "native macOS notes app",
+      "path": "apps/notes-native",
+      "entry": "index.ts",
+      "runtime": "apple-native",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": false,
+        "macos": true,
+        "ios": false
+      }
+    },
+    {
+      "id": "settings",
+      "name": "Settings",
+      "description": "device controls",
+      "path": "apps/settings",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "sky-hop",
+      "name": "Sky Hop Canvas",
+      "description": "canvas game",
+      "path": "apps/sky-hop",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "sky-hop-jsx",
+      "name": "Sky Hop JSX",
+      "description": "jump game",
+      "path": "apps/sky-hop-jsx",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "static-card",
+      "name": "Static Card",
+      "description": "static layout",
+      "path": "apps/static-card",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "stopwatch-jsx",
+      "name": "Stopwatch",
+      "description": "laps timer",
+      "path": "apps/stopwatch-jsx",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "temperature-dial",
+      "name": "Temperature Dial",
+      "description": "AC dial",
+      "path": "apps/temperature-dial",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "tic-tac-toe",
+      "name": "Tic Tac Toe",
+      "description": "tap board",
+      "path": "apps/tic-tac-toe",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "tilt-breakout",
+      "name": "Breakout",
+      "description": "tilt paddle",
+      "path": "apps/tilt-breakout",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "todo-jsx",
+      "name": "Todos",
+      "description": "input list",
+      "path": "apps/todo-jsx",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "typography",
+      "name": "Typography",
+      "description": "font sample",
+      "path": "apps/typography",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "virtual-list",
+      "name": "Virtual List",
+      "description": "scroll probe",
+      "path": "apps/virtual-list",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "voice-notes",
+      "name": "Voice Notes",
+      "description": "tagged voice memos",
+      "path": "apps/voice-notes",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "watch",
+      "name": "Watch",
+      "description": "watch face",
+      "path": "apps/watch",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "watch-analog",
+      "name": "Analog Watch",
+      "description": "analog face",
+      "path": "apps/watch-analog",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "watch-date",
+      "name": "Date",
+      "description": "date + time",
+      "path": "apps/watch-date",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "watch-face",
+      "name": "Watch Face",
+      "description": "Targets: web",
+      "path": "apps/watch-face",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": false,
+        "geaos": false,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
+      "id": "weather",
+      "name": "Weather",
+      "description": "live forecast",
+      "path": "apps/weather",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": false,
+        "macos": false,
+        "ios": false
+      }
+    }
+  ]
+}

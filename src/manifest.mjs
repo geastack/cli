@@ -91,7 +91,7 @@ export function assertTargetEnabled(ctx, app, targetOrPlatform) {
 
 export function appPlatformForTarget(ctx, targetOrBoard) {
   if (!targetOrBoard) return ''
-  if (['web', 'esp32', 'geaos', 'macos', 'ios'].includes(targetOrBoard)) return targetOrBoard
+  if (['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios'].includes(targetOrBoard)) return targetOrBoard
   const targets = loadTargetMetadata(ctx)
   if (targets[targetOrBoard]?.appPlatform) return targets[targetOrBoard].appPlatform
   const boards = loadBoardConfig(ctx)
@@ -106,8 +106,14 @@ export function loadTargetMetadata(ctx) {
 }
 
 export function loadBoardConfig(ctx) {
-  const file = path.join(ctx.targetsRoot, 'boards.json')
+  const file = boardConfigPath(ctx)
   return exists(file) ? readJson(file) : {}
+}
+
+export function boardConfigPath(ctx) {
+  if (ctx.boardsConfig) return ctx.boardsConfig
+  if (ctx.projectBoardsConfig && exists(ctx.projectBoardsConfig)) return ctx.projectBoardsConfig
+  return path.join(ctx.targetsRoot, 'boards.json')
 }
 
 function hasGeaManifest(packagePath) {

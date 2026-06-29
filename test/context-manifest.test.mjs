@@ -11,7 +11,7 @@ import {
   targetEnabledForApp,
   validateApp
 } from '../src/manifest.mjs'
-import { createFixture } from './helpers/fixture.mjs'
+import { createFixture, writeJson } from './helpers/fixture.mjs'
 
 test('createContext honors collection root and package-dir overrides', (t) => {
   const fixture = createFixture(t)
@@ -39,7 +39,7 @@ test('createContext normalizes legacy package-dir env overrides back to repo roo
 
 test('createChildEnv fills split-repo environment without clobbering explicit values', (t) => {
   const fixture = createFixture(t)
-  const ctx = createContext(parseArgs(['--collection-root', fixture.root]), {}, fixture.root)
+  const ctx = createContext(parseArgs(['--collection-root', fixture.root, '--boards-config', 'local-boards.json']), {}, fixture.root)
   const env = createChildEnv(ctx, {
     GEA_APPS_ROOT: '/custom/apps',
     PATH: '/bin'
@@ -48,7 +48,27 @@ test('createChildEnv fills split-repo environment without clobbering explicit va
   assert.equal(env.GEA_COLLECTION_ROOT, fixture.root)
   assert.equal(env.GEA_APPS_ROOT, '/custom/apps')
   assert.equal(env.GEA_CORE_DIR, path.join(fixture.root, 'core/packages/core'))
+  assert.equal(env.GEA_BOARDS_CONFIG, path.join(fixture.root, 'local-boards.json'))
   assert.equal(env.PATH, '/bin')
+})
+
+test('createContext discovers project-local board config for generated apps', (t) => {
+  const fixture = createFixture(t)
+  const boardsPath = path.join(fixture.appDir, '.gea/boards.json')
+  writeJson(boardsPath, {
+    desk: {
+      target: 'esp32-s3-touch-amoled-2.06',
+      adapter: 'esp32-idf'
+    }
+  })
+
+  const ctx = createContext(parseArgs(['--collection-root', fixture.root]), {}, path.join(fixture.appDir, 'nested'))
+  const env = createChildEnv(ctx, {})
+
+  assert.equal(ctx.projectRoot, fixture.appDir)
+  assert.equal(ctx.projectBoardsConfig, boardsPath)
+  assert.equal(ctx.boardsConfig, boardsPath)
+  assert.equal(env.GEA_BOARDS_CONFIG, boardsPath)
 })
 
 test('manifest discovery finds examples and companion apps with deterministic order', (t) => {

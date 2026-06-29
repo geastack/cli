@@ -5,7 +5,7 @@ import test from 'node:test'
 
 import { CliError, ExitCode } from '../src/errors.mjs'
 import { runGea } from '../src/gea.mjs'
-import { capture, cliRoot, createFakeToolchain, createFixture, realCollectionRoot } from './helpers/fixture.mjs'
+import { capture, cliRoot, createFakeToolchain, createFixture, readJson, realCollectionRoot, scriptedPrompt } from './helpers/fixture.mjs'
 
 test('gea build web dry-run delegates to simulator build script', async () => {
   const out = []
@@ -135,6 +135,192 @@ test('build routes web, macOS, iOS, board, and target builds', async (t) => {
   const target = capture()
   await runGea(['--collection-root', fixture.root, 'build', 'watch', '--target=geaos', '--dry-run'], target.io)
   assert.match(target.out.join('\n'), /targets-embedded\/scripts\/board build --target=geaos --app=watch/)
+})
+
+test('setup routes board and target initialization through board script', async (t) => {
+  const fixture = createFixture(t)
+
+  const board = capture()
+  await runGea(['--collection-root', fixture.root, 'setup', '--board=amoled', '--dry-run'], board.io)
+  assert.match(board.out.join('\n'), /targets-embedded\/scripts\/board setup --board=amoled/)
+
+  const target = capture()
+  await runGea(['--collection-root', fixture.root, 'setup', '--target=esp32-s3-touch-amoled-2.06', '--dry-run'], target.io)
+  assert.match(target.out.join('\n'), /targets-embedded\/scripts\/board setup --target=esp32-s3-touch-amoled-2\.06/)
+})
+
+test('interactive setup writes a known board alias', async (t) => {
+  const fixture = createFixture(t)
+  const out = capture()
+  const prompt = scriptedPrompt([
+    '1',
+    '1',
+    'desk-amoled',
+    '1',
+    '',
+    '',
+    'y',
+    'n'
+  ])
+
+  await runGea(['--collection-root', fixture.root, 'setup', '--dry-run'], {
+    ...out.io,
+    prompt,
+    cwd: fixture.appDir,
+    env: {
+      ...process.env,
+      GEA_SERIAL_DEVICES: '/dev/cu.usbmodem101|ESP32-S3 USB/JTAG|USB123'
+    }
+  })
+
+  const boards = readJson(path.join(fixture.appDir, '.gea/boards.json'))
+  assert.equal(boards['desk-amoled'].target, 'esp32-s3-touch-amoled-2.06')
+  assert.equal(boards['desk-amoled'].transports.usbSerial.serial, 'USB123')
+  assert.match(prompt.questions.join('\n'), /Detected serial devices/)
+  assert.match(prompt.questions.join('\n'), /Save this board setup/)
+  assert.match(out.out.join('\n'), /GeaStack setup/)
+  assert.match(out.out.join('\n'), /\[ Review \]/)
+  assert.match(out.out.join('\n'), /Wrote board alias 'desk-amoled'/)
+  assert.match(out.out.join('\n'), /board setup --board=desk-amoled/)
+  assert.match(out.out.join('\n'), /Ready: npx gea flash --board desk-amoled --monitor/)
+})
+
+test('interactive setup writes a rich custom board profile', async (t) => {
+  const fixture = createFixture(t)
+  const out = capture()
+  const prompt = scriptedPrompt([
+    '2',
+    'factory-panel',
+    '1',
+    '2',
+    '1',
+    '1',
+    'RM67162',
+    '2',
+    '480x480',
+    'CST816',
+    '',
+    '',
+    '',
+    'u-blox M10',
+    '',
+    'ES8311',
+    '',
+    '2',
+    'flash, psram, sdcard',
+    'IMU, ambient light',
+    'USB + LiPo charger',
+    '3',
+    'SERIAL42',
+    '192.168.1.42',
+    'schematic pending',
+    'y',
+    'n'
+  ])
+
+  await runGea(['--collection-root', fixture.root, 'setup'], {
+    ...out.io,
+    prompt,
+    cwd: fixture.appDir,
+    env: {
+      ...process.env,
+      GEA_SERIAL_DEVICES: '[]'
+    }
+  })
+
+  const profilePath = path.join(fixture.appDir, '.gea/boards/factory-panel.json')
+  const profile = readJson(profilePath)
+  assert.equal(profile.mcu, 'esp32-s3')
+  assert.equal(profile.display.controller, 'RM67162')
+  assert.equal(profile.touch.controller, 'CST816')
+  assert.equal(profile.wireless.wifi, 'built-in')
+  assert.equal(profile.wireless.ble, 'built-in')
+  assert.equal(profile.gps.module, 'u-blox M10')
+  assert.equal(profile.audio.codec, 'ES8311')
+  assert.deepEqual(profile.storage, ['flash', 'psram', 'sdcard'])
+  assert.deepEqual(profile.sensors, ['IMU', 'ambient light'])
+  assert.equal(profile.transports.usbSerial.serial, 'SERIAL42')
+  assert.equal(profile.transports.ota.host, '192.168.1.42')
+  assert.match(prompt.questions.join('\n'), /How much hardware detail/)
+  assert.match(prompt.questions.join('\n'), /Full hardware profile/)
+  assert.match(prompt.questions.join('\n'), /Save this custom board profile/)
+  assert.match(out.out.join('\n'), /\[ Peripherals \]/)
+  assert.match(out.out.join('\n'), /\[ Review \]/)
+
+  const boards = readJson(path.join(fixture.appDir, '.gea/boards.json'))
+  assert.equal(boards['factory-panel'].target, 'esp32-s3-touch-amoled-2.06')
+  assert.equal(boards['factory-panel'].customProfile, profilePath)
+})
+
+test('interactive setup supports a fast custom board profile', async (t) => {
+  const fixture = createFixture(t)
+  const out = capture()
+  const prompt = scriptedPrompt([
+    '2',
+    'quick-panel',
+    '2',
+    '1',
+    '2',
+    '5',
+    '',
+    '1',
+    '',
+    '',
+    'y',
+    'n'
+  ])
+
+  await runGea(['--collection-root', fixture.root, 'setup'], {
+    ...out.io,
+    prompt,
+    cwd: fixture.appDir,
+    env: {
+      ...process.env,
+      GEA_SERIAL_DEVICES: '[]'
+    }
+  })
+
+  const profilePath = path.join(fixture.appDir, '.gea/boards/quick-panel.json')
+  const profile = readJson(profilePath)
+  assert.equal(profile.mcu, 'esp32-p4')
+  assert.equal(profile.display.kind, 'none')
+  assert.equal(profile.wireless.wifi, 'none')
+  assert.equal(profile.wireless.ble, 'none')
+  assert.deepEqual(profile.storage, ['flash', 'psram'])
+  assert.equal(profile.sensors, undefined)
+  assert.equal(profile.gps, undefined)
+  assert.equal(profile.audio, undefined)
+  assert.doesNotMatch(prompt.questions.join('\n'), /GPS module/)
+  assert.doesNotMatch(prompt.questions.join('\n'), /Audio codec/)
+  assert.match(out.out.join('\n'), /Using defaults/)
+  assert.match(out.out.join('\n'), /Profile saved/)
+})
+
+test('interactive setup can dry-run ESP-IDF installation', async (t) => {
+  const fixture = createFixture(t)
+  const out = capture()
+  const prompt = scriptedPrompt(['4'])
+
+  await runGea([
+    '--collection-root',
+    fixture.root,
+    'setup',
+    '--dry-run',
+    '--idf-dir',
+    path.join(fixture.root, 'esp-idf')
+  ], {
+    ...out.io,
+    prompt,
+    cwd: fixture.appDir,
+    env: {
+      PATH: ''
+    }
+  })
+
+  const text = out.out.join('\n')
+  assert.match(text, /git clone -b v6\.0\.1 --recursive https:\/\/github\.com\/espressif\/esp-idf\.git/)
+  assert.match(text, /install\.sh esp32,esp32s3,esp32p4/)
+  assert.match(text, /For future shells: \. "/)
 })
 
 test('build rejects invalid manifests and incompatible targets', async (t) => {

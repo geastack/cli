@@ -1,24 +1,32 @@
 # GeaStack Setup
 
 This guide gets a fresh machine ready to create, build, simulate, and flash Gea
-apps from the split-repo checkout.
+apps through the npm-first GeaStack flow.
 
 Start by running:
 
 ```sh
-gea doctor
+npx gea doctor
 ```
 
-`doctor` checks the local repo layout, app catalog, board configuration, and the
-toolchains below.
+`doctor` checks the active app, board configuration, and the toolchains below.
 
 ## Minimum Setup
+
+Private npmjs command shape:
+
+```sh
+npm login
+npx @geastack/create-geastack my-app
+cd my-app
+npx gea setup
+```
 
 For simulator-only development:
 
 - Node.js 20.19 or newer.
 - npm.
-- Emscripten SDK if you want `gea build --target web` and the WASM simulator
+- Emscripten SDK if you want `npx gea build --target web` and the WASM simulator
   bundle path.
 
 For ESP32 hardware:
@@ -27,7 +35,10 @@ For ESP32 hardware:
 - npm.
 - Python 3.
 - ESP-IDF v6.0.1.
-- `targets-embedded/boards.json` configured for your board.
+- `.gea/boards.json` configured for your board.
+
+For the Waveshare ESP32-S3 AMOLED board, use
+[ESP32-WAVESHARE-AMOLED-QUICKSTART.md](ESP32-WAVESHARE-AMOLED-QUICKSTART.md).
 
 For Apple targets:
 
@@ -56,6 +67,12 @@ The embedded board scripts currently target ESP-IDF v6.0.1. Newer ESP-IDF
 are updated.
 
 Command-line install:
+
+```sh
+npx gea setup --esp-idf
+```
+
+Equivalent manual install:
 
 ```sh
 mkdir -p "$HOME/esp"
@@ -87,8 +104,9 @@ The board script also checks common locations such as `$HOME/esp/esp-idf`,
 Verify through GeaStack:
 
 ```sh
-gea doctor
-gea build watch --board amoled --dry-run
+npx gea doctor
+npx gea setup
+npx gea build --board amoled --dry-run
 ```
 
 Remove `--dry-run` when your board config is ready.
@@ -109,7 +127,7 @@ cd "$HOME/emsdk"
 emcc --version
 ```
 
-For every new shell where you run `gea build --target web`, source:
+For every new shell where you run `npx gea build --target web`, source:
 
 ```sh
 . "$HOME/emsdk/emsdk_env.sh"
@@ -118,8 +136,8 @@ For every new shell where you run `gea build --target web`, source:
 Verify:
 
 ```sh
-gea doctor
-gea build watch --target web
+npx gea doctor
+npx gea build --target web
 ```
 
 ## Xcode For Apple Targets
@@ -145,9 +163,9 @@ export GEA_IOS_DEVELOPMENT_TEAM=ABCDE12345
 Verify:
 
 ```sh
-gea doctor
-gea build watch --target macos
-gea build watch --target ios --mode simulator
+npx gea doctor
+npx gea build --target macos
+npx gea build --target ios --mode simulator
 ```
 
 ## Python
@@ -166,15 +184,9 @@ manager or from python.org.
 
 ## Board Configuration
 
-Board aliases are local machine configuration. Start from the example file:
-
-```sh
-cd targets-embedded
-cp boards.example.json boards.json
-```
-
-Edit `boards.json` with your board alias, target, serial adapter, and optional
-OTA host. Example:
+Board aliases are project-local machine configuration. `create-geastack`
+creates an empty `.gea/boards.json`, and `npx gea setup` writes aliases there.
+Example:
 
 ```json
 {
@@ -193,9 +205,10 @@ OTA host. Example:
 Then check discovery:
 
 ```sh
-gea list boards
-gea list targets
-gea doctor
+npx gea setup
+npx gea list boards
+npx gea list targets
+npx gea doctor
 ```
 
 ## Common Verification Flow
@@ -203,12 +216,13 @@ gea doctor
 After installing tools:
 
 ```sh
-gea doctor
-gea list apps
-gea dev watch
-gea build watch --target web
-gea build watch --board amoled --dry-run
-gea flash watch --board amoled --monitor
+npx gea doctor
+npx gea inspect
+npx gea dev
+npx gea build --target web
+npx gea setup
+npx gea build --board amoled --dry-run
+npx gea flash --board amoled --monitor
 ```
 
 Use `--dry-run` first when checking command routing. Remove it when the target
