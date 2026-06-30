@@ -200,6 +200,14 @@ For an attached Android device or board with USB debugging enabled:
 npx gea build css-3d-cube --target android --mode device
 ```
 
+If more than one adb is installed, point Gea at the one you want:
+
+```sh
+GEA_ANDROID_ADB="$ANDROID_HOME/platform-tools/adb" \
+GEA_ANDROID_SERIAL="<adb-serial>" \
+npx gea build css-3d-cube --target android --mode device
+```
+
 ## Python
 
 Python 3 is used by device helpers, serial helpers, screenshots, and GeaOS

@@ -12,6 +12,7 @@
         "web": true,
         "esp32": true,
         "geaos": true,
+        "android": true,
         "macos": false,
         "ios": false
       }
