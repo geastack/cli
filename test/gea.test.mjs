@@ -28,6 +28,19 @@ test('gea flash dry-run delegates to board script with app and board', async () 
   assert.match(command, /--app=watch/)
 })
 
+test('gea flash bringup dry-run delegates to board script without app', async (t) => {
+  const fixture = createFixture(t)
+  const out = []
+  await runGea(['--collection-root', fixture.root, 'flash', '--bringup', '--board=tufty', '--monitor', '--dry-run'], {
+    stdout: (line) => out.push(line)
+  })
+
+  const command = out.join('\n')
+  assert.match(command, /targets-embedded\/scripts\/board flash-monitor/)
+  assert.match(command, /--board=tufty/)
+  assert.doesNotMatch(command, /--app=/)
+})
+
 test('gea list apps sees split-repo examples', async () => {
   const out = []
   await runGea(['--collection-root', realCollectionRoot, 'list', 'apps'], {
@@ -65,7 +78,7 @@ test('list supports apps, targets, boards, filters, and JSON output', async (t) 
 
   const targets = capture()
   await runGea(['--collection-root', fixture.root, 'list', 'targets'], targets.io)
-  assert.deepEqual(targets.out, ['esp32-s3-touch-amoled-2.06', 'geaos'])
+  assert.deepEqual(targets.out, ['esp32-s3-touch-amoled-2.06', 'geaos', 'rp2350-tufty-2350'])
 
   const boards = capture()
   await runGea(['--collection-root', fixture.root, 'list', 'boards', '--json'], boards.io)
@@ -348,6 +361,10 @@ test('flash and monitor validate selection and pass through board options', asyn
   const flash = capture()
   await runGea(['--collection-root', fixture.root, 'flash', 'watch', '--board=amoled', '--port=/dev/cu.usb', '--monitor', '--dry-run', '--', '--manual-boot'], flash.io)
   assert.match(flash.out.join('\n'), /board flash-monitor --board=amoled --app=watch \/dev\/cu\.usb --manual-boot/)
+
+  const tuftyFlash = capture()
+  await runGea(['--collection-root', fixture.root, 'flash', 'watch', '--board=tufty', '--dry-run'], tuftyFlash.io)
+  assert.match(tuftyFlash.out.join('\n'), /board flash --board=tufty --app=watch/)
 
   const targetFlash = capture()
   await runGea(['--collection-root', fixture.root, 'flash', 'watch', '--target=geaos', '--dry-run'], targetFlash.io)

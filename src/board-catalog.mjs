@@ -127,6 +127,23 @@ export const knownBoards = Object.freeze([
       gps: false,
       sensors: ['QMI8658 IMU', 'PCF85063 RTC', 'ETA6098 power']
     }
+  },
+  {
+    id: 'pimoroni-tufty-2350',
+    label: 'Pimoroni Tufty 2350',
+    alias: 'tufty-2350',
+    target: 'rp2350-tufty-2350',
+    adapter: 'rp2350-pico',
+    mcu: 'RP2350',
+    capabilities: {
+      display: '2.8 inch 320x240 IPS LCD (ST7789 parallel)',
+      touch: 'none',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM'],
+      audio: [],
+      gps: false,
+      sensors: ['PCF85063 RTC', 'buttons', 'battery sense', 'rear lighting']
+    }
   }
 ])
 

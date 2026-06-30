@@ -191,6 +191,7 @@
       "targets": {
         "web": true,
         "esp32": true,
+        "rp2350": true,
         "geaos": true,
         "macos": false,
         "ios": false

@@ -12,6 +12,7 @@ const SKIP_DIRS = new Set([
   '.git',
   '.next',
   '.turbo',
+  '.state',
   '.vscode',
   'build',
   'dist',
@@ -51,6 +52,10 @@ if (options.yes && options.dryRun) fail('use either --yes or --dry-run, not both
 
 const dryRun = options.dryRun || !options.yes
 if (!dryRun && !options.yes) fail('real publish requires --yes')
+if (dryRun) {
+  console.log('\nDry run: npm will build package tarballs, but the registry is unchanged.')
+  console.log(`Dry run: npm dist-tags such as "${options.tag}" are not created or updated until --yes is used.`)
+}
 
 const dirtyRepos = dirtyGitRepos(selectedPackages)
 if (dirtyRepos.length > 0) {
@@ -66,12 +71,13 @@ ensureNpm()
 runNpm(['whoami', '--registry', options.registry], { cwd: collectionRoot, label: 'npm login check' })
 
 const published = []
-const skipped = []
+const taggedExisting = []
 for (const pkg of selectedPackages) {
   const target = `${pkg.name}@${pkg.version}`
   if (options.skipExisting && npmVersionExists(pkg.name, pkg.version, options)) {
-    console.log(`\n- skip ${target}: version already exists on npm`)
-    skipped.push(target)
+    console.log(`\n- ${dryRun ? 'dry-run tag' : 'tag'} existing ${target}`)
+    ensureDistTag(pkg, target, options, dryRun)
+    taggedExisting.push(target)
     continue
   }
 
@@ -88,13 +94,16 @@ for (const pkg of selectedPackages) {
   if (options.otp) args.push('--otp', options.otp)
   if (dryRun) args.push('--dry-run')
   runNpm(args, { cwd: pkg.dir, label: `publish ${target}` })
+  ensureDistTag(pkg, target, options, dryRun)
   published.push(target)
 }
 
 console.log('\nDone.')
 console.log(`npm org packages: ${ORG_PACKAGES_URL}`)
 if (published.length > 0) console.log(`published${dryRun ? ' dry-run' : ''}: ${published.join(', ')}`)
-if (skipped.length > 0) console.log(`skipped existing: ${skipped.join(', ')}`)
+if (taggedExisting.length > 0) {
+  console.log(`${dryRun ? 'would tag existing' : 'tagged existing'}: ${taggedExisting.join(', ')}`)
+}
 
 function parseArgs(argv) {
   const options = {
@@ -149,7 +158,7 @@ Default behavior is a dry run unless --yes is passed.
 
 Options:
   --plan                 Print the package order and exit.
-  --dry-run              Run npm publish --dry-run for every package.
+  --dry-run              Run npm publish --dry-run for every package without changing registry dist-tags.
   --yes, --publish       Actually publish to npm.
   --otp <code>           Pass an npm 2FA one-time password to publish.
   --tag <tag>            npm dist-tag to publish with. Default: alpha.
@@ -162,7 +171,8 @@ Options:
 
 Only non-private ${SCOPE} packages with publishConfig.access = "restricted"
 are included. Real publish uses npm publish --access restricted, which places
-packages under ${ORG_PACKAGES_URL}.`)
+packages under ${ORG_PACKAGES_URL}. Existing package versions are not
+republished; real publish ensures their npm dist-tag with npm dist-tag add.`)
 }
 
 function discoverPublishablePackages(root) {
@@ -279,6 +289,18 @@ function runNpm(args, { cwd, label }) {
   const result = spawnSync('npm', args, { cwd, stdio: 'inherit' })
   if (result.error) fail(`${label} failed: ${result.error.message}`)
   if (result.status !== 0) fail(`${label} failed with exit code ${result.status}`)
+}
+
+function ensureDistTag(pkg, target, options, dryRun) {
+  const args = ['dist-tag', 'add', target, options.tag, '--registry', options.registry]
+  if (options.otp) args.push('--otp', options.otp)
+  if (dryRun) {
+    console.log(`  dry run: would set npm dist-tag ${options.tag} -> ${target}`)
+    console.log(`  would run: npm ${args.join(' ')}`)
+    return
+  }
+  console.log(`  ensure dist-tag ${options.tag} -> ${target}`)
+  runNpm(args, { cwd: pkg.dir, label: `dist-tag ${target}` })
 }
 
 function dirtyGitRepos(packages) {

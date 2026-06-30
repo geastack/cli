@@ -178,10 +178,11 @@ function ensureWritableTarget(targetDir, force) {
 }
 
 function targetManifest(requestedTargets) {
-  const enabled = requestedTargets.length > 0 ? new Set(requestedTargets) : new Set(['web', 'esp32', 'geaos'])
+  const enabled = requestedTargets.length > 0 ? new Set(requestedTargets) : new Set(['web', 'esp32', 'rp2350', 'geaos'])
   return {
     web: enabled.has('web'),
     esp32: enabled.has('esp32'),
+    rp2350: enabled.has('rp2350'),
     geaos: enabled.has('geaos'),
     macos: enabled.has('macos'),
     ios: enabled.has('ios')
@@ -193,6 +194,7 @@ function targetManifestFromObject(targets = {}) {
   return {
     web: targets.web === true,
     esp32: targets.esp32 === true,
+    rp2350: targets.rp2350 === true,
     geaos: targets.geaos === true,
     macos: targets.macos === true,
     ios: targets.ios === true
@@ -434,7 +436,7 @@ Options:
   --example <example-id>
   --examples-repo <git-url-or-local-path>
   --examples-ref <git-ref>
-  --targets web,esp32,geaos,macos,ios
+  --targets web,esp32,rp2350,geaos,macos,ios
   --core-dependency <specifier>
   --cli-dependency <specifier>
   --published

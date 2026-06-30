@@ -78,8 +78,8 @@ export function assertValidApp(app) {
 
 export function targetEnabledForApp(ctx, app, targetOrPlatform) {
   if (!targetOrPlatform) return true
-  const platform = appPlatformForTarget(ctx, targetOrPlatform) || targetOrPlatform
-  return app.targets?.[platform] === true
+  const platforms = appPlatformsForTarget(ctx, targetOrPlatform)
+  return platforms.some((platform) => app.targets?.[platform] === true)
 }
 
 export function assertTargetEnabled(ctx, app, targetOrPlatform) {
@@ -90,14 +90,26 @@ export function assertTargetEnabled(ctx, app, targetOrPlatform) {
 }
 
 export function appPlatformForTarget(ctx, targetOrBoard) {
-  if (!targetOrBoard) return ''
-  if (['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios'].includes(targetOrBoard)) return targetOrBoard
+  return appPlatformsForTarget(ctx, targetOrBoard)[0] || ''
+}
+
+export function appPlatformsForTarget(ctx, targetOrBoard) {
+  if (!targetOrBoard) return []
+  if (['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios'].includes(targetOrBoard)) return [targetOrBoard]
   const targets = loadTargetMetadata(ctx)
-  if (targets[targetOrBoard]?.appPlatform) return targets[targetOrBoard].appPlatform
+  if (targets[targetOrBoard]?.appPlatform) return targetAppPlatforms(targets[targetOrBoard])
   const boards = loadBoardConfig(ctx)
-  const boardTarget = boards[targetOrBoard]?.target
-  if (boardTarget && targets[boardTarget]?.appPlatform) return targets[boardTarget].appPlatform
-  return ''
+  const board = boards[targetOrBoard]
+  const boardTarget = board?.target
+  if (board?.appPlatform) {
+    return uniquePlatforms([
+      board.appPlatform,
+      ...(Array.isArray(board.compatibleAppPlatforms) ? board.compatibleAppPlatforms : []),
+      ...(boardTarget && targets[boardTarget] ? targetAppPlatforms(targets[boardTarget]).slice(1) : [])
+    ])
+  }
+  if (boardTarget && targets[boardTarget]?.appPlatform) return targetAppPlatforms(targets[boardTarget])
+  return [targetOrBoard]
 }
 
 export function loadTargetMetadata(ctx) {
@@ -122,6 +134,22 @@ function hasGeaManifest(packagePath) {
   } catch {
     return false
   }
+}
+
+function targetAppPlatforms(targetInfo) {
+  return uniquePlatforms([
+    targetInfo.appPlatform,
+    ...(Array.isArray(targetInfo.compatibleAppPlatforms) ? targetInfo.compatibleAppPlatforms : [])
+  ])
+}
+
+function uniquePlatforms(values) {
+  const out = []
+  for (const value of values) {
+    if (!value || out.includes(value)) continue
+    out.push(value)
+  }
+  return out
 }
 
 function normalizeApp(root, packageJson) {

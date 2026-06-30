@@ -35,12 +35,12 @@ export function createFixture(t, options = {}) {
   writeApp(root, 'examples/apps/watch', {
     id: 'watch',
     name: 'Watch',
-    targets: { web: true, esp32: true, geaos: true, macos: true, ios: true }
+    targets: { web: true, esp32: true, rp2350: false, geaos: true, macos: true, ios: true }
   })
   writeApp(root, 'examples/apps/web-only', {
     id: 'web-only',
     name: 'Web Only',
-    targets: { web: true, esp32: false, geaos: false, macos: false, ios: false }
+    targets: { web: true, esp32: false, rp2350: false, geaos: false, macos: false, ios: false }
   })
   writeJson(path.join(root, 'examples/apps/bad-app/package.json'), {
     name: '@fixture/bad-app',
@@ -56,7 +56,7 @@ export function createFixture(t, options = {}) {
   writeApp(root, 'companion/examples/gea-companion', {
     id: 'gea-companion',
     name: 'Gea Companion',
-    targets: { macos: true, web: false, esp32: false, geaos: false, ios: false }
+    targets: { macos: true, web: false, esp32: false, rp2350: false, geaos: false, ios: false }
   })
 
   writeExecutable(path.join(root, 'simulator/targets/web/dev-web.mjs'), '#!/usr/bin/env node\n')
@@ -71,6 +71,12 @@ export function createFixture(t, options = {}) {
       targetPath: 'targets/esp32-s3-touch-amoled-2.06',
       appPlatform: 'esp32'
     },
+    'rp2350-tufty-2350': {
+      adapter: 'rp2350-pico',
+      targetPath: 'targets/rp2350-tufty-2350',
+      appPlatform: 'rp2350',
+      compatibleAppPlatforms: ['esp32']
+    },
     geaos: {
       adapter: 'geaos-linux',
       targetPath: 'targets/geaos',
@@ -84,6 +90,10 @@ export function createFixture(t, options = {}) {
       amoled: {
         target: 'esp32-s3-touch-amoled-2.06',
         adapter: 'esp32-idf'
+      },
+      tufty: {
+        target: 'rp2350-tufty-2350',
+        adapter: 'rp2350-pico'
       },
       linux: {
         target: 'geaos',

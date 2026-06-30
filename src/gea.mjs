@@ -158,11 +158,21 @@ function setup(ctx, parsed, io) {
 }
 
 function flash(ctx, parsed, rest, io) {
-  const app = resolveRequestedApp(ctx, parsed, rest)
-  assertValidApp(app)
   const board = option(parsed, 'board', '')
   const target = option(parsed, 'target', '')
   if (!board && !target) fail('flash requires --board <alias> or --target <target>.', ExitCode.usage)
+  if (flag(parsed, 'bringup')) {
+    return runBoard(ctx, flag(parsed, 'monitor') ? 'flash-monitor' : 'flash', parsed, {
+      board,
+      target,
+      failureCode: ExitCode.deployFailed,
+      stdout: io.stdout,
+      env: io.env
+    })
+  }
+
+  const app = resolveRequestedApp(ctx, parsed, rest)
+  assertValidApp(app)
   assertTargetEnabled(ctx, app, board || target)
 
   return runBoard(ctx, flag(parsed, 'monitor') ? 'flash-monitor' : 'flash', parsed, {
@@ -330,6 +340,7 @@ function usage() {
   gea dev [app] [--target web] [--port 5181]
   gea build [app] [--target web|macos|ios|<target>] [--board <alias>]
   gea flash [app] --board <alias> [--monitor] [--port auto]
+  gea flash --bringup --board <alias> [--monitor] [--port auto]
   gea monitor --board <alias>
   gea list [apps|targets|boards] [--json]
   gea inspect [app] [--json]

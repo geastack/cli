@@ -6,6 +6,7 @@ import { parseArgs } from '../src/args.mjs'
 import { createChildEnv, createContext } from '../src/context.mjs'
 import {
   appPlatformForTarget,
+  appPlatformsForTarget,
   discoverApps,
   findCurrentApp,
   targetEnabledForApp,
@@ -88,7 +89,11 @@ test('manifest helpers validate current app, target metadata, and board platform
   assert.deepEqual(validateApp(current), [])
   assert.equal(appPlatformForTarget(ctx, 'amoled'), 'esp32')
   assert.equal(appPlatformForTarget(ctx, 'esp32-s3-touch-amoled-2.06'), 'esp32')
+  assert.equal(appPlatformForTarget(ctx, 'tufty'), 'rp2350')
+  assert.equal(appPlatformForTarget(ctx, 'rp2350-tufty-2350'), 'rp2350')
+  assert.deepEqual(appPlatformsForTarget(ctx, 'tufty'), ['rp2350', 'esp32'])
   assert.equal(targetEnabledForApp(ctx, current, 'amoled'), true)
+  assert.equal(targetEnabledForApp(ctx, current, 'tufty'), true)
 
   const bad = findCurrentApp(fixture.badAppDir)
   assert.deepEqual(validateApp(bad), ['gea.entry does not exist: missing.tsx'])

@@ -24,6 +24,7 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.gea.targets.web, true)
   assert.equal(packageJson.gea.targets.macos, true)
   assert.equal(packageJson.gea.targets.esp32, false)
+  assert.equal(packageJson.gea.targets.rp2350, false)
   assert.equal(packageJson.dependencies['@geastack/core'].startsWith('file:'), true)
   assert.equal(packageJson.devDependencies['@geastack/cli'].startsWith('file:'), true)
   assert.equal(fs.existsSync(path.join(tmp, 'index.tsx')), true)
@@ -75,6 +76,7 @@ test('create-geastack defaults to local file dependency when collection root is 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
   assert.equal(packageJson.dependencies['@geastack/core'], 'file:../core/packages/core')
   assert.equal(path.resolve(targetDir, packageJson.devDependencies['@geastack/cli'].slice('file:'.length)), cliRoot)
+  assert.equal(packageJson.gea.targets.rp2350, true)
 })
 
 test('create-geastack can interactively fetch a rich GitHub example', async () => {
