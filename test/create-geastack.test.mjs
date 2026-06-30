@@ -25,6 +25,7 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.gea.targets.macos, true)
   assert.equal(packageJson.gea.targets.esp32, false)
   assert.equal(packageJson.gea.targets.rp2350, false)
+  assert.equal(packageJson.gea.targets.android, false)
   assert.equal(packageJson.dependencies['@geastack/core'].startsWith('file:'), true)
   assert.equal(packageJson.devDependencies['@geastack/cli'].startsWith('file:'), true)
   assert.equal(fs.existsSync(path.join(tmp, 'index.tsx')), true)
@@ -77,6 +78,7 @@ test('create-geastack defaults to local file dependency when collection root is 
   assert.equal(packageJson.dependencies['@geastack/core'], 'file:../core/packages/core')
   assert.equal(path.resolve(targetDir, packageJson.devDependencies['@geastack/cli'].slice('file:'.length)), cliRoot)
   assert.equal(packageJson.gea.targets.rp2350, true)
+  assert.equal(packageJson.gea.targets.android, false)
 })
 
 test('create-geastack can interactively fetch a rich GitHub example', async () => {
@@ -159,6 +161,7 @@ test('create-geastack can fetch a named rich example from a local repo path non-
   assert.equal(packageJson.gea.id, 'watch-copy')
   assert.equal(packageJson.gea.name, 'Watch Copy')
   assert.equal(packageJson.gea.targets.ios, true)
+  assert.equal(packageJson.gea.targets.android, true)
   assert.equal(fs.readFileSync(path.join(targetDir, 'index.tsx'), 'utf8'), 'export const value = 1\n')
 })
 

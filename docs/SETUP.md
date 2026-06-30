@@ -47,6 +47,13 @@ For Apple targets:
 - Xcode command line tools.
 - iOS Simulator runtime if building/running iOS simulator apps.
 
+For Android targets:
+
+- Android SDK command-line tools and platform tools.
+- `adb` on `PATH`.
+- A Java JDK with `javac`.
+- `ANDROID_HOME` or `ANDROID_SDK_ROOT` pointing at the Android SDK.
+
 ## Node And npm
 
 Install Node.js from the official download page or your normal version manager.
@@ -166,6 +173,31 @@ Verify:
 npx gea doctor
 npx gea build --target macos
 npx gea build --target ios --mode simulator
+```
+
+## Android SDK
+
+Install Android Studio or the Android SDK command-line tools. Make sure the SDK
+has at least one platform and build-tools package installed, then export:
+
+```sh
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export PATH="$ANDROID_HOME/platform-tools:$PATH"
+```
+
+Verify:
+
+```sh
+adb version
+javac --version
+npx gea doctor
+npx gea build css-3d-cube --target android
+```
+
+For an attached Android device or board with USB debugging enabled:
+
+```sh
+npx gea build css-3d-cube --target android --mode device
 ```
 
 ## Python

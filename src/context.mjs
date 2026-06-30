@@ -8,6 +8,7 @@ const srcDir = path.dirname(fileURLToPath(import.meta.url))
 export const cliPackageRoot = path.resolve(srcDir, '..')
 
 const repoNames = Object.freeze({
+  android: 'android',
   apple: 'apple',
   companion: 'companion',
   compiler: 'compiler',
@@ -15,7 +16,7 @@ const repoNames = Object.freeze({
   examples: 'examples',
   geaos: 'geaos',
   simulator: 'simulator',
-  targets: 'targets-embedded'
+  targets: 'targets'
 })
 
 export function createContext(parsed, env = process.env, cwd = process.cwd()) {
@@ -35,6 +36,7 @@ export function createContext(parsed, env = process.env, cwd = process.cwd()) {
     projectBoardsConfig,
     cliPackageRoot,
     collectionRoot,
+    androidRoot: resolvePathOption(parsed, env, 'android-root', 'GEA_ANDROID_ROOT', '', path.join(collectionRoot, repoNames.android)),
     appleRoot: resolvePathOption(parsed, env, 'apple-root', 'GEA_APPLE_ROOT', '', path.join(collectionRoot, repoNames.apple)),
     companionRoot,
     compilerRoot,
@@ -51,6 +53,7 @@ export function createContext(parsed, env = process.env, cwd = process.cwd()) {
     board: path.join(ctx.targetsRoot, 'scripts', 'board'),
     webBuild: path.join(ctx.simulatorRoot, 'targets', 'web', 'build-web.sh'),
     webDev: path.join(ctx.simulatorRoot, 'targets', 'web', 'dev-web.mjs'),
+    androidBuild: path.join(ctx.androidRoot, 'targets', 'android', 'build-android.sh'),
     macosBuild: path.join(ctx.appleRoot, 'targets', 'macos', 'build-macos.sh'),
     iosBuild: path.join(ctx.appleRoot, 'targets', 'ios', 'build-ios.sh'),
     geaEmbedded: path.join(ctx.corePackageDir, 'bin', 'gea-embedded.mjs')
@@ -63,6 +66,7 @@ export function createChildEnv(ctx, env = process.env) {
     ...env,
     GEA_COLLECTION_ROOT: ctx.collectionRoot,
     GEA_APPS_ROOT: env.GEA_APPS_ROOT || ctx.examplesRoot,
+    GEA_CLI_BIN: env.GEA_CLI_BIN || path.join(ctx.cliPackageRoot, 'bin', 'gea.mjs'),
     GEA_CORE_DIR: env.GEA_CORE_DIR || ctx.corePackageDir,
     GEA_COMPILER_DIR: env.GEA_COMPILER_DIR || ctx.compilerPackageDir
   }

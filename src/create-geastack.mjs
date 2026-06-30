@@ -185,7 +185,8 @@ function targetManifest(requestedTargets) {
     rp2350: enabled.has('rp2350'),
     geaos: enabled.has('geaos'),
     macos: enabled.has('macos'),
-    ios: enabled.has('ios')
+    ios: enabled.has('ios'),
+    android: enabled.has('android')
   }
 }
 
@@ -197,7 +198,8 @@ function targetManifestFromObject(targets = {}) {
     rp2350: targets.rp2350 === true,
     geaos: targets.geaos === true,
     macos: targets.macos === true,
-    ios: targets.ios === true
+    ios: targets.ios === true,
+    android: targets.android === true
   }
 }
 
@@ -436,7 +438,7 @@ Options:
   --example <example-id>
   --examples-repo <git-url-or-local-path>
   --examples-ref <git-ref>
-  --targets web,esp32,rp2350,geaos,macos,ios
+  --targets web,esp32,rp2350,geaos,macos,ios,android
   --core-dependency <specifier>
   --cli-dependency <specifier>
   --published

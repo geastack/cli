@@ -21,6 +21,7 @@ test('createContext honors collection root and package-dir overrides', (t) => {
   const ctx = createContext(parsed, {}, path.join(fixture.root, 'examples/apps/watch'))
 
   assert.equal(ctx.collectionRoot, fixture.root)
+  assert.equal(ctx.androidRoot, path.join(fixture.root, 'android'))
   assert.equal(ctx.corePackageDir, path.join(fixture.root, 'core/packages/core'))
   assert.equal(ctx.compilerPackageDir, path.join(fixture.root, 'compiler/packages/geatsc'))
   assert.equal(ctx.examplesRoot, path.join(fixture.root, 'examples'))
@@ -92,8 +93,10 @@ test('manifest helpers validate current app, target metadata, and board platform
   assert.equal(appPlatformForTarget(ctx, 'tufty'), 'rp2350')
   assert.equal(appPlatformForTarget(ctx, 'rp2350-tufty-2350'), 'rp2350')
   assert.deepEqual(appPlatformsForTarget(ctx, 'tufty'), ['rp2350', 'esp32'])
+  assert.equal(appPlatformForTarget(ctx, 'android'), 'android')
   assert.equal(targetEnabledForApp(ctx, current, 'amoled'), true)
   assert.equal(targetEnabledForApp(ctx, current, 'tufty'), true)
+  assert.equal(targetEnabledForApp(ctx, current, 'android'), true)
 
   const bad = findCurrentApp(fixture.badAppDir)
   assert.deepEqual(validateApp(bad), ['gea.entry does not exist: missing.tsx'])

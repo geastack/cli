@@ -95,7 +95,7 @@ export function appPlatformForTarget(ctx, targetOrBoard) {
 
 export function appPlatformsForTarget(ctx, targetOrBoard) {
   if (!targetOrBoard) return []
-  if (['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios'].includes(targetOrBoard)) return [targetOrBoard]
+  if (['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios', 'android'].includes(targetOrBoard)) return [targetOrBoard]
   const targets = loadTargetMetadata(ctx)
   if (targets[targetOrBoard]?.appPlatform) return targetAppPlatforms(targets[targetOrBoard])
   const boards = loadBoardConfig(ctx)

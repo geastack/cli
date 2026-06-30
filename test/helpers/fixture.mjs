@@ -17,7 +17,8 @@ export function createFixture(t, options = {}) {
   mkdir(root, 'examples/apps/bad-app')
   mkdir(root, 'companion/examples/gea-companion')
   mkdir(root, 'simulator/targets/web')
-  mkdir(root, 'targets-embedded/scripts/boards')
+  mkdir(root, 'targets/scripts/boards')
+  mkdir(root, 'android/targets/android')
   mkdir(root, 'apple/targets/macos')
   mkdir(root, 'apple/targets/ios')
   mkdir(root, 'geaos')
@@ -35,12 +36,12 @@ export function createFixture(t, options = {}) {
   writeApp(root, 'examples/apps/watch', {
     id: 'watch',
     name: 'Watch',
-    targets: { web: true, esp32: true, rp2350: false, geaos: true, macos: true, ios: true }
+    targets: { web: true, esp32: true, rp2350: false, geaos: true, macos: true, ios: true, android: true }
   })
   writeApp(root, 'examples/apps/web-only', {
     id: 'web-only',
     name: 'Web Only',
-    targets: { web: true, esp32: false, rp2350: false, geaos: false, macos: false, ios: false }
+    targets: { web: true, esp32: false, rp2350: false, geaos: false, macos: false, ios: false, android: false }
   })
   writeJson(path.join(root, 'examples/apps/bad-app/package.json'), {
     name: '@fixture/bad-app',
@@ -56,16 +57,17 @@ export function createFixture(t, options = {}) {
   writeApp(root, 'companion/examples/gea-companion', {
     id: 'gea-companion',
     name: 'Gea Companion',
-    targets: { macos: true, web: false, esp32: false, rp2350: false, geaos: false, ios: false }
+    targets: { macos: true, web: false, esp32: false, rp2350: false, geaos: false, ios: false, android: false }
   })
 
   writeExecutable(path.join(root, 'simulator/targets/web/dev-web.mjs'), '#!/usr/bin/env node\n')
   writeExecutable(path.join(root, 'simulator/targets/web/build-web.sh'), '#!/usr/bin/env bash\n')
-  writeExecutable(path.join(root, 'targets-embedded/scripts/board'), '#!/usr/bin/env bash\n')
+  writeExecutable(path.join(root, 'targets/scripts/board'), '#!/usr/bin/env bash\n')
+  writeExecutable(path.join(root, 'android/targets/android/build-android.sh'), '#!/usr/bin/env bash\n')
   writeExecutable(path.join(root, 'apple/targets/macos/build-macos.sh'), '#!/usr/bin/env bash\n')
   writeExecutable(path.join(root, 'apple/targets/ios/build-ios.sh'), '#!/usr/bin/env bash\n')
 
-  writeJson(path.join(root, 'targets-embedded/scripts/boards/targets.json'), {
+  writeJson(path.join(root, 'targets/scripts/boards/targets.json'), {
     'esp32-s3-touch-amoled-2.06': {
       adapter: 'esp32-idf',
       targetPath: 'targets/esp32-s3-touch-amoled-2.06',
@@ -84,9 +86,9 @@ export function createFixture(t, options = {}) {
     }
   })
   if (options.invalidBoardsJson) {
-    fs.writeFileSync(path.join(root, 'targets-embedded/boards.json'), '{ this is not json\n')
+    fs.writeFileSync(path.join(root, 'targets/boards.json'), '{ this is not json\n')
   } else {
-    writeJson(path.join(root, 'targets-embedded/boards.json'), {
+    writeJson(path.join(root, 'targets/boards.json'), {
       amoled: {
         target: 'esp32-s3-touch-amoled-2.06',
         adapter: 'esp32-idf'
@@ -119,6 +121,8 @@ export function createFakeToolchain(t, options = {}) {
     'idf.py': 'ESP-IDF v6.0.1',
     emcc: 'emcc (Emscripten gcc/clang-like replacement) 4.0.0',
     xcodebuild: 'Xcode 26.6\nBuild version 17A400',
+    adb: 'Android Debug Bridge version 1.0.41',
+    javac: 'javac 24.0.0',
     ...options.versions
   }
   for (const [name, output] of Object.entries(versions)) {
@@ -128,9 +132,18 @@ export function createFakeToolchain(t, options = {}) {
     bin,
     env: {
       ...process.env,
-      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`
+      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+      ANDROID_HOME: fakeAndroidSdk(bin)
     }
   }
+}
+
+function fakeAndroidSdk(bin) {
+  const sdk = path.join(bin, 'android-sdk')
+  fs.mkdirSync(path.join(sdk, 'platforms/android-35'), { recursive: true })
+  fs.mkdirSync(path.join(sdk, 'build-tools/35.0.0'), { recursive: true })
+  fs.writeFileSync(path.join(sdk, 'platforms/android-35/android.jar'), '')
+  return sdk
 }
 
 export function capture() {

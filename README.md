@@ -33,7 +33,7 @@ flowchart TD
   starter -->|"Empty app"| empty["Generate minimal app files"]
   empty --> emptyFiles["index.tsx, styles.css, index.html,<br/>tsconfig.json, vite.config.ts"]
 
-  starter -->|"Rich example"| pickExample["Pick from hard-coded example list<br/>web, ESP32, GeaOS, iOS, macOS"]
+  starter -->|"Rich example"| pickExample["Pick from hard-coded example list<br/>web, ESP32, GeaOS, iOS, macOS, Android"]
   pickExample --> fetchExample["Fetch selected app from GitHub"]
   fetchExample --> copyExample["Copy fetched example files"]
   copyExample --> rewriteExample["Rewrite package name and gea manifest"]
@@ -99,12 +99,12 @@ flowchart TD
 
 The implementation wraps the behavior that currently lives in:
 
-- `../targets-embedded/scripts/board`
+- `../targets/scripts/board`
 - `../simulator/targets/web/dev-web.mjs`
 - `../simulator/targets/web/build-web.sh`
 - `../core/packages/core/bin/gea-embedded.mjs`
 - target-specific scripts under `../apple`, `../geaos`, and
-  `../targets-embedded`
+  `../targets`
 
 ## Development
 
@@ -158,9 +158,9 @@ First implementation is in place:
 
 - `doctor` for local toolchain checks;
 - `dev` and `build` for the web simulator target;
-- `build` for macOS/iOS and board-backed targets;
-- `flash` and `monitor` via `targets-embedded/scripts/board`;
+- `build` for macOS/iOS/Android and board-backed targets;
+- `flash` and `monitor` via `targets/scripts/board`;
 - `list` and `inspect` helpers;
 - `create-geastack` with a bundled counter starter, an empty starter, and a
-  GitHub-backed rich example flow for web, embedded, GeaOS, iOS, and macOS apps,
+  GitHub-backed rich example flow for web, embedded, GeaOS, iOS, macOS, and Android apps,
   all with `.gea/boards.json`.

@@ -22,9 +22,10 @@ backend commands owned by target repos.
 
 Examples:
 
-- ESP32 board flashing stays in `targets-embedded`.
+- ESP32 board flashing stays in `targets`.
 - Web simulator launch stays in `simulator`.
 - Apple project generation stays in `apple`.
+- Android APK packaging stays in `android`.
 - GeaOS image and device helpers stay in `geaos`.
 
 ## Command Surface
@@ -51,6 +52,7 @@ Expected options:
 gea build --app bouncing-balls-jsx --target web
 gea build --app bouncing-balls-jsx --target esp32-s3-touch-amoled-2.06
 gea build --app notes-native --target macos
+gea build --app css-3d-cube --target android
 ```
 
 ### `gea setup`
@@ -78,11 +80,12 @@ Expected options:
 ```sh
 gea flash --app bouncing-balls-jsx --board amoled
 gea flash --app bouncing-balls-jsx --board amoled --monitor
+gea flash --app css-3d-cube --target android
 ```
 
 The CLI should pass through board aliases from the active board config. Generated
 apps use `.gea/boards.json`; split-repo development can still fall back to
-`targets-embedded/boards.json`.
+`targets/boards.json`.
 
 ### `gea monitor`
 
@@ -104,6 +107,7 @@ Minimum checks:
 - Node/npm availability where required;
 - ESP-IDF availability for ESP32 targets;
 - Xcode availability for Apple targets;
+- Android SDK and adb availability for Android targets;
 - Python availability for device helpers;
 - configured boards file validity;
 - app manifest validity for the current folder.
@@ -156,7 +160,8 @@ Core fields:
       "esp32": true,
       "geaos": true,
       "macos": false,
-      "ios": false
+      "ios": false,
+      "android": false
     }
   }
 }
@@ -206,7 +211,7 @@ Use predictable exit codes:
 2. Implement `gea dev --target web` by delegating to the simulator repo.
 3. Implement `gea build --target web`.
 4. Implement `gea flash --board <alias>` by delegating to
-   `targets-embedded/scripts/board`.
+   `targets/scripts/board`.
 5. Add `create-geastack` with one JSX app template.
 
 Status: implemented.

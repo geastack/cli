@@ -23,7 +23,7 @@ test('gea flash dry-run delegates to board script with app and board', async () 
   })
 
   const command = out.join('\n')
-  assert.match(command, /targets-embedded\/scripts\/board flash-monitor/)
+  assert.match(command, /targets\/scripts\/board flash-monitor/)
   assert.match(command, /--board=amoled/)
   assert.match(command, /--app=watch/)
 })
@@ -36,7 +36,7 @@ test('gea flash bringup dry-run delegates to board script without app', async (t
   })
 
   const command = out.join('\n')
-  assert.match(command, /targets-embedded\/scripts\/board flash-monitor/)
+  assert.match(command, /targets\/scripts\/board flash-monitor/)
   assert.match(command, /--board=tufty/)
   assert.doesNotMatch(command, /--app=/)
 })
@@ -141,13 +141,17 @@ test('build routes web, macOS, iOS, board, and target builds', async (t) => {
   await runGea(['--collection-root', fixture.root, 'build', 'watch', '--target=ios', '--mode=device', '--dry-run'], ios.io)
   assert.match(ios.out.join('\n'), /apple\/targets\/ios\/build-ios\.sh watch device/)
 
+  const android = capture()
+  await runGea(['--collection-root', fixture.root, 'build', 'watch', '--target=android', '--dry-run'], android.io)
+  assert.match(android.out.join('\n'), /android\/targets\/android\/build-android\.sh watch debug/)
+
   const board = capture()
   await runGea(['--collection-root', fixture.root, 'build', 'watch', '--board=amoled', '--resident-apps=watch,web-only', '--dry-run'], board.io)
-  assert.match(board.out.join('\n'), /targets-embedded\/scripts\/board build --board=amoled --app=watch --resident-apps=watch,web-only/)
+  assert.match(board.out.join('\n'), /targets\/scripts\/board build --board=amoled --app=watch --resident-apps=watch,web-only/)
 
   const target = capture()
   await runGea(['--collection-root', fixture.root, 'build', 'watch', '--target=geaos', '--dry-run'], target.io)
-  assert.match(target.out.join('\n'), /targets-embedded\/scripts\/board build --target=geaos --app=watch/)
+  assert.match(target.out.join('\n'), /targets\/scripts\/board build --target=geaos --app=watch/)
 })
 
 test('setup routes board and target initialization through board script', async (t) => {
@@ -155,11 +159,11 @@ test('setup routes board and target initialization through board script', async 
 
   const board = capture()
   await runGea(['--collection-root', fixture.root, 'setup', '--board=amoled', '--dry-run'], board.io)
-  assert.match(board.out.join('\n'), /targets-embedded\/scripts\/board setup --board=amoled/)
+  assert.match(board.out.join('\n'), /targets\/scripts\/board setup --board=amoled/)
 
   const target = capture()
   await runGea(['--collection-root', fixture.root, 'setup', '--target=esp32-s3-touch-amoled-2.06', '--dry-run'], target.io)
-  assert.match(target.out.join('\n'), /targets-embedded\/scripts\/board setup --target=esp32-s3-touch-amoled-2\.06/)
+  assert.match(target.out.join('\n'), /targets\/scripts\/board setup --target=esp32-s3-touch-amoled-2\.06/)
 })
 
 test('interactive setup writes a known board alias', async (t) => {
@@ -370,9 +374,17 @@ test('flash and monitor validate selection and pass through board options', asyn
   await runGea(['--collection-root', fixture.root, 'flash', 'watch', '--target=geaos', '--dry-run'], targetFlash.io)
   assert.match(targetFlash.out.join('\n'), /board flash --target=geaos --app=watch/)
 
+  const androidFlash = capture()
+  await runGea(['--collection-root', fixture.root, 'flash', 'watch', '--target=android', '--dry-run'], androidFlash.io)
+  assert.match(androidFlash.out.join('\n'), /android\/targets\/android\/build-android\.sh watch device/)
+
   const monitor = capture()
   await runGea(['--collection-root', fixture.root, 'monitor', '--board=amoled', '--port=auto', '--dry-run'], monitor.io)
   assert.match(monitor.out.join('\n'), /board monitor --board=amoled auto/)
+
+  const androidMonitor = capture()
+  await runGea(['--collection-root', fixture.root, 'monitor', '--target=android', '--dry-run'], androidMonitor.io)
+  assert.match(androidMonitor.out.join('\n'), /android\/targets\/android\/build-android\.sh css-3d-cube monitor/)
 
   await assert.rejects(
     runGea(['--collection-root', fixture.root, 'monitor', '--dry-run'], capture().io),
@@ -395,6 +407,8 @@ test('doctor reports required and optional checks with JSON output', async (t) =
   assert.equal(payload.ok, true)
   assert.equal(payload.checks.find((check) => check.name === 'npm').ok, true)
   assert.equal(payload.checks.find((check) => check.name === 'ESP-IDF').ok, true)
+  assert.equal(payload.checks.find((check) => check.name === 'Android SDK').ok, true)
+  assert.equal(payload.checks.find((check) => check.name === 'adb').ok, true)
   assert.equal(payload.checks.find((check) => check.name === 'app catalog').detail, '4 app(s)')
 })
 

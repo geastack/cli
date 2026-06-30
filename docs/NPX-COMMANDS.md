@@ -59,8 +59,8 @@ JSX, one `store.ts`, and enough styling to run.
 
 `Rich example` opens an example picker populated from the hard-coded
 `examples/catalog.json` shipped inside `@geastack/cli`. The catalog contains web,
-ESP32, GeaOS, iOS, and macOS examples with names, descriptions, target flags, and
-GitHub paths. When the user selects an example, the CLI fetches that app from
+ESP32, GeaOS, iOS, macOS, and Android examples with names, descriptions, target
+flags, and GitHub paths. When the user selects an example, the CLI fetches that app from
 `geastack/examples`, copies it into the new project, then rewrites
 `package.json`, app id, app name, `@geastack/core`, `@geastack/cli`, and
 `.gea/boards.json`.
@@ -73,6 +73,8 @@ npx @geastack/create-geastack my-app --starter empty --yes
 npx @geastack/create-geastack my-app --starter example --example watch
 npx @geastack/create-geastack my-ios-app --starter example --example ios-native-showcase
 npx gea build --target ios --mode simulator
+npx @geastack/create-geastack cube-app --starter example --example css-3d-cube
+npx gea build --target android --mode device
 ```
 
 The private npmjs flow does not depend on a cloned examples repo. The rich

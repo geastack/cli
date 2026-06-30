@@ -132,6 +132,16 @@ function build(ctx, parsed, rest, io) {
     })
   }
 
+  if (target === 'android') {
+    return runAndroid(ctx, parsed, {
+      appId: app.id,
+      mode: option(parsed, 'mode', 'debug'),
+      failureCode: ExitCode.buildFailed,
+      stdout: io.stdout,
+      env: io.env
+    })
+  }
+
   return runBoard(ctx, 'build', parsed, {
     appId: app.id,
     board,
@@ -175,6 +185,16 @@ function flash(ctx, parsed, rest, io) {
   assertValidApp(app)
   assertTargetEnabled(ctx, app, board || target)
 
+  if (!board && target === 'android') {
+    return runAndroid(ctx, parsed, {
+      appId: app.id,
+      mode: 'device',
+      failureCode: ExitCode.deployFailed,
+      stdout: io.stdout,
+      env: io.env
+    })
+  }
+
   return runBoard(ctx, flag(parsed, 'monitor') ? 'flash-monitor' : 'flash', parsed, {
     appId: app.id,
     board,
@@ -189,6 +209,15 @@ function monitor(ctx, parsed, rest, io) {
   const board = option(parsed, 'board', '')
   const target = option(parsed, 'target', '')
   if (!board && !target) fail('monitor requires --board <alias> or --target <target>.', ExitCode.usage)
+  if (!board && target === 'android') {
+    return runAndroid(ctx, parsed, {
+      appId: 'css-3d-cube',
+      mode: 'monitor',
+      failureCode: ExitCode.deployFailed,
+      stdout: io.stdout,
+      env: io.env
+    })
+  }
   return runBoard(ctx, 'monitor', parsed, {
     board,
     target,
@@ -211,6 +240,17 @@ function runBoard(ctx, action, parsed, opts) {
   args.push(...parsed.passthrough)
   return runExternal(ctx.scripts.board, args, {
     cwd: ctx.targetsRoot,
+    env: createChildEnv(ctx, opts.env),
+    dryRun: flag(parsed, 'dry-run'),
+    failureCode: opts.failureCode,
+    stdout: opts.stdout
+  })
+}
+
+function runAndroid(ctx, parsed, opts) {
+  requirePath(ctx.scripts.androidBuild, 'Android build script')
+  return runExternal(ctx.scripts.androidBuild, [opts.appId, opts.mode, ...parsed.passthrough], {
+    cwd: ctx.androidRoot,
     env: createChildEnv(ctx, opts.env),
     dryRun: flag(parsed, 'dry-run'),
     failureCode: opts.failureCode,
@@ -268,6 +308,7 @@ function doctor(ctx, parsed, io) {
   addCheck(checks, 'examples root', exists(ctx.examplesRoot), ctx.examplesRoot, true)
   addCheck(checks, 'simulator web dev', exists(ctx.scripts.webDev), ctx.scripts.webDev, true)
   addCheck(checks, 'simulator web build', exists(ctx.scripts.webBuild), ctx.scripts.webBuild, true)
+  addCheck(checks, 'Android build script', exists(ctx.scripts.androidBuild), ctx.scripts.androidBuild, true)
   addCheck(checks, 'board script', exists(ctx.scripts.board), ctx.scripts.board, true)
   addCheck(checks, 'Node >= 20.19', nodeAtLeast(20, 19), process.version, true)
   const npmVersion = commandVersion('npm', ['--version'], io.env)
@@ -276,11 +317,17 @@ function doctor(ctx, parsed, io) {
   const idfVersion = commandVersion('idf.py', ['--version'], io.env)
   const emccVersion = commandVersion('emcc', ['--version'], io.env)
   const xcodeVersion = commandVersion('xcodebuild', ['-version'], io.env)
+  const adbVersion = commandVersion('adb', ['version'], io.env)
+  const javacVersion = commandVersion('javac', ['--version'], io.env)
+  const androidSdk = io.env.ANDROID_HOME || io.env.ANDROID_SDK_ROOT || path.join(process.env.HOME || '', 'Library', 'Android', 'sdk')
   addCheck(checks, 'npm', Boolean(npmVersion), npmVersion, false)
   addCheck(checks, 'Python', Boolean(pythonVersion), pythonVersion, false)
   addCheck(checks, 'ESP-IDF', Boolean(idfVersion) || Boolean(io.env.IDF_PATH), io.env.IDF_PATH || idfVersion, false)
   addCheck(checks, 'Emscripten', Boolean(emccVersion), emccVersion.split('\n')[0], false)
   addCheck(checks, 'Xcode', Boolean(xcodeVersion), xcodeVersion.split('\n')[0], false)
+  addCheck(checks, 'Android SDK', exists(androidSdk), androidSdk, false)
+  addCheck(checks, 'adb', Boolean(adbVersion), adbVersion.split('\n')[0], false)
+  addCheck(checks, 'javac', Boolean(javacVersion), javacVersion.split('\n')[0], false)
 
   const boardFile = boardConfigPath(ctx)
   try {
@@ -338,10 +385,12 @@ function usage() {
   gea doctor [--strict] [--json]
   gea setup --board <alias>
   gea dev [app] [--target web] [--port 5181]
-  gea build [app] [--target web|macos|ios|<target>] [--board <alias>]
+  gea build [app] [--target web|macos|ios|android|<target>] [--board <alias>]
   gea flash [app] --board <alias> [--monitor] [--port auto]
+  gea flash [app] --target android
   gea flash --bringup --board <alias> [--monitor] [--port auto]
   gea monitor --board <alias>
+  gea monitor --target android
   gea list [apps|targets|boards] [--json]
   gea inspect [app] [--json]
 
@@ -351,6 +400,7 @@ Global options:
   --core-root <dir>
   --compiler-root <dir>
   --simulator-root <dir>
+  --android-root <dir>
   --targets-root <dir>
   --boards-config <file>
   --dry-run

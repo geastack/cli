@@ -14,7 +14,8 @@
         "rp2350": true,
         "geaos": true,
         "macos": false,
-        "ios": false
+        "ios": false,
+        "android": false
       }
     }
   ]

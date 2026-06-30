@@ -14,6 +14,7 @@ test('starter catalog exposes only the tiny bundled counter starter', () => {
   assert.equal(starters[0].description, 'Minimal JSX counter with one tiny store.')
   assert.equal(starters[0].targets.esp32, true)
   assert.equal(starters[0].targets.rp2350, true)
+  assert.equal(starters[0].targets.android, false)
 })
 
 test('example catalog hard-codes rich GitHub examples without source files', () => {
@@ -41,6 +42,7 @@ test('example catalog hard-codes rich GitHub examples without source files', () 
 
   const cssCube = examples.find((example) => example.id === 'css-3d-cube')
   assert.equal(cssCube.targets.rp2350, true)
+  assert.equal(cssCube.targets.android, true)
 
   const ios = examples.find((example) => example.id === 'ios-native-showcase')
   assert.equal(ios.name, 'iOS Native Showcase')
