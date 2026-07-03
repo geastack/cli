@@ -96,6 +96,23 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'm5stack-tab5',
+    label: 'M5Stack Tab5',
+    alias: 'm5tab',
+    target: 'esp32-p4-m5stack-tab5',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-P4 + ESP32-C6',
+    capabilities: {
+      display: '5 inch 1280x720 IPS touch panel (ST7123/ST7121 current, ILI9881C legacy)',
+      touch: 'GT911 or ST7123/ST7121 integrated touch',
+      wireless: ['ESP32-C6 WiFi 6', 'BLE/Thread/Zigbee capable'],
+      storage: ['16 MB flash', '32 MB PSRAM', 'microSD'],
+      audio: ['ES8388 codec', 'ES7210 dual-mic AEC', 'NS4150B 1W speaker', '3.5mm headphone'],
+      gps: false,
+      sensors: ['BMI270 IMU', 'RX8130CE RTC', 'INA226 power monitor', 'IP2326 charger', 'PI4IOE5V6408 IO expanders', 'SC2356 camera', 'SIT3088 RS485']
+    }
+  },
+  {
     id: 'waveshare-p4-lcd-35',
     label: 'Waveshare ESP32-P4 Touch LCD 3.5',
     alias: 'waveshare-p4-3.5',
