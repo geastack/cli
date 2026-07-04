@@ -293,7 +293,9 @@ function inspect(ctx, parsed, rest, io) {
     root: app.root,
     entry: app.entry,
     runtime: app.runtime,
-    targets: app.targets
+    targets: app.targets,
+    icons: app.icons,
+    launcher: app.launcher
   }
   if (flag(parsed, 'json')) io.stdout(JSON.stringify(payload, null, 2))
   else io.stdout(`${app.id}\t${app.name}\t${app.root}\t${app.entry}`)

@@ -5,7 +5,7 @@ import test from 'node:test'
 
 import { CliError, ExitCode } from '../src/errors.mjs'
 import { runGea } from '../src/gea.mjs'
-import { capture, cliRoot, createFakeToolchain, createFixture, readJson, realCollectionRoot, scriptedPrompt } from './helpers/fixture.mjs'
+import { capture, cliRoot, createFakeToolchain, createFixture, readJson, realCollectionRoot, scriptedPrompt, writeJson } from './helpers/fixture.mjs'
 
 test('gea build web dry-run delegates to simulator build script', async () => {
   const out = []
@@ -93,6 +93,11 @@ test('list supports apps, targets, boards, filters, and JSON output', async (t) 
 
 test('inspect resolves explicit app and current-directory app', async (t) => {
   const fixture = createFixture(t)
+  const watchPackagePath = path.join(fixture.appDir, 'package.json')
+  const watchPackage = readJson(watchPackagePath)
+  watchPackage.gea.icons = { 512: 'icons/icon-512.png' }
+  watchPackage.gea.launcher = { description: 'test watch', order: 4, hidden: false }
+  writeJson(watchPackagePath, watchPackage)
 
   const explicit = capture()
   await runGea(['--collection-root', fixture.root, 'inspect', 'watch', '--json'], explicit.io)
@@ -100,6 +105,8 @@ test('inspect resolves explicit app and current-directory app', async (t) => {
   assert.equal(payload.id, 'watch')
   assert.equal(payload.entry, 'index.tsx')
   assert.equal(payload.targets.esp32, true)
+  assert.deepEqual(payload.icons, { 512: 'icons/icon-512.png' })
+  assert.deepEqual(payload.launcher, { description: 'test watch', order: 4, hidden: false })
 
   const current = capture()
   await runGea(['--collection-root', fixture.root, 'inspect'], {
