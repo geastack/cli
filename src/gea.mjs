@@ -111,7 +111,13 @@ function build(ctx, parsed, rest, io) {
 
   if (target === 'macos') {
     requirePath(ctx.scripts.macosBuild, 'macOS build script')
-    return runExternal(ctx.scripts.macosBuild, [app.id], {
+    const outputTag = option(parsed, 'output-tag')
+    if (outputTag !== undefined && (typeof outputTag !== 'string' || outputTag.length === 0)) {
+      fail('--output-tag requires a non-empty value.', ExitCode.usage)
+    }
+    const args = [app.id]
+    if (outputTag !== undefined) args.push('--output-tag', outputTag)
+    return runExternal(ctx.scripts.macosBuild, args, {
       cwd: ctx.appleRoot,
       env: createChildEnv(ctx, io.env),
       dryRun: flag(parsed, 'dry-run'),
@@ -387,7 +393,7 @@ function usage() {
   gea doctor [--strict] [--json]
   gea setup --board <alias>
   gea dev [app] [--target web] [--port 5181]
-  gea build [app] [--target web|macos|ios|android|<target>] [--board <alias>]
+  gea build [app] [--target web|macos|ios|android|<target>] [--board <alias>] [--output-tag <tag>]
   gea flash [app] --board <alias> [--monitor] [--port auto]
   gea flash [app] --target android
   gea flash --bringup --board <alias> [--monitor] [--port auto]

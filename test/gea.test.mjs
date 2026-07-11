@@ -144,6 +144,18 @@ test('build routes web, macOS, iOS, board, and target builds', async (t) => {
   await runGea(['--collection-root', fixture.root, 'build', 'watch', '--target=macos', '--dry-run'], macos.io)
   assert.match(macos.out.join('\n'), /apple\/targets\/macos\/build-macos\.sh watch/)
 
+  const taggedMacos = capture()
+  await runGea(
+    ['--collection-root', fixture.root, 'build', 'watch', '--target=macos', '--output-tag=outline', '--dry-run'],
+    taggedMacos.io,
+  )
+  assert.match(taggedMacos.out.join('\n'), /apple\/targets\/macos\/build-macos\.sh watch --output-tag outline/)
+
+  await assert.rejects(
+    runGea(['--collection-root', fixture.root, 'build', 'watch', '--target=macos', '--output-tag', '--dry-run'], capture().io),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /output-tag requires/.test(error.message),
+  )
+
   const ios = capture()
   await runGea(['--collection-root', fixture.root, 'build', 'watch', '--target=ios', '--mode=device', '--dry-run'], ios.io)
   assert.match(ios.out.join('\n'), /apple\/targets\/ios\/build-ios\.sh watch device/)
