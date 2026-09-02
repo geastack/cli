@@ -11,7 +11,7 @@ export function createFixture(t, options = {}) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
 
   mkdir(root, 'core/packages/core/bin')
-  mkdir(root, 'compiler/packages/geatsc')
+  mkdir(root, 'compiler')
   mkdir(root, 'examples/apps/watch')
   mkdir(root, 'examples/apps/web-only')
   mkdir(root, 'examples/apps/bad-app')
@@ -28,7 +28,7 @@ export function createFixture(t, options = {}) {
     version: '0.1.0'
   })
   writeExecutable(path.join(root, 'core/packages/core/bin/gea-embedded.mjs'), '#!/usr/bin/env node\n')
-  writeJson(path.join(root, 'compiler/packages/geatsc/package.json'), {
+  writeJson(path.join(root, 'compiler/package.json'), {
     name: '@geastack/compiler',
     version: '0.1.0'
   })

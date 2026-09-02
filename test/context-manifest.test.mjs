@@ -23,7 +23,7 @@ test('createContext honors collection root and package-dir overrides', (t) => {
   assert.equal(ctx.collectionRoot, fixture.root)
   assert.equal(ctx.androidRoot, path.join(fixture.root, 'android'))
   assert.equal(ctx.corePackageDir, path.join(fixture.root, 'core/packages/core'))
-  assert.equal(ctx.compilerPackageDir, path.join(fixture.root, 'compiler/packages/geatsc'))
+  assert.equal(ctx.compilerPackageDir, path.join(fixture.root, 'compiler'))
   assert.equal(ctx.examplesRoot, path.join(fixture.root, 'examples'))
 })
 
@@ -32,7 +32,7 @@ test('createContext normalizes legacy package-dir env overrides back to repo roo
   const ctx = createContext(parseArgs([]), {
     GEA_COLLECTION_ROOT: fixture.root,
     GEA_CORE_DIR: path.join(fixture.root, 'core/packages/core'),
-    GEA_COMPILER_DIR: path.join(fixture.root, 'compiler/packages/geatsc')
+    GEA_COMPILER_DIR: path.join(fixture.root, 'compiler')
   }, fixture.root)
 
   assert.equal(ctx.coreRoot, path.join(fixture.root, 'core'))

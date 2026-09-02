@@ -40,7 +40,10 @@ export function createContext(parsed, env = process.env, cwd = process.cwd()) {
     appleRoot: resolvePathOption(parsed, env, 'apple-root', 'GEA_APPLE_ROOT', '', path.join(collectionRoot, repoNames.apple)),
     companionRoot,
     compilerRoot,
-    compilerPackageDir: path.join(compilerRoot, 'packages', 'geatsc'),
+    // The compiler repo's root IS the compiler package. It used to hold a
+    // workspace whose `packages/geatsc` was the compiler; that implementation is
+    // archived at geastack/compiler-legacy and its replacement sits at the root.
+    compilerPackageDir: compilerRoot,
     coreRoot,
     corePackageDir: path.join(coreRoot, 'packages', 'core'),
     boardsConfig: boardsConfig ? path.resolve(cwd, boardsConfig) : '',
