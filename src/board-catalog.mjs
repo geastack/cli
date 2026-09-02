@@ -32,6 +32,22 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'lilygo-t-display-s3-long',
+    label: 'LILYGO T-Display-S3 Long',
+    alias: 't-display-long',
+    target: 'esp32-s3-lilygo-t-display-s3-long',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3R8',
+    capabilities: {
+      display: '3.4 inch 180x640 AMOLED (AXS15231B)',
+      touch: 'capacitive touch hardware (target driver pending)',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM'],
+      audio: [],
+      gps: false
+    }
+  },
+  {
     id: 'waveshare-amoled-175',
     label: 'Waveshare ESP32-S3 Touch AMOLED 1.75',
     alias: 'amoled-175',
