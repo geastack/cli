@@ -18,6 +18,7 @@ gea dev
 gea build --target web
 gea build --target ios
 gea flash --board amoled --monitor
+gea screenshot board.png --board amoled
 gea monitor --board amoled
 gea inspect --json
 ```

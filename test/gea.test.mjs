@@ -161,7 +161,7 @@ test('embedded build delegates to the installed targets package', async (t) => {
   assert.match(command, /--board=amoled --app=watch/)
 })
 
-test('flash, monitor, and BLE OTA delegate all board options', async (t) => {
+test('flash, monitor, screenshot, and BLE OTA delegate all board options', async (t) => {
   const fixture = createFixture(t)
 
   const flash = capture()
@@ -174,6 +174,16 @@ test('flash, monitor, and BLE OTA delegate all board options', async (t) => {
   const monitor = capture()
   await runGea(['monitor', '--board=amoled', '--port=auto', '--dry-run'], { ...monitor.io, cwd: fixture.appDir })
   assert.match(monitor.out.join('\n'), /board monitor --board=amoled auto/)
+
+  const screenshot = capture()
+  await runGea(['screenshot', 'counter.png', '--board=amoled', '--port=/dev/cu.usb', '--timeout=45', '--legacy', '--dry-run'], {
+    ...screenshot.io,
+    cwd: fixture.appDir
+  })
+  assert.match(
+    screenshot.out.join('\n'),
+    new RegExp(`board screenshot --board=amoled --port=/dev/cu\\.usb ${escapeRegex(path.join(fixture.appDir, 'counter.png'))} --timeout=45 --legacy`)
+  )
 
   const ota = capture()
   await runGea(['ota', '--board=amoled', '--transport=ble', '--dry-run'], { ...ota.io, cwd: fixture.appDir })

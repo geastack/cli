@@ -66,6 +66,8 @@ export async function runGea(argv, io = {}) {
       return flash(ctx, parsed, rest, { stdout, env })
     case 'monitor':
       return monitor(ctx, parsed, rest, { stdout, env })
+    case 'screenshot':
+      return screenshot(ctx, parsed, rest, { stdout, env })
     case 'ota':
       return ota(ctx, parsed, rest, { stdout, env })
     case 'list':
@@ -271,6 +273,28 @@ function monitor(ctx, parsed, rest, io) {
   })
 }
 
+function screenshot(ctx, parsed, rest, io) {
+  const board = option(parsed, 'board', '')
+  const target = option(parsed, 'target', '')
+  if (!board && !target) fail('screenshot requires --board <alias> or --target <target>.', ExitCode.usage)
+
+  const output = path.resolve(ctx.cwd, rest[0] || 'screenshot.png')
+  const extraArgs = [output]
+  const timeout = option(parsed, 'timeout')
+  if (timeout !== undefined) extraArgs.push(`--timeout=${timeout}`)
+  if (flag(parsed, 'legacy')) extraArgs.push('--legacy')
+
+  return runBoard(ctx, 'screenshot', parsed, {
+    board,
+    target,
+    extraArgs,
+    namedPort: true,
+    failureCode: ExitCode.deployFailed,
+    stdout: io.stdout,
+    env: io.env
+  })
+}
+
 function runBoard(ctx, action, parsed, opts) {
   requirePath(ctx.scripts.board, 'board script')
   const args = [action]
@@ -278,11 +302,12 @@ function runBoard(ctx, action, parsed, opts) {
   if (opts.target) args.push(`--target=${opts.target}`)
   if (opts.appId) args.push(`--app=${opts.appId}`)
   const port = option(parsed, 'port')
-  if (port) args.push(String(port))
+  if (port) args.push(opts.namedPort ? `--port=${port}` : String(port))
   if (flag(parsed, 'manual-boot')) args.push('--manual-boot')
   if (option(parsed, 'reset') === false) args.push('--no-reset')
   const flashBaud = option(parsed, 'flash-baud')
   if (flashBaud !== undefined) args.push(`--flash-baud=${flashBaud}`)
+  if (opts.extraArgs) args.push(...opts.extraArgs)
   args.push(...parsed.passthrough)
   const childEnv = createChildEnv(ctx, opts.env)
   if (opts.app?.manifest?.ota?.ble === true) childEnv.GEA_EMBEDDED_BLE_OTA = '1'
@@ -450,6 +475,7 @@ function usage() {
   gea flash --bringup --board <alias> [--monitor] [--port auto]
   gea monitor --board <alias>
   gea monitor --target android
+  gea screenshot [output.png] --board <alias> [--port auto] [--timeout <seconds>] [--legacy]
   gea ota [app] --board <alias> [--transport wifi|ble]
   gea list [apps|targets|boards] [--json]
   gea inspect [app] [--json]
