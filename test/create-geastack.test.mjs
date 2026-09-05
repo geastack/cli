@@ -26,8 +26,9 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.gea.targets.esp32, false)
   assert.equal(packageJson.gea.targets.rp2350, false)
   assert.equal(packageJson.gea.targets.android, false)
+  assert.equal('runtime' in packageJson.gea, false)
   assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.4')
-  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.2')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.3')
   assert.equal(fs.existsSync(path.join(tmp, 'index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'store.ts')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
@@ -76,9 +77,10 @@ test('create-geastack always defaults to registry dependencies', async (t) => {
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
   assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.4')
-  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.2')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.3')
   assert.equal(packageJson.gea.targets.rp2350, true)
   assert.equal(packageJson.gea.targets.android, false)
+  assert.equal('runtime' in packageJson.gea, false)
 })
 
 test('create-geastack can interactively fetch a rich GitHub example', async () => {
@@ -108,7 +110,7 @@ test('create-geastack can interactively fetch a rich GitHub example', async () =
   assert.equal(packageJson.gea.name, 'Example App')
   assert.equal(packageJson.gea.entry, 'index.tsx')
   assert.equal(packageJson.gea.targets.esp32, true)
-  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.2')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.3')
   assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /watch\.init/)
   assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /Started from GitHub example: `Watch`/)
   assert.match(prompt.questions.join('\n'), /Starter app/)

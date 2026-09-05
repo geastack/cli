@@ -154,7 +154,6 @@ Core fields:
     "id": "bouncing-balls-jsx",
     "name": "Balls JSX",
     "entry": "index.tsx",
-    "runtime": "gea",
     "targets": {
       "web": true,
       "esp32": true,
@@ -171,7 +170,7 @@ Validation rules:
 
 - `id` is required and should be stable.
 - `entry` is required and must exist.
-- `runtime` defaults to `gea` when omitted.
+- `runtime` defaults to `gea`; only non-Gea native applications should set it.
 - `targets` must be explicit for generated apps.
 - target backends may reject apps whose runtime or capabilities they do not
   support.

@@ -20,7 +20,6 @@
     "name": "Counter",
     "description": "Minimal JSX counter with one tiny store.",
     "entry": "index.tsx",
-    "runtime": "gea",
     "targets": {
       "web": true,
       "esp32": true,

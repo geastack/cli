@@ -38,7 +38,7 @@ export async function runCreateGeastack(argv, io = {}) {
   const ctx = createContext(parsed, env, cwd)
   const displayName = option(parsed, 'name', titleFromId(appId))
   const coreDependency = option(parsed, 'core-dependency') || '^0.1.4'
-  const cliDependency = option(parsed, 'cli-dependency') || '^0.1.2'
+  const cliDependency = option(parsed, 'cli-dependency') || '^0.1.3'
   const starter = await resolveStarter(ctx, parsed, io)
 
   fs.mkdirSync(targetDir, { recursive: true })
@@ -204,6 +204,15 @@ function targetManifestFromObject(targets = {}) {
 }
 
 function packageJson({ appId, displayName, targets, coreDependency, cliDependency, sourcePackage = {}, sourceManifest = {} }) {
+  const geaManifest = {
+    ...sourceManifest,
+    id: appId,
+    name: displayName,
+    entry: sourceManifest.entry || 'index.tsx',
+    targets
+  }
+  if (!geaManifest.runtime || geaManifest.runtime === 'gea') delete geaManifest.runtime
+
   return {
     name: `gea-${appId}`,
     version: '0.1.0',
@@ -226,14 +235,7 @@ function packageJson({ appId, displayName, targets, coreDependency, cliDependenc
       typescript: sourcePackage.devDependencies?.typescript || 'latest',
       vite: sourcePackage.devDependencies?.vite || 'latest'
     },
-    gea: {
-      ...sourceManifest,
-      id: appId,
-      name: displayName,
-      entry: sourceManifest.entry || 'index.tsx',
-      runtime: sourceManifest.runtime || 'gea',
-      targets
-    },
+    gea: geaManifest,
     license: 'MIT'
   }
 }
