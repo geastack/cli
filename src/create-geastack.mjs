@@ -5,7 +5,7 @@ import { flag, option, optionList, parseArgs } from './args.mjs'
 import { createContext } from './context.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
-import { canPrompt, choose, createPrompt } from './prompts.mjs'
+import { canPrompt, choose, confirm, createPrompt } from './prompts.mjs'
 import { runExternal } from './run.mjs'
 import {
   copyStarterFiles,
@@ -67,12 +67,12 @@ export async function runCreateGeastack(argv, io = {}) {
   }
 
   const sourcePackage = readPackageJson(targetDir)
-  const sourceManifest = sourcePackage.gea || starter.starter?.manifest || starter.example?.manifest || {}
+  const sourceManifest = sourcePackage.gea || starter.manifest || starter.starter?.manifest || starter.example?.manifest || {}
   const requestedTargets = optionList(parsed, 'targets')
   const targets = requestedTargets.length > 0
     ? targetManifest(requestedTargets)
     : starter.kind === 'empty'
-      ? targetManifest(['web'])
+      ? targetManifest(starter.targets || ['web'])
       : targetManifestFromObject(sourceManifest.targets)
   writeJson(path.join(targetDir, 'package.json'), packageJson({
     appId,
@@ -121,7 +121,23 @@ async function resolveStarter(ctx, parsed, io) {
   try {
     const mode = requested || await chooseStarterMode({ interactive, prompt, bundled, examples })
 
-    if (mode === 'empty') return { kind: 'empty' }
+    if (mode === 'empty') {
+      const requestedTargets = optionList(parsed, 'targets')
+      if (!interactive || requestedTargets.length > 0) return { kind: 'empty' }
+
+      const target = await chooseBlankTarget(prompt)
+      const enableBleOta = target === 'esp32'
+        ? await confirm(prompt, {
+            message: 'Enable wireless firmware updates over Bluetooth?',
+            defaultValue: true
+          })
+        : false
+      return {
+        kind: 'empty',
+        targets: [target],
+        manifest: enableBleOta ? { ota: { ble: true } } : {}
+      }
+    }
     if (mode === 'bundled' || mode === 'counter') {
       const requestedBundled = mode === 'counter' ? 'counter' : option(parsed, 'bundled') || option(parsed, 'starter-id') || ''
       const starter = requestedBundled
@@ -189,6 +205,50 @@ async function chooseExample({ interactive, prompt, examples }) {
     defaultValue: examples[0].id
   })
   return examples.find((example) => example.id === id) || null
+}
+
+async function chooseBlankTarget(prompt) {
+  return choose(prompt, {
+    message: 'Where should this application run?',
+    choices: [
+      {
+        value: 'web',
+        label: 'Web browser',
+        description: 'A browser app with a local development server.'
+      },
+      {
+        value: 'esp32',
+        label: 'ESP32 board',
+        description: 'Native firmware for a supported ESP32 device.'
+      },
+      {
+        value: 'rp2350',
+        label: 'RP2350 board',
+        description: 'Native firmware for a supported Raspberry Pi RP2350 device.'
+      },
+      {
+        value: 'geaos',
+        label: 'GeaOS device',
+        description: 'A native application for GeaOS.'
+      },
+      {
+        value: 'macos',
+        label: 'macOS',
+        description: 'A native Mac application.'
+      },
+      {
+        value: 'ios',
+        label: 'iPhone or iPad',
+        description: 'A native iOS application.'
+      },
+      {
+        value: 'android',
+        label: 'Android',
+        description: 'A native Android application.'
+      }
+    ],
+    defaultValue: 'web'
+  })
 }
 
 function ensureWritableTarget(targetDir, force) {

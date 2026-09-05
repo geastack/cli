@@ -132,7 +132,8 @@ Interactive starter choices must explain the tradeoff in-line:
 
 - `Embedded component counter`: create a touchscreen counter with local
   component state, an ESP32 target, and BLE updates enabled.
-- `Blank application`: generate a minimal browser application as a clean slate.
+- `Blank application`: ask where the app should run, generate the matching
+  minimal project, and ask whether to enable Bluetooth updates for ESP32.
 - `Example application`: fetch a selected app from `geastack/examples`, then rewrite
   package name, app id, dependencies, and board config for the new project.
 

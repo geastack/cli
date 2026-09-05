@@ -28,7 +28,7 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.gea.targets.android, false)
   assert.equal('runtime' in packageJson.gea, false)
   assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.4')
-  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.8')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.9')
   assert.equal(fs.existsSync(path.join(tmp, 'src/index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'src/App.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
@@ -58,6 +58,31 @@ test('the default starter derives its embedded entry and BLE OTA configuration',
   assert.equal(fs.existsSync(path.join(tmp, 'index.html')), false)
   assert.equal(fs.existsSync(path.join(tmp, 'vite.config.ts')), false)
   assert.equal(packageJson.scripts.build, undefined)
+})
+
+test('the guided blank application asks for its target and ESP32 update method', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-blank-'))
+  const prompt = scriptedPrompt([
+    '2',
+    '2',
+    ''
+  ])
+
+  await runCreateGeastack([
+    'Device Dashboard',
+    '--dir', tmp,
+    '--no-install'
+  ], { cwd: tmp, stdout: () => {}, prompt })
+
+  const packageJson = readJson(path.join(tmp, 'package.json'))
+  assert.equal(packageJson.gea.entry, 'index.tsx')
+  assert.equal(packageJson.gea.targets.esp32, true)
+  assert.equal(packageJson.gea.targets.web, false)
+  assert.deepEqual(packageJson.gea.ota, { ble: true })
+  assert.equal(fs.existsSync(path.join(tmp, 'index.html')), false)
+  assert.equal(fs.existsSync(path.join(tmp, 'vite.config.ts')), false)
+  assert.match(prompt.questions.join('\n'), /Where should this application run\?/)
+  assert.match(prompt.questions.join('\n'), /Enable wireless firmware updates over Bluetooth\?/)
 })
 
 test('create-geastack uses explicit id, display name, and core dependency', async () => {
@@ -99,7 +124,7 @@ test('create-geastack always defaults to registry dependencies', async (t) => {
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
   assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.4')
-  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.8')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.9')
   assert.equal(packageJson.gea.targets.esp32, true)
   assert.equal(packageJson.gea.targets.rp2350, false)
   assert.equal(packageJson.gea.targets.android, false)
@@ -133,7 +158,7 @@ test('create-geastack can interactively fetch a rich GitHub example', async () =
   assert.equal(packageJson.gea.name, 'Example App')
   assert.equal(packageJson.gea.entry, 'index.tsx')
   assert.equal(packageJson.gea.targets.esp32, true)
-  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.8')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.9')
   assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /watch\.init/)
   assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /Started from GitHub example: `Watch`/)
   assert.match(prompt.questions.join('\n'), /What do you want to build\?/)

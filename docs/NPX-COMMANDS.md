@@ -53,9 +53,10 @@ What do you want to build?
 `Embedded component counter` is the bundled tutorial starter. It uses local
 component state, targets ESP32, and enables BLE updates.
 
-`Blank application` creates the smallest browser starter: `index.tsx`, `styles.css`,
-`index.html`, `tsconfig.json`, `vite.config.ts`, `package.json`, and
-`.gea/boards.json`.
+`Blank application` asks where the app should run. It creates the smallest
+project for that target and, for ESP32, asks whether to enable wireless
+firmware updates over Bluetooth. Browser-only files such as `index.html` and
+`vite.config.ts` are added only when the web target is selected.
 
 `Example application` opens an example picker populated from the hard-coded
 `examples/catalog.json` shipped inside `@geastack/cli`. The catalog contains web,

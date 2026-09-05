@@ -31,8 +31,10 @@ flowchart TD
 
   starter -->|"Embedded component counter"| counter["Copy the touchscreen counter used in the embedded tutorial"]
 
-  starter -->|"Blank application"| empty["Generate a minimal browser application"]
-  empty --> emptyFiles["index.tsx, styles.css, index.html,<br/>tsconfig.json, vite.config.ts"]
+  starter -->|"Blank application"| emptyTarget{"Where should it run?"}
+  emptyTarget -->|"Web browser"| emptyWeb["Generate browser entry, HTML, and Vite config"]
+  emptyTarget -->|"ESP32 board"| emptyEsp["Generate native entry<br/>Ask whether to enable Bluetooth updates"]
+  emptyTarget -->|"Other native target"| emptyNative["Generate native entry for the selected platform"]
 
   starter -->|"Example application"| pickExample["Pick from the example gallery<br/>web, ESP32, GeaOS, iOS, macOS, Android"]
   pickExample --> fetchExample["Fetch selected app from GitHub"]
@@ -41,7 +43,9 @@ flowchart TD
 
   counter --> projectWiring["Add @geastack/core and @geastack/cli"]
   rewriteExample --> projectWiring["Add @geastack/core and @geastack/cli"]
-  emptyFiles --> projectWiring
+  emptyWeb --> projectWiring
+  emptyEsp --> projectWiring
+  emptyNative --> projectWiring
   projectWiring --> boardConfig["Create .gea/boards.json"]
   boardConfig --> install["Install npm dependencies<br/>(interactive default)"]
   install --> setup["Next: npx gea setup"]
