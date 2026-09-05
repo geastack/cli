@@ -1,6 +1,8 @@
 import path from 'node:path'
+import fs from 'node:fs'
 
 import { flag, option, parseArgs } from './args.mjs'
+import { runCreateGeastack } from './create-geastack.mjs'
 import { createChildEnv, createContext } from './context.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson } from './fs-utils.mjs'
@@ -18,7 +20,7 @@ import { runExternal } from './run.mjs'
 import { runSetupWizard } from './setup-wizard.mjs'
 import { commandVersion, nodeAtLeast } from './toolchain.mjs'
 
-const version = '0.1.1'
+const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 export async function runGea(argv, io = {}) {
   const parsed = parseArgs(argv)
@@ -34,6 +36,11 @@ export async function runGea(argv, io = {}) {
   if (flag(parsed, 'version')) {
     stdout(version)
     return 0
+  }
+  if (command === 'create') {
+    const createArgs = argv.slice(1)
+    if (option(parsed, 'install') === undefined) createArgs.push('--install')
+    return runCreateGeastack(createArgs, io)
   }
   if (!command || command === 'help' || flag(parsed, 'help')) {
     stdout(usage())
@@ -422,6 +429,7 @@ function requirePath(filePath, label) {
 
 function usage() {
   return `Usage:
+  gea create <name> [--starter counter|empty|example] [--targets <list>]
   gea doctor [--strict] [--json]
   gea setup --board <alias>
   gea dev [app] [--target web] [--port 5181]

@@ -9,23 +9,24 @@ keeping target-specific build logic behind stable backend contracts.
 ## Commands
 
 ```sh
-npx @geastack/create-geastack my-panel
+npm install --global @geastack/cli
+gea create my-panel
 cd my-panel
-npx gea doctor
-npx gea setup
-npx gea dev
-npx gea build --target web
-npx gea build --target ios
-npx gea flash --board amoled --monitor
-npx gea monitor --board amoled
-npx gea inspect --json
+gea doctor
+gea setup
+gea dev
+gea build --target web
+gea build --target ios
+gea flash --board amoled --monitor
+gea monitor --board amoled
+gea inspect --json
 ```
 
 ## Interactive Menu Map
 
 ```mermaid
 flowchart TD
-  create["npx @geastack/create-geastack my-app"] --> identity["Resolve app identity<br/>argument, optional --id, optional --name"]
+  create["gea create my-app"] --> identity["Resolve app identity<br/>argument, optional --id, optional --name"]
   identity --> starter{"Starter app?"}
 
   starter -->|"Counter starter"| counter["Copy bundled minimal JSX counter"]

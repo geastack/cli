@@ -15,6 +15,8 @@ import {
   formatStarterChoice
 } from './starter-catalog.mjs'
 
+const cliVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+
 export async function runCreateGeastack(argv, io = {}) {
   const parsed = parseArgs(argv)
   const stdout = io.stdout || console.log
@@ -38,13 +40,19 @@ export async function runCreateGeastack(argv, io = {}) {
   const ctx = createContext(parsed, env, cwd)
   const displayName = option(parsed, 'name', titleFromId(appId))
   const coreDependency = option(parsed, 'core-dependency') || '^0.1.4'
-  const cliDependency = option(parsed, 'cli-dependency') || '^0.1.3'
+  const cliDependency = option(parsed, 'cli-dependency') || `^${cliVersion}`
   const starter = await resolveStarter(ctx, parsed, io)
+  const entry = projectRelativePath(option(parsed, 'entry') || starter.starter?.entry || starter.example?.entry || 'index.tsx', 'entry')
+  if (option(parsed, 'entry') && starter.kind !== 'empty') {
+    fail('--entry can only be used with --starter empty.', ExitCode.usage)
+  }
 
   fs.mkdirSync(targetDir, { recursive: true })
   if (starter.kind === 'empty') {
-    fs.writeFileSync(path.join(targetDir, 'index.tsx'), indexTsx(displayName))
-    fs.writeFileSync(path.join(targetDir, 'styles.css'), stylesCss())
+    const entryPath = path.join(targetDir, entry)
+    fs.mkdirSync(path.dirname(entryPath), { recursive: true })
+    fs.writeFileSync(entryPath, indexTsx(displayName))
+    fs.writeFileSync(path.join(path.dirname(entryPath), 'styles.css'), stylesCss())
   } else if (starter.kind === 'bundled') {
     copyStarterFiles(starter.starter.root, targetDir)
   } else if (starter.kind === 'example') {
@@ -69,12 +77,14 @@ export async function runCreateGeastack(argv, io = {}) {
     appId,
     displayName,
     targets,
+    entry,
+    bleOta: flag(parsed, 'ble-ota'),
     coreDependency,
     cliDependency,
     sourcePackage,
     sourceManifest
   }))
-  ensureFile(path.join(targetDir, 'index.html'), () => indexHtml(displayName))
+  ensureFile(path.join(targetDir, 'index.html'), () => indexHtml(displayName, entry))
   fs.mkdirSync(path.join(targetDir, '.gea'), { recursive: true })
   writeJson(path.join(targetDir, '.gea', 'boards.json'), {})
   ensureJson(path.join(targetDir, 'tsconfig.json'), tsconfigJson)
@@ -203,14 +213,15 @@ function targetManifestFromObject(targets = {}) {
   }
 }
 
-function packageJson({ appId, displayName, targets, coreDependency, cliDependency, sourcePackage = {}, sourceManifest = {} }) {
+function packageJson({ appId, displayName, targets, entry, bleOta, coreDependency, cliDependency, sourcePackage = {}, sourceManifest = {} }) {
   const geaManifest = {
     ...sourceManifest,
     id: appId,
     name: displayName,
-    entry: sourceManifest.entry || 'index.tsx',
+    entry,
     targets
   }
+  if (bleOta) geaManifest.ota = { ...(geaManifest.ota || {}), ble: true }
   if (!geaManifest.runtime || geaManifest.runtime === 'gea') delete geaManifest.runtime
 
   return {
@@ -299,7 +310,7 @@ h1 {
 `
 }
 
-function indexHtml(displayName) {
+function indexHtml(displayName, entry = 'index.tsx') {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -309,7 +320,7 @@ function indexHtml(displayName) {
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/${entry}"></script>
   </body>
 </html>
 `
@@ -398,6 +409,14 @@ function normalizeStarter(value) {
   return normalized
 }
 
+function projectRelativePath(value, label) {
+  const normalized = path.posix.normalize(String(value || '').replaceAll('\\', '/')).replace(/^\.\//, '')
+  if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../') || path.posix.isAbsolute(normalized)) {
+    fail(`--${label} must be a path inside the project.`, ExitCode.usage)
+  }
+  return normalized
+}
+
 function readPackageJson(targetDir) {
   const packagePath = path.join(targetDir, 'package.json')
   if (!exists(packagePath)) return {}
@@ -422,6 +441,8 @@ Options:
   --examples-repo <git-url-or-local-path>
   --examples-ref <git-ref>
   --targets web,esp32,rp2350,geaos,macos,ios,android
+  --entry <relative-path>
+  --ble-ota
   --core-dependency <specifier>
   --cli-dependency <specifier>
   --install / --no-install

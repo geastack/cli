@@ -115,7 +115,7 @@ Minimum checks:
 Human-readable output should point to [SETUP.md](SETUP.md) whenever a required
 or optional dependency is missing.
 
-### `create-geastack`
+### `gea create`
 
 Scaffolds a new app folder with:
 

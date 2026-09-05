@@ -30,7 +30,8 @@ You do not clone GeaStack.
 
 ```sh
 npm login
-npx @geastack/create-geastack my-app
+npm install --global @geastack/cli
+gea create my-app
 cd my-app
 ```
 
@@ -45,12 +46,12 @@ When the wizard asks what to create, choose:
 
 For the fastest first flash, choose `Counter starter`.
 
-That creates a tiny JSX app with one store and installs the project-local Gea CLI, so inside the app you can run `npx gea`.
+That creates a tiny JSX app and installs all of its project dependencies.
 
 ## 3. Set Up The Board
 
 ```sh
-npx gea setup
+gea setup
 ```
 
 Choose:
@@ -82,7 +83,7 @@ If ESP-IDF was installed, the CLI prints this for future shells:
 . "$HOME/esp/esp-idf/export.sh"
 ```
 
-You do not need to run that before every command unless `npx gea doctor` says ESP-IDF is not active.
+You do not need to run that before every command unless `gea doctor` says ESP-IDF is not active.
 
 If the wizard finds a connected serial device, pick it. If no board is plugged in yet, that is fine; you can provide the port later.
 
@@ -93,13 +94,13 @@ The wizard writes the board config into your app at `.gea/boards.json` and initi
 Flash and open the serial monitor:
 
 ```sh
-npx gea flash --board amoled --monitor
+gea flash --board amoled --monitor
 ```
 
 If you need to specify the serial port manually:
 
 ```sh
-npx gea flash --board amoled --port /dev/cu.usbmodemXXXX --monitor
+gea flash --board amoled --port /dev/cu.usbmodemXXXX --monitor
 ```
 
 ## Rich Examples
@@ -109,10 +110,10 @@ The bundled starter is intentionally tiny. Rich examples live in the GeaStack ex
 For example:
 
 ```sh
-npx @geastack/create-geastack watch-demo --starter example --example watch
+gea create watch-demo --starter example --example watch
 cd watch-demo
-npx gea setup
-npx gea flash --board amoled --monitor
+gea setup
+gea flash --board amoled --monitor
 ```
 
 The CLI owns the example catalog, so the user does not need to clone the examples repo.
@@ -122,7 +123,7 @@ The CLI owns the example catalog, so the user does not need to clone the example
 Run:
 
 ```sh
-npx gea doctor
+gea doctor
 ```
 
 Most first-run issues are one of:

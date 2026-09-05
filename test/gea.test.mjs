@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
@@ -18,6 +20,22 @@ test('help, version, and unknown command behavior are stable', async () => {
   const unknown = capture()
   assert.equal(await runGea(['nope'], unknown.io), 1)
   assert.match(unknown.err.join('\n'), /Unknown command: nope/)
+})
+
+test('gea create scaffolds and installs through the main CLI', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-main-create-'))
+  const out = capture()
+
+  assert.equal(await runGea([
+    'create', 'Panel',
+    '--dir', path.join(tmp, 'panel'),
+    '--starter', 'empty',
+    '--targets', 'esp32',
+    '--dry-run'
+  ], { ...out.io, cwd: tmp }), 0)
+
+  assert.match(out.out.join('\n'), /npm install/)
+  assert.equal(readJson(path.join(tmp, 'panel/package.json')).gea.targets.esp32, true)
 })
 
 test('list and inspect use the current npm project', async (t) => {

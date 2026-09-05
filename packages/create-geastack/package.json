@@ -1,6 +1,6 @@
 {
   "name": "@geastack/create-geastack",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "type": "module",
   "description": "Project scaffolder for GeaStack apps.",
   "publishConfig": {
@@ -13,7 +13,7 @@
     "create-geastack": "bin/create-geastack.mjs"
   },
   "dependencies": {
-    "@geastack/cli": "^0.1.3"
+    "@geastack/cli": "^0.1.5"
   },
   "engines": {
     "node": ">=20.19"
