@@ -22,9 +22,10 @@ export async function runCreateGeastack(argv, io = {}) {
   const stdout = io.stdout || console.log
   const env = io.env || process.env
   const cwd = io.cwd || process.cwd()
+  const commandName = io.commandName || 'create-geastack'
 
   if (flag(parsed, 'help') || parsed.positionals[0] === 'help') {
-    stdout(usage())
+    stdout(usage(commandName))
     return 0
   }
 
@@ -42,10 +43,7 @@ export async function runCreateGeastack(argv, io = {}) {
   const coreDependency = option(parsed, 'core-dependency') || '^0.1.4'
   const cliDependency = option(parsed, 'cli-dependency') || `^${cliVersion}`
   const starter = await resolveStarter(ctx, parsed, io)
-  const entry = projectRelativePath(option(parsed, 'entry') || starter.starter?.entry || starter.example?.entry || 'index.tsx', 'entry')
-  if (option(parsed, 'entry') && starter.kind !== 'empty') {
-    fail('--entry can only be used with --starter empty.', ExitCode.usage)
-  }
+  const entry = projectRelativePath(starter.starter?.entry || starter.example?.entry || 'index.tsx', 'entry')
 
   fs.mkdirSync(targetDir, { recursive: true })
   if (starter.kind === 'empty') {
@@ -70,26 +68,28 @@ export async function runCreateGeastack(argv, io = {}) {
 
   const sourcePackage = readPackageJson(targetDir)
   const sourceManifest = sourcePackage.gea || starter.starter?.manifest || starter.example?.manifest || {}
-  const targets = optionList(parsed, 'targets').length === 0
-    ? targetManifestFromObject(sourceManifest.targets)
-    : targetManifest(optionList(parsed, 'targets'))
+  const requestedTargets = optionList(parsed, 'targets')
+  const targets = requestedTargets.length > 0
+    ? targetManifest(requestedTargets)
+    : starter.kind === 'empty'
+      ? targetManifest(['web'])
+      : targetManifestFromObject(sourceManifest.targets)
   writeJson(path.join(targetDir, 'package.json'), packageJson({
     appId,
     displayName,
     targets,
     entry,
-    bleOta: flag(parsed, 'ble-ota'),
     coreDependency,
     cliDependency,
     sourcePackage,
     sourceManifest
   }))
-  ensureFile(path.join(targetDir, 'index.html'), () => indexHtml(displayName, entry))
+  if (targets.web) ensureFile(path.join(targetDir, 'index.html'), () => indexHtml(displayName, entry))
   fs.mkdirSync(path.join(targetDir, '.gea'), { recursive: true })
   writeJson(path.join(targetDir, '.gea', 'boards.json'), {})
   ensureJson(path.join(targetDir, 'tsconfig.json'), tsconfigJson)
-  ensureFile(path.join(targetDir, 'vite.config.ts'), viteConfigTs)
-  fs.writeFileSync(path.join(targetDir, 'README.md'), readme({ appId, displayName, starter }))
+  if (targets.web) ensureFile(path.join(targetDir, 'vite.config.ts'), viteConfigTs)
+  fs.writeFileSync(path.join(targetDir, 'README.md'), readme({ appId, displayName, starter, targets }))
 
   const installDependencies = shouldInstallDependencies(parsed, io)
   if (installDependencies) {
@@ -106,7 +106,7 @@ export async function runCreateGeastack(argv, io = {}) {
   stdout(`Created ${displayName} at ${targetDir}`)
   if (starter.kind === 'bundled') stdout(`Starter: ${starter.starter.name}`)
   else if (starter.kind === 'example') stdout(`Example: fetched ${starter.example.name}`)
-  else stdout('Starter: empty app')
+  else stdout('Starter: blank application')
   if (installDependencies) stdout(`Next: cd ${targetDir} && npx gea setup`)
   else stdout(`Next: cd ${targetDir} && npm install && npx gea setup`)
   return 0
@@ -134,10 +134,10 @@ async function resolveStarter(ctx, parsed, io) {
       return { kind: 'bundled', starter }
     }
     if (mode !== 'example') {
-      fail(`Unknown starter '${mode}'. Expected counter, empty, or example.`, ExitCode.usage)
+      fail(`Unknown starter '${mode}'. Expected counter, blank, or example.`, ExitCode.usage)
     }
     if (examples.length === 0) {
-      fail('No GitHub examples are available. Use --starter counter or --starter empty.', ExitCode.usage)
+      fail('No GitHub examples are available. Use --starter counter or --starter blank.', ExitCode.usage)
     }
 
     const requestedExample = option(parsed, 'example') || option(parsed, 'from-example') || ''
@@ -157,11 +157,23 @@ async function resolveStarter(ctx, parsed, io) {
 async function chooseStarterMode({ interactive, prompt, bundled, examples }) {
   if (!interactive) return bundled.length > 0 ? 'counter' : 'empty'
   return choose(prompt, {
-    message: 'Starter app',
+    message: 'What do you want to build?',
     choices: [
-      ...(bundled.length > 0 ? [{ value: 'counter', label: 'Counter starter - bundled minimal JSX app' }] : []),
-      { value: 'empty', label: 'Empty app - minimal blank Gea app' },
-      ...(examples.length > 0 ? [{ value: 'example', label: 'Rich example - fetch from GitHub examples repo' }] : [])
+      ...(bundled.length > 0 ? [{
+        value: 'counter',
+        label: 'Embedded component counter',
+        description: 'Touchscreen +/− counter with local state and BLE updates, ready for ESP32.'
+      }] : []),
+      {
+        value: 'empty',
+        label: 'Blank application',
+        description: 'A minimal screen for building your own Gea application.'
+      },
+      ...(examples.length > 0 ? [{
+        value: 'example',
+        label: 'Example application',
+        description: 'Choose a complete application from the GeaStack example gallery.'
+      }] : [])
     ],
     defaultValue: bundled.length > 0 ? 'counter' : 'empty'
   })
@@ -213,7 +225,7 @@ function targetManifestFromObject(targets = {}) {
   }
 }
 
-function packageJson({ appId, displayName, targets, entry, bleOta, coreDependency, cliDependency, sourcePackage = {}, sourceManifest = {} }) {
+function packageJson({ appId, displayName, targets, entry, coreDependency, cliDependency, sourcePackage = {}, sourceManifest = {} }) {
   const geaManifest = {
     ...sourceManifest,
     id: appId,
@@ -221,7 +233,6 @@ function packageJson({ appId, displayName, targets, entry, bleOta, coreDependenc
     entry,
     targets
   }
-  if (bleOta) geaManifest.ota = { ...(geaManifest.ota || {}), ble: true }
   if (!geaManifest.runtime || geaManifest.runtime === 'gea') delete geaManifest.runtime
 
   return {
@@ -231,8 +242,7 @@ function packageJson({ appId, displayName, targets, entry, bleOta, coreDependenc
     type: 'module',
     scripts: {
       ...(sourcePackage.scripts || {}),
-      dev: 'gea dev',
-      build: 'gea build --target web',
+      ...(targets.web ? { dev: 'gea dev', build: 'gea build --target web' } : {}),
       check: 'tsc --noEmit'
     },
     dependencies: {
@@ -244,7 +254,7 @@ function packageJson({ appId, displayName, targets, entry, bleOta, coreDependenc
       ...(sourcePackage.devDependencies || {}),
       '@geastack/cli': cliDependency,
       typescript: sourcePackage.devDependencies?.typescript || 'latest',
-      vite: sourcePackage.devDependencies?.vite || 'latest'
+      ...(targets.web ? { vite: sourcePackage.devDependencies?.vite || 'latest' } : {})
     },
     gea: geaManifest,
     license: 'MIT'
@@ -358,12 +368,22 @@ export default defineConfig({
 `
 }
 
-function readme({ appId, displayName, starter }) {
+function readme({ appId, displayName, starter, targets }) {
   const starterLine = starter.kind === 'example'
     ? `Started from GitHub example: \`${starter.example.name}\` (\`${starter.example.id}\`).`
     : starter.kind === 'bundled'
       ? `Started from bundled starter: \`${starter.starter.name}\` (\`${starter.starter.id}\`).`
-      : 'Started from an empty app.'
+      : 'Started from a blank app.'
+  const commands = targets.web
+    ? `npx gea setup
+npx gea dev
+npx gea build --target web`
+    : targets.esp32
+      ? `npx gea setup
+npx gea build --board <alias>
+npx gea flash --board <alias> --monitor`
+      : `npx gea setup
+npx gea build`
   return `# ${displayName}
 
 GeaStack app id: \`${appId}\`.
@@ -371,9 +391,7 @@ GeaStack app id: \`${appId}\`.
 ${starterLine}
 
 \`\`\`sh
-npx gea setup
-npx gea dev
-npx gea build --target web
+${commands}
 \`\`\`
 `
 }
@@ -431,21 +449,28 @@ function ensureJson(filePath, create) {
   if (!exists(filePath)) writeJson(filePath, create())
 }
 
-function usage() {
+function usage(commandName = 'create-geastack') {
   return `Usage:
-  create-geastack <name> [--dir <path>] [--id <app-id>] [--name <display-name>]
+  ${commandName} <name>
+
+Run without options for guided setup. The CLI asks what you want to build and
+derives the source layout, targets, and runtime configuration from your choice.
 
 Options:
-  --starter counter|empty|example
+  --starter counter|blank|example
   --example <example-id>
+  --no-install
+
+Automation options:
+  --dir <path>
+  --id <app-id>
+  --name <display-name>
   --examples-repo <git-url-or-local-path>
   --examples-ref <git-ref>
   --targets web,esp32,rp2350,geaos,macos,ios,android
-  --entry <relative-path>
-  --ble-ota
   --core-dependency <specifier>
   --cli-dependency <specifier>
-  --install / --no-install
+  --install
   --dry-run
   --yes
   --force

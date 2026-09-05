@@ -44,20 +44,20 @@ npx @geastack/create-geastack my-app
 In an interactive terminal, `create-geastack` asks:
 
 ```text
-Starter app
-1. Counter starter - bundled minimal JSX app
-2. Empty app - minimal blank Gea app
-3. Rich example - fetch from GitHub examples repo
+What do you want to build?
+1. Embedded component counter
+2. Blank application
+3. Example application
 ```
 
-`Counter starter` is the only bundled source starter. It is intentionally tiny:
-JSX, one `store.ts`, and enough styling to run.
+`Embedded component counter` is the bundled tutorial starter. It uses local
+component state, targets ESP32, and enables BLE updates.
 
-`Empty app` creates the smallest starter: `index.tsx`, `styles.css`,
+`Blank application` creates the smallest browser starter: `index.tsx`, `styles.css`,
 `index.html`, `tsconfig.json`, `vite.config.ts`, `package.json`, and
 `.gea/boards.json`.
 
-`Rich example` opens an example picker populated from the hard-coded
+`Example application` opens an example picker populated from the hard-coded
 `examples/catalog.json` shipped inside `@geastack/cli`. The catalog contains web,
 ESP32, GeaOS, iOS, macOS, and Android examples with names, descriptions, target
 flags, and GitHub paths. When the user selects an example, the CLI fetches that app from
@@ -69,7 +69,7 @@ Automation can skip prompts:
 
 ```sh
 npx @geastack/create-geastack my-app --starter counter
-npx @geastack/create-geastack my-app --starter empty --yes
+npx @geastack/create-geastack my-app --starter blank --yes
 npx @geastack/create-geastack my-app --starter example --example watch
 npx @geastack/create-geastack my-ios-app --starter example --example ios-native-showcase
 npx gea build --target ios --mode simulator

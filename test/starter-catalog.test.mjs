@@ -5,15 +5,15 @@ import test from 'node:test'
 import { discoverBundledStarters, discoverGithubExamples, formatStarterChoice } from '../src/starter-catalog.mjs'
 import { cliRoot } from './helpers/fixture.mjs'
 
-test('starter catalog exposes only the tiny bundled counter starter', () => {
+test('starter catalog exposes the embedded component counter', () => {
   const starters = discoverBundledStarters({ cliPackageRoot: cliRoot })
 
   assert.deepEqual(starters.map((starter) => starter.id), ['counter'])
   assert.equal(starters[0].source, 'bundled')
-  assert.equal(starters[0].name, 'Counter')
-  assert.equal(starters[0].description, 'Minimal JSX counter with one tiny store.')
+  assert.equal(starters[0].name, 'Component Counter')
+  assert.equal(starters[0].description, 'Touchscreen counter with component-local reactive state and BLE updates.')
   assert.equal(starters[0].targets.esp32, true)
-  assert.equal(starters[0].targets.rp2350, true)
+  assert.equal(starters[0].targets.rp2350, false)
   assert.equal(starters[0].targets.android, false)
 })
 

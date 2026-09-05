@@ -3,15 +3,15 @@
   "starters": [
     {
       "id": "counter",
-      "name": "Counter",
-      "description": "Minimal JSX counter with one tiny store.",
+      "name": "Component Counter",
+      "description": "Touchscreen counter with component-local reactive state and BLE updates.",
       "path": "bundled/counter",
-      "entry": "index.tsx",
+      "entry": "src/index.tsx",
       "targets": {
-        "web": true,
+        "web": false,
         "esp32": true,
-        "rp2350": true,
-        "geaos": true,
+        "rp2350": false,
+        "geaos": false,
         "macos": false,
         "ios": false,
         "android": false

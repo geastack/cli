@@ -38,13 +38,16 @@ cd my-app
 When the wizard asks what to create, choose:
 
 ```text
-? What do you want to create?
-  Counter starter - bundled minimal JSX app
-  Empty app - minimal blank Gea app
-  Rich example - fetch from GitHub examples repo
+? What do you want to build?
+  Embedded component counter
+    Touchscreen +/− counter with local state and BLE updates, ready for ESP32.
+  Blank application
+    A minimal screen for building your own Gea application.
+  Example application
+    Choose a complete application from the GeaStack example gallery.
 ```
 
-For the fastest first flash, choose `Counter starter`.
+For the fastest first flash, choose `Embedded component counter`.
 
 That creates a tiny JSX app and installs all of its project dependencies.
 

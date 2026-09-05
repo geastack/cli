@@ -1,0 +1,20 @@
+.screen {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  padding: 28px;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  background-color: #080b12;
+  color: #f8fafc;
+}
+
+.eyebrow { color: #2dd4bf; font-size: 13px; }
+.title { color: #cbd5e1; font-size: 22px; }
+.count { color: #ffffff; font-size: 76px; line-height: 1; }
+.controls { display: flex; flex-direction: row; gap: 16px; }
+.button { width: 92px; height: 58px; border-radius: 14px; border-width: 2px; font-size: 30px; }
+.secondary { color: #f8fafc; background-color: #1e293b; border-color: #475569; }
+.primary { color: #042f2e; background-color: #2dd4bf; border-color: #5eead4; }

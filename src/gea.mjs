@@ -40,7 +40,7 @@ export async function runGea(argv, io = {}) {
   if (command === 'create') {
     const createArgs = argv.slice(1)
     if (option(parsed, 'install') === undefined) createArgs.push('--install')
-    return runCreateGeastack(createArgs, io)
+    return runCreateGeastack(createArgs, { ...io, commandName: 'gea create' })
   }
   if (!command || command === 'help' || flag(parsed, 'help')) {
     stdout(usage())

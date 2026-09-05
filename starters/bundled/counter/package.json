@@ -3,30 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Minimal JSX counter with one tiny store.",
+  "description": "Touchscreen counter with component-local reactive state.",
   "scripts": {
-    "build": "vite build",
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@geajs/core": "^1.3.0"
+    "@geajs/core": "latest"
   },
   "devDependencies": {
-    "typescript": "latest",
-    "vite": "latest"
+    "typescript": "latest"
   },
   "gea": {
     "id": "counter",
-    "name": "Counter",
-    "description": "Minimal JSX counter with one tiny store.",
-    "entry": "index.tsx",
+    "name": "Component Counter",
+    "description": "Touchscreen counter with component-local reactive state.",
+    "entry": "src/index.tsx",
     "targets": {
-      "web": true,
+      "web": false,
       "esp32": true,
-      "rp2350": true,
-      "geaos": true,
+      "rp2350": false,
+      "geaos": false,
       "macos": false,
       "ios": false
+    },
+    "ota": {
+      "ble": true
     }
   }
 }

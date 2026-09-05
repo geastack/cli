@@ -120,7 +120,7 @@ or optional dependency is missing.
 Scaffolds a new app folder with:
 
 - `package.json` containing a `gea` manifest;
-- a bundled counter starter, an empty starter, or a selected GitHub example;
+- a bundled counter starter, a blank application, or a selected GitHub example;
 - `index.tsx` or `index.ts`;
 - `tsconfig.json`;
 - `vite.config.ts`;
@@ -130,9 +130,10 @@ Scaffolds a new app folder with:
 
 Interactive starter choices must explain the tradeoff in-line:
 
-- `Counter starter`: copy the bundled minimal JSX counter with one tiny store.
-- `Empty app`: generate the smallest blank app with no example-specific code.
-- `Rich example`: fetch a selected app from `geastack/examples`, then rewrite
+- `Embedded component counter`: create a touchscreen counter with local
+  component state, an ESP32 target, and BLE updates enabled.
+- `Blank application`: generate a minimal browser application as a clean slate.
+- `Example application`: fetch a selected app from `geastack/examples`, then rewrite
   package name, app id, dependencies, and board config for the new project.
 
 Rich example choices come from the hard-coded `examples/catalog.json`

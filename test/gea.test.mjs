@@ -38,6 +38,14 @@ test('gea create scaffolds and installs through the main CLI', async () => {
   assert.equal(readJson(path.join(tmp, 'panel/package.json')).gea.targets.esp32, true)
 })
 
+test('gea create help presents the guided command', async () => {
+  const out = capture()
+
+  assert.equal(await runGea(['create', '--help'], out.io), 0)
+  assert.match(out.out.join('\n'), /gea create <name>/)
+  assert.match(out.out.join('\n'), /Run without options for guided setup/)
+})
+
 test('list and inspect use the current npm project', async (t) => {
   const fixture = createFixture(t)
 

@@ -29,12 +29,12 @@ flowchart TD
   create["gea create my-app"] --> identity["Resolve app identity<br/>argument, optional --id, optional --name"]
   identity --> starter{"Starter app?"}
 
-  starter -->|"Counter starter"| counter["Copy bundled minimal JSX counter"]
+  starter -->|"Embedded component counter"| counter["Copy the touchscreen counter used in the embedded tutorial"]
 
-  starter -->|"Empty app"| empty["Generate minimal app files"]
+  starter -->|"Blank application"| empty["Generate a minimal browser application"]
   empty --> emptyFiles["index.tsx, styles.css, index.html,<br/>tsconfig.json, vite.config.ts"]
 
-  starter -->|"Rich example"| pickExample["Pick from hard-coded example list<br/>web, ESP32, GeaOS, iOS, macOS, Android"]
+  starter -->|"Example application"| pickExample["Pick from the example gallery<br/>web, ESP32, GeaOS, iOS, macOS, Android"]
   pickExample --> fetchExample["Fetch selected app from GitHub"]
   fetchExample --> copyExample["Copy fetched example files"]
   copyExample --> rewriteExample["Rewrite package name and gea manifest"]
@@ -47,7 +47,7 @@ flowchart TD
   install --> setup["Next: npx gea setup"]
 
   auto["Automation flags"] -.-> starter
-  auto --> autoEmpty["--starter empty --yes"]
+  auto --> autoEmpty["--starter blank --yes"]
   auto --> autoExample["--starter example --example watch"]
 ```
 
@@ -157,6 +157,6 @@ First implementation is in place:
 - npm-resolved embedded board builds for ESP32 and RP2350;
 - `flash`, `monitor`, WiFi OTA, and BLE OTA through `@geastack/targets`;
 - `list` and `inspect` helpers;
-- `create-geastack` with a bundled counter starter, an empty starter, and a
+- `create-geastack` with a bundled counter starter, a blank application, and a
   GitHub-backed rich example flow for web, embedded, GeaOS, iOS, macOS, and Android apps,
   all with `.gea/boards.json`.
