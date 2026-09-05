@@ -97,14 +97,10 @@ flowchart TD
   directTarget --> done
 ```
 
-The implementation wraps the behavior that currently lives in:
-
-- `../targets/scripts/board`
-- `../simulator/targets/web/dev-web.mjs`
-- `../simulator/targets/web/build-web.sh`
-- `../core/packages/core/bin/gea-embedded.mjs`
-- target-specific scripts under `../apple`, `../geaos`, and
-  `../targets`
+The CLI resolves `@geastack/core`, `@geastack/targets`, the compiler, chips,
+host bindings, and the other native packages from npm. A project can use a
+local CLI with `npx gea` or a global installation with `gea`; neither command
+depends on a GeaStack source checkout.
 
 ## Development
 
@@ -117,8 +113,8 @@ Run from this repo during local development:
 
 ```sh
 node bin/gea.mjs doctor
-node bin/gea.mjs build watch --target web --dry-run
-node bin/create-geastack.mjs scratch-panel --dir /tmp/scratch-panel
+node bin/gea.mjs --help
+node bin/create-geastack.mjs demo-panel --dir ./demo-panel --dry-run
 ```
 
 ## Machine Setup
@@ -157,9 +153,8 @@ expose stable command contracts.
 First implementation is in place:
 
 - `doctor` for local toolchain checks;
-- `dev` and `build` for the web simulator target;
-- `build` for macOS/iOS/Android and board-backed targets;
-- `flash` and `monitor` via `targets/scripts/board`;
+- npm-resolved embedded board builds for ESP32 and RP2350;
+- `flash`, `monitor`, WiFi OTA, and BLE OTA through `@geastack/targets`;
 - `list` and `inspect` helpers;
 - `create-geastack` with a bundled counter starter, an empty starter, and a
   GitHub-backed rich example flow for web, embedded, GeaOS, iOS, macOS, and Android apps,

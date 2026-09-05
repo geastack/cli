@@ -56,6 +56,8 @@ export async function runGea(argv, io = {}) {
       return flash(ctx, parsed, rest, { stdout, env })
     case 'monitor':
       return monitor(ctx, parsed, rest, { stdout, env })
+    case 'ota':
+      return ota(ctx, parsed, rest, { stdout, env })
     case 'list':
       return list(ctx, parsed, rest, { stdout })
     case 'inspect':
@@ -149,6 +151,7 @@ function build(ctx, parsed, rest, io) {
   }
 
   return runBoard(ctx, 'build', parsed, {
+    app,
     appId: app.id,
     board,
     target,
@@ -202,6 +205,31 @@ function flash(ctx, parsed, rest, io) {
   }
 
   return runBoard(ctx, flag(parsed, 'monitor') ? 'flash-monitor' : 'flash', parsed, {
+    app,
+    appId: app.id,
+    board,
+    target,
+    failureCode: ExitCode.deployFailed,
+    stdout: io.stdout,
+    env: io.env
+  })
+}
+
+function ota(ctx, parsed, rest, io) {
+  const board = option(parsed, 'board', '')
+  const target = option(parsed, 'target', '')
+  if (!board && !target) fail('ota requires --board <alias> or --target <target>.', ExitCode.usage)
+
+  const app = resolveRequestedApp(ctx, parsed, rest)
+  assertValidApp(app)
+  assertTargetEnabled(ctx, app, board || target)
+
+  const transport = option(parsed, 'transport', 'wifi')
+  if (transport !== 'wifi' && transport !== 'ble') {
+    fail("--transport must be 'wifi' or 'ble'.", ExitCode.usage)
+  }
+  return runBoard(ctx, transport === 'ble' ? 'ble-ota' : 'ota', parsed, {
+    app,
     appId: app.id,
     board,
     target,
@@ -244,9 +272,11 @@ function runBoard(ctx, action, parsed, opts) {
   const port = option(parsed, 'port')
   if (port) args.push(String(port))
   args.push(...parsed.passthrough)
+  const childEnv = createChildEnv(ctx, opts.env)
+  if (opts.app?.manifest?.ota?.ble === true) childEnv.GEA_EMBEDDED_BLE_OTA = '1'
   return runExternal(ctx.scripts.board, args, {
     cwd: ctx.targetsRoot,
-    env: createChildEnv(ctx, opts.env),
+    env: childEnv,
     dryRun: flag(parsed, 'dry-run'),
     failureCode: opts.failureCode,
     stdout: opts.stdout
@@ -310,13 +340,13 @@ function inspect(ctx, parsed, rest, io) {
 
 function doctor(ctx, parsed, io) {
   const checks = []
-  addCheck(checks, 'collection root', exists(ctx.collectionRoot), ctx.collectionRoot, true)
-  addCheck(checks, 'core package', exists(path.join(ctx.corePackageDir, 'package.json')), ctx.corePackageDir, true)
-  addCheck(checks, 'compiler package', exists(path.join(ctx.compilerPackageDir, 'package.json')), ctx.compilerPackageDir, true)
-  addCheck(checks, 'examples root', exists(ctx.examplesRoot), ctx.examplesRoot, true)
-  addCheck(checks, 'simulator web dev', exists(ctx.scripts.webDev), ctx.scripts.webDev, true)
-  addCheck(checks, 'simulator web build', exists(ctx.scripts.webBuild), ctx.scripts.webBuild, true)
-  addCheck(checks, 'Android build script', exists(ctx.scripts.androidBuild), ctx.scripts.androidBuild, true)
+  addCheck(checks, '@geastack/targets', packageExists(ctx.targetsRoot), ctx.targetsRoot, true)
+  addCheck(checks, '@geastack/core', packageExists(ctx.corePackageDir), ctx.corePackageDir, true)
+  addCheck(checks, '@geastack/compiler', packageExists(ctx.compilerPackageDir), ctx.compilerPackageDir, true)
+  addCheck(checks, 'project root', exists(ctx.projectRoot), ctx.projectRoot, true)
+  addCheck(checks, 'web dev adapter', exists(ctx.scripts.webDev), ctx.scripts.webDev, false)
+  addCheck(checks, 'web build adapter', exists(ctx.scripts.webBuild), ctx.scripts.webBuild, false)
+  addCheck(checks, 'Android build adapter', exists(ctx.scripts.androidBuild), ctx.scripts.androidBuild, false)
   addCheck(checks, 'board script', exists(ctx.scripts.board), ctx.scripts.board, true)
   addCheck(checks, 'Node >= 20.19', nodeAtLeast(20, 19), process.version, true)
   const npmVersion = commandVersion('npm', ['--version'], io.env)
@@ -384,6 +414,10 @@ function addCheck(checks, name, ok, detail, required) {
   checks.push({ name, ok: Boolean(ok), detail: detail || (ok ? 'ok' : 'missing'), required: Boolean(required) })
 }
 
+function packageExists(packageDir) {
+  return Boolean(packageDir) && exists(path.join(packageDir, 'package.json'))
+}
+
 function requirePath(filePath, label) {
   if (!exists(filePath)) fail(`Missing ${label}: ${filePath}`, ExitCode.missingDependency)
 }
@@ -399,17 +433,11 @@ function usage() {
   gea flash --bringup --board <alias> [--monitor] [--port auto]
   gea monitor --board <alias>
   gea monitor --target android
+  gea ota [app] --board <alias> [--transport wifi|ble]
   gea list [apps|targets|boards] [--json]
   gea inspect [app] [--json]
 
 Global options:
-  --collection-root <dir>
-  --examples-root <dir>
-  --core-root <dir>
-  --compiler-root <dir>
-  --simulator-root <dir>
-  --android-root <dir>
-  --targets-root <dir>
   --boards-config <file>
   --dry-run
 `

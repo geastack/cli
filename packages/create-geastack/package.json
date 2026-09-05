@@ -10,7 +10,7 @@
     "bin/"
   ],
   "bin": {
-    "create-geastack": "./bin/create-geastack.mjs"
+    "create-geastack": "bin/create-geastack.mjs"
   },
   "dependencies": {
     "@geastack/cli": "^0.1.0"

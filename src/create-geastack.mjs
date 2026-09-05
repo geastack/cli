@@ -37,8 +37,8 @@ export async function runCreateGeastack(argv, io = {}) {
 
   const ctx = createContext(parsed, env, cwd)
   const displayName = option(parsed, 'name', titleFromId(appId))
-  const coreDependency = option(parsed, 'core-dependency') || defaultCoreDependency(ctx, targetDir, flag(parsed, 'published'))
-  const cliDependency = option(parsed, 'cli-dependency') || defaultCliDependency(ctx, targetDir, flag(parsed, 'published'))
+  const coreDependency = option(parsed, 'core-dependency') || '^0.1.2'
+  const cliDependency = option(parsed, 'cli-dependency') || '^0.1.0'
   const starter = await resolveStarter(ctx, parsed, io)
 
   fs.mkdirSync(targetDir, { recursive: true })
@@ -201,25 +201,6 @@ function targetManifestFromObject(targets = {}) {
     ios: targets.ios === true,
     android: targets.android === true
   }
-}
-
-function defaultCoreDependency(ctx, targetDir, published) {
-  if (!published && exists(path.join(ctx.corePackageDir, 'package.json'))) {
-    return `file:${toPackageRelativePath(targetDir, ctx.corePackageDir)}`
-  }
-  return '^0.1.0'
-}
-
-function defaultCliDependency(ctx, targetDir, published) {
-  if (!published && exists(path.join(ctx.cliPackageRoot, 'package.json'))) {
-    return `file:${toPackageRelativePath(targetDir, ctx.cliPackageRoot)}`
-  }
-  return '^0.1.0'
-}
-
-function toPackageRelativePath(fromDir, toDir) {
-  const relative = path.relative(fromDir, toDir) || '.'
-  return relative.split(path.sep).join('/')
 }
 
 function packageJson({ appId, displayName, targets, coreDependency, cliDependency, sourcePackage = {}, sourceManifest = {} }) {
@@ -441,7 +422,6 @@ Options:
   --targets web,esp32,rp2350,geaos,macos,ios,android
   --core-dependency <specifier>
   --cli-dependency <specifier>
-  --published
   --install / --no-install
   --dry-run
   --yes

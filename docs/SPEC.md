@@ -83,9 +83,9 @@ gea flash --app bouncing-balls-jsx --board amoled --monitor
 gea flash --app css-3d-cube --target android
 ```
 
-The CLI should pass through board aliases from the active board config. Generated
-apps use `.gea/boards.json`; split-repo development can still fall back to
-`targets/boards.json`.
+The CLI should pass through board aliases from the active board config. A project
+uses its own `.gea/boards.json`; otherwise the CLI reads the board catalog shipped
+by the installed `@geastack/targets` package.
 
 ### `gea monitor`
 

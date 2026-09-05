@@ -26,8 +26,8 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.gea.targets.esp32, false)
   assert.equal(packageJson.gea.targets.rp2350, false)
   assert.equal(packageJson.gea.targets.android, false)
-  assert.equal(packageJson.dependencies['@geastack/core'].startsWith('file:'), true)
-  assert.equal(packageJson.devDependencies['@geastack/cli'].startsWith('file:'), true)
+  assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.2')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.0')
   assert.equal(fs.existsSync(path.join(tmp, 'index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'store.ts')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
@@ -65,18 +65,18 @@ test('create-geastack uses explicit id, display name, and core dependency', asyn
   assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /Factory Control/)
 })
 
-test('create-geastack defaults to local file dependency when collection root is available', async (t) => {
+test('create-geastack always defaults to registry dependencies', async (t) => {
   const fixture = createFixture(t)
-  const targetDir = path.join(fixture.root, 'scratch')
+  const targetDir = path.join(fixture.root, 'generated-app')
 
-  await runCreateGeastack(['scratch', '--collection-root', fixture.root, '--dir', targetDir], {
+  await runCreateGeastack(['generated-app', '--dir', targetDir], {
     cwd: fixture.root,
     stdout: () => {}
   })
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
-  assert.equal(packageJson.dependencies['@geastack/core'], 'file:../core/packages/core')
-  assert.equal(path.resolve(targetDir, packageJson.devDependencies['@geastack/cli'].slice('file:'.length)), cliRoot)
+  assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.2')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.0')
   assert.equal(packageJson.gea.targets.rp2350, true)
   assert.equal(packageJson.gea.targets.android, false)
 })
@@ -93,7 +93,6 @@ test('create-geastack can interactively fetch a rich GitHub example', async () =
     'Example App',
     '--dir',
     tmp,
-    '--published',
     '--no-install',
     '--examples-repo',
     path.join(cliRoot, '..', 'examples')
@@ -142,43 +141,12 @@ test('create-geastack can fetch a named rich example from a local repo path non-
 
   await runCreateGeastack([
     'watch-copy',
-    '--collection-root',
-    fixture.root,
     '--dir',
     targetDir,
     '--starter',
     'example',
     '--example',
     'watch',
-    '--examples-repo',
-    path.join(fixture.root, 'examples')
-  ], {
-    cwd: fixture.root,
-    stdout: () => {}
-  })
-
-  const packageJson = readJson(path.join(targetDir, 'package.json'))
-  assert.equal(packageJson.gea.id, 'watch-copy')
-  assert.equal(packageJson.gea.name, 'Watch Copy')
-  assert.equal(packageJson.gea.targets.ios, true)
-  assert.equal(packageJson.gea.targets.android, true)
-  assert.equal(fs.readFileSync(path.join(targetDir, 'index.tsx'), 'utf8'), 'export const value = 1\n')
-})
-
-test('create-geastack can fetch a native iOS example and build it through gea', async (t) => {
-  const fixture = createFixture(t)
-  const targetDir = path.join(fixture.root, 'ios-copy')
-
-  await runCreateGeastack([
-    'ios-copy',
-    '--collection-root',
-    fixture.root,
-    '--dir',
-    targetDir,
-    '--starter',
-    'example',
-    '--example',
-    'ios-native-showcase',
     '--examples-repo',
     path.join(cliRoot, '..', 'examples')
   ], {
@@ -187,17 +155,11 @@ test('create-geastack can fetch a native iOS example and build it through gea', 
   })
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
-  assert.equal(packageJson.gea.id, 'ios-copy')
-  assert.equal(packageJson.gea.targets.ios, true)
-  assert.equal(packageJson.gea.targets.web, false)
-  assert.equal(packageJson.gea.entry, 'index.ts')
-
-  const out = []
-  await runGea(['--collection-root', fixture.root, 'build', '--target=ios', '--mode=device', '--dry-run'], {
-    cwd: targetDir,
-    stdout: (line) => out.push(line)
-  })
-  assert.match(out.join('\n'), /apple\/targets\/ios\/build-ios\.sh ios-copy device/)
+  assert.equal(packageJson.gea.id, 'watch-copy')
+  assert.equal(packageJson.gea.name, 'Watch Copy')
+  assert.equal(packageJson.gea.targets.esp32, true)
+  assert.equal(packageJson.gea.targets.web, true)
+  assert.match(fs.readFileSync(path.join(targetDir, 'index.tsx'), 'utf8'), /watch\.init/)
 })
 
 test('create-geastack requires an example id for non-interactive example starters', async () => {
@@ -209,18 +171,18 @@ test('create-geastack requires an example id for non-interactive example starter
   )
 })
 
-test('create-geastack can emit published dependency instead of local file dependency', async (t) => {
+test('create-geastack accepts explicit dependency versions', async (t) => {
   const fixture = createFixture(t)
-  const targetDir = path.join(fixture.root, 'published-app')
+  const targetDir = path.join(fixture.root, 'versioned-app')
 
-  await runCreateGeastack(['published-app', '--collection-root', fixture.root, '--dir', targetDir, '--published'], {
+  await runCreateGeastack(['versioned-app', '--dir', targetDir, '--core-dependency=0.1.2', '--cli-dependency=0.1.0'], {
     cwd: fixture.root,
     stdout: () => {}
   })
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
-  assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.0')
-  assert.equal(packageJson.devDependencies['@geastack/cli'], '^0.1.0')
+  assert.equal(packageJson.dependencies['@geastack/core'], '0.1.2')
+  assert.equal(packageJson.devDependencies['@geastack/cli'], '0.1.0')
 })
 
 test('create-geastack rejects missing and unsluggable names with usage exit code', async () => {

@@ -14,47 +14,39 @@ import {
 } from '../src/manifest.mjs'
 import { createFixture, writeJson } from './helpers/fixture.mjs'
 
-test('createContext honors collection root and package-dir overrides', (t) => {
+test('createContext resolves Geastack packages from node_modules', (t) => {
   const fixture = createFixture(t)
-  const parsed = parseArgs(['--collection-root', fixture.root])
+  const ctx = createContext(parseArgs([]), {}, fixture.appDir)
 
-  const ctx = createContext(parsed, {}, path.join(fixture.root, 'examples/apps/watch'))
-
-  assert.equal(ctx.collectionRoot, fixture.root)
-  assert.equal(ctx.androidRoot, path.join(fixture.root, 'android'))
-  assert.equal(ctx.corePackageDir, path.join(fixture.root, 'core/packages/core'))
-  assert.equal(ctx.compilerPackageDir, path.join(fixture.root, 'compiler'))
-  assert.equal(ctx.examplesRoot, path.join(fixture.root, 'examples'))
+  assert.equal(ctx.projectRoot, fixture.appDir)
+  assert.equal(ctx.targetsRoot, fixture.installed('targets'))
+  assert.equal(ctx.corePackageDir, fixture.installed('core'))
+  assert.equal(ctx.compilerPackageDir, fixture.installed('compiler'))
+  assert.equal(ctx.chipsPackageDir, fixture.installed('chips'))
+  assert.equal(ctx.scripts.board, path.join(fixture.installed('targets'), 'scripts/board'))
 })
 
-test('createContext normalizes legacy package-dir env overrides back to repo roots', (t) => {
+test('createChildEnv exports exact installed package paths', (t) => {
   const fixture = createFixture(t)
-  const ctx = createContext(parseArgs([]), {
-    GEA_COLLECTION_ROOT: fixture.root,
-    GEA_CORE_DIR: path.join(fixture.root, 'core/packages/core'),
-    GEA_COMPILER_DIR: path.join(fixture.root, 'compiler')
-  }, fixture.root)
-
-  assert.equal(ctx.coreRoot, path.join(fixture.root, 'core'))
-  assert.equal(ctx.compilerRoot, path.join(fixture.root, 'compiler'))
-})
-
-test('createChildEnv fills split-repo environment without clobbering explicit values', (t) => {
-  const fixture = createFixture(t)
-  const ctx = createContext(parseArgs(['--collection-root', fixture.root, '--boards-config', 'local-boards.json']), {}, fixture.root)
+  const ctx = createContext(parseArgs(['--boards-config', 'local-boards.json']), {}, fixture.appDir)
   const env = createChildEnv(ctx, {
-    GEA_APPS_ROOT: '/custom/apps',
+    GEA_EXTRA_APP_DIRS: '/custom/apps',
     PATH: '/bin'
   })
 
-  assert.equal(env.GEA_COLLECTION_ROOT, fixture.root)
-  assert.equal(env.GEA_APPS_ROOT, '/custom/apps')
-  assert.equal(env.GEA_CORE_DIR, path.join(fixture.root, 'core/packages/core'))
-  assert.equal(env.GEA_BOARDS_CONFIG, path.join(fixture.root, 'local-boards.json'))
+  assert.equal(env.GEA_APPS_ROOT, fixture.appDir)
+  assert.equal(env.GEA_CORE_PACKAGE, fixture.installed('core'))
+  assert.equal(env.GEA_CORE_DIR, fixture.installed('core'))
+  assert.equal(env.GEA_CHIPS_DIR, fixture.installed('chips'))
+  assert.equal(env.GEA_ENGINE_DIR, fixture.installed('engine'))
+  assert.equal(env.GEA_HOST_DIR, fixture.installed('host'))
+  assert.equal(env.GEA_EXTRA_APP_DIRS, `/custom/apps${path.delimiter}${fixture.appDir}`)
+  assert.equal(env.GEA_BOARDS_CONFIG, path.join(fixture.appDir, 'local-boards.json'))
   assert.equal(env.PATH, '/bin')
+  assert.equal(env.GEA_COLLECTION_ROOT, undefined)
 })
 
-test('createContext discovers project-local board config for generated apps', (t) => {
+test('createContext discovers a project-local board config', (t) => {
   const fixture = createFixture(t)
   const boardsPath = path.join(fixture.appDir, '.gea/boards.json')
   writeJson(boardsPath, {
@@ -64,7 +56,7 @@ test('createContext discovers project-local board config for generated apps', (t
     }
   })
 
-  const ctx = createContext(parseArgs(['--collection-root', fixture.root]), {}, path.join(fixture.appDir, 'nested'))
+  const ctx = createContext(parseArgs([]), {}, path.join(fixture.appDir, 'nested'))
   const env = createChildEnv(ctx, {})
 
   assert.equal(ctx.projectRoot, fixture.appDir)
@@ -73,17 +65,17 @@ test('createContext discovers project-local board config for generated apps', (t
   assert.equal(env.GEA_BOARDS_CONFIG, boardsPath)
 })
 
-test('manifest discovery finds examples and companion apps with deterministic order', (t) => {
+test('manifest discovery finds root workspace apps in deterministic order', (t) => {
   const fixture = createFixture(t)
-  const ctx = createContext(parseArgs(['--collection-root', fixture.root]), {}, fixture.root)
+  const ctx = createContext(parseArgs([]), {}, fixture.root)
   const apps = discoverApps(ctx)
 
-  assert.deepEqual(apps.map((app) => app.id), ['bad-app', 'gea-companion', 'watch', 'web-only'])
+  assert.deepEqual(apps.map((app) => app.id), ['bad-app', 'watch', 'web-only'])
 })
 
-test('manifest helpers validate current app, target metadata, and board platform mapping', (t) => {
+test('manifest helpers validate current app and installed target metadata', (t) => {
   const fixture = createFixture(t)
-  const ctx = createContext(parseArgs(['--collection-root', fixture.root]), {}, fixture.root)
+  const ctx = createContext(parseArgs([]), {}, fixture.root)
 
   const current = findCurrentApp(path.join(fixture.appDir, 'nested/deeper'))
   assert.equal(current.id, 'watch')
@@ -91,12 +83,9 @@ test('manifest helpers validate current app, target metadata, and board platform
   assert.equal(appPlatformForTarget(ctx, 'amoled'), 'esp32')
   assert.equal(appPlatformForTarget(ctx, 'esp32-s3-touch-amoled-2.06'), 'esp32')
   assert.equal(appPlatformForTarget(ctx, 'tufty'), 'rp2350')
-  assert.equal(appPlatformForTarget(ctx, 'rp2350-tufty-2350'), 'rp2350')
   assert.deepEqual(appPlatformsForTarget(ctx, 'tufty'), ['rp2350', 'esp32'])
-  assert.equal(appPlatformForTarget(ctx, 'android'), 'android')
   assert.equal(targetEnabledForApp(ctx, current, 'amoled'), true)
   assert.equal(targetEnabledForApp(ctx, current, 'tufty'), true)
-  assert.equal(targetEnabledForApp(ctx, current, 'android'), true)
 
   const bad = findCurrentApp(fixture.badAppDir)
   assert.deepEqual(validateApp(bad), ['gea.entry does not exist: missing.tsx'])

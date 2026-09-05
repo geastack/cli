@@ -4,7 +4,7 @@ import { CliError, ExitCode, fail } from './errors.mjs'
 import { exists, findUp, isDirectory, listDirectories, readJson } from './fs-utils.mjs'
 
 export function discoverApps(ctx) {
-  const roots = [ctx.examplesRoot, ctx.companionRoot]
+  const roots = [ctx.projectRoot]
   const seen = new Set()
   const apps = []
   for (const root of roots) {
@@ -41,7 +41,7 @@ export function resolveRequestedApp(ctx, parsed, positionals) {
   const requested = parsed.options.app || positionals[0]
   if (requested) {
     const app = findAppById(ctx, String(Array.isArray(requested) ? requested.at(-1) : requested))
-    if (!app) fail(`Could not find Gea app '${requested}'. Use --examples-root or run from a split GeaStack checkout.`, ExitCode.usage)
+    if (!app) fail(`Could not find Gea app '${requested}' in ${ctx.projectRoot}.`, ExitCode.usage)
     return app
   }
   const current = findCurrentApp(ctx.cwd)

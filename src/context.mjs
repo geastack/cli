@@ -1,65 +1,54 @@
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 import { option } from './args.mjs'
-import { exists, findUp, readJson } from './fs-utils.mjs'
+import { exists, findUp } from './fs-utils.mjs'
 
 const srcDir = path.dirname(fileURLToPath(import.meta.url))
 export const cliPackageRoot = path.resolve(srcDir, '..')
+const requireFromCli = createRequire(import.meta.url)
 
-const repoNames = Object.freeze({
-  android: 'android',
-  apple: 'apple',
-  companion: 'companion',
-  compiler: 'compiler',
-  core: 'core',
-  examples: 'examples',
-  geaos: 'geaos',
-  simulator: 'simulator',
-  targets: 'targets'
-})
-
-export function createContext(parsed, env = process.env, cwd = process.cwd()) {
-  const collectionRoot = resolveCollectionRoot(parsed, env, cwd)
-  const coreRoot = normalizePackageRepoRoot(resolvePathOption(parsed, env, 'core-root', 'GEA_CORE_ROOT', 'GEA_CORE_DIR', path.join(collectionRoot, repoNames.core)), 'packages/core')
-  const compilerRoot = normalizePackageRepoRoot(resolvePathOption(parsed, env, 'compiler-root', 'GEA_COMPILER_ROOT', 'GEA_COMPILER_DIR', path.join(collectionRoot, repoNames.compiler)), 'packages/geatsc')
-  const examplesRoot = resolvePathOption(parsed, env, 'examples-root', 'GEA_EXAMPLES_ROOT', 'GEA_APPS_ROOT', path.join(collectionRoot, repoNames.examples))
-  const companionRoot = resolvePathOption(parsed, env, 'companion-root', 'GEA_COMPANION_ROOT', '', path.join(collectionRoot, repoNames.companion))
-  const projectRoot = findGeaProjectRoot(cwd) || path.resolve(cwd)
+export function createContext(parsed, _env = process.env, cwd = process.cwd()) {
+  const absoluteCwd = path.resolve(cwd)
+  const projectRoot = findNodeProjectRoot(absoluteCwd) || absoluteCwd
+  const initialAnchors = [projectRoot, cliPackageRoot]
+  const targetsRoot = resolveInstalledPackageDir('@geastack/targets', initialAnchors)
+  const corePackageDir = resolveInstalledPackageDir('@geastack/core', initialAnchors)
+  const packageAnchors = [projectRoot, cliPackageRoot, targetsRoot, corePackageDir].filter(Boolean)
+  const compilerPackageDir = resolveInstalledPackageDir('@geastack/compiler', packageAnchors)
   const projectBoardsConfig = path.join(projectRoot, '.gea', 'boards.json')
-  const explicitBoardsConfig = option(parsed, 'boards-config') || env.GEA_BOARDS_CONFIG || ''
+  const explicitBoardsConfig = option(parsed, 'boards-config') || ''
   const boardsConfig = explicitBoardsConfig || (exists(projectBoardsConfig) ? projectBoardsConfig : '')
 
   const ctx = {
-    cwd: path.resolve(cwd),
+    cwd: absoluteCwd,
     projectRoot,
     projectBoardsConfig,
     cliPackageRoot,
-    collectionRoot,
-    androidRoot: resolvePathOption(parsed, env, 'android-root', 'GEA_ANDROID_ROOT', '', path.join(collectionRoot, repoNames.android)),
-    appleRoot: resolvePathOption(parsed, env, 'apple-root', 'GEA_APPLE_ROOT', '', path.join(collectionRoot, repoNames.apple)),
-    companionRoot,
-    compilerRoot,
-    // The compiler repo's root IS the compiler package. It used to hold a
-    // workspace whose `packages/geatsc` was the compiler; that implementation is
-    // archived at geastack/compiler-legacy and its replacement sits at the root.
-    compilerPackageDir: compilerRoot,
-    coreRoot,
-    corePackageDir: path.join(coreRoot, 'packages', 'core'),
-    boardsConfig: boardsConfig ? path.resolve(cwd, boardsConfig) : '',
-    examplesRoot,
-    geaosRoot: resolvePathOption(parsed, env, 'geaos-root', 'GEA_GEAOS_ROOT', '', path.join(collectionRoot, repoNames.geaos)),
-    simulatorRoot: resolvePathOption(parsed, env, 'simulator-root', 'GEA_SIMULATOR_ROOT', '', path.join(collectionRoot, repoNames.simulator)),
-    targetsRoot: resolvePathOption(parsed, env, 'targets-root', 'GEA_TARGETS_ROOT', '', path.join(collectionRoot, repoNames.targets))
+    compilerPackageDir,
+    corePackageDir,
+    chipsPackageDir: resolveInstalledPackageDir('@geastack/chips', packageAnchors),
+    elementsPackageDir: resolveInstalledPackageDir('@geastack/elements', packageAnchors),
+    enginePackageDir: resolveInstalledPackageDir('@geastack/engine', packageAnchors),
+    geaosPackageDir: resolveInstalledPackageDir('@geastack/geaos', packageAnchors),
+    hostPackageDir: resolveInstalledPackageDir('@geastack/host', packageAnchors),
+    pluginPackageDir: resolveInstalledPackageDir('@geastack/geatsc-plugin-gea', packageAnchors),
+    boardsConfig: boardsConfig ? path.resolve(absoluteCwd, boardsConfig) : '',
+    examplesRoot: projectRoot,
+    simulatorRoot: '',
+    androidRoot: '',
+    appleRoot: '',
+    targetsRoot
   }
   ctx.scripts = {
-    board: path.join(ctx.targetsRoot, 'scripts', 'board'),
-    webBuild: path.join(ctx.simulatorRoot, 'targets', 'web', 'build-web.sh'),
-    webDev: path.join(ctx.simulatorRoot, 'targets', 'web', 'dev-web.mjs'),
-    androidBuild: path.join(ctx.androidRoot, 'targets', 'android', 'build-android.sh'),
-    macosBuild: path.join(ctx.appleRoot, 'targets', 'macos', 'build-macos.sh'),
-    iosBuild: path.join(ctx.appleRoot, 'targets', 'ios', 'build-ios.sh'),
-    geaEmbedded: path.join(ctx.corePackageDir, 'bin', 'gea-embedded.mjs')
+    board: packageFile(ctx.targetsRoot, 'scripts', 'board'),
+    webBuild: '',
+    webDev: '',
+    androidBuild: '',
+    macosBuild: '',
+    iosBuild: '',
+    geaEmbedded: packageFile(ctx.corePackageDir, 'bin', 'gea-embedded.mjs')
   }
   return ctx
 }
@@ -67,67 +56,55 @@ export function createContext(parsed, env = process.env, cwd = process.cwd()) {
 export function createChildEnv(ctx, env = process.env) {
   const out = {
     ...env,
-    GEA_COLLECTION_ROOT: ctx.collectionRoot,
-    GEA_APPS_ROOT: env.GEA_APPS_ROOT || ctx.examplesRoot,
-    GEA_CLI_BIN: env.GEA_CLI_BIN || path.join(ctx.cliPackageRoot, 'bin', 'gea.mjs'),
-    GEA_CORE_DIR: env.GEA_CORE_DIR || ctx.corePackageDir,
-    GEA_COMPILER_DIR: env.GEA_COMPILER_DIR || ctx.compilerPackageDir
+    GEA_APPS_ROOT: ctx.projectRoot,
+    GEA_CLI_BIN: path.join(ctx.cliPackageRoot, 'bin', 'gea.mjs'),
+    GEA_CHIPS_DIR: ctx.chipsPackageDir,
+    GEA_CORE_PACKAGE: ctx.corePackageDir,
+    GEA_CORE_DIR: ctx.corePackageDir,
+    GEA_COMPILER_DIR: ctx.compilerPackageDir,
+    GEA_ELEMENTS_DIR: ctx.elementsPackageDir,
+    GEA_ENGINE_DIR: ctx.enginePackageDir,
+    GEA_EXTRA_APP_DIRS: appendPathList(env.GEA_EXTRA_APP_DIRS, ctx.projectRoot),
+    GEA_GEAOS_PACKAGE_DIR: ctx.geaosPackageDir,
+    GEA_HOST_DIR: ctx.hostPackageDir,
+    GEA_PLUGIN_DIR: ctx.pluginPackageDir,
+    GEA_TARGETS_ROOT: ctx.targetsRoot
   }
   if (ctx.boardsConfig) out.GEA_BOARDS_CONFIG = ctx.boardsConfig
+  for (const [name, value] of Object.entries(out)) {
+    if (name.startsWith('GEA_') && value === '') delete out[name]
+  }
   return out
 }
 
-function resolveCollectionRoot(parsed, env, cwd) {
-  const explicit = option(parsed, 'collection-root') || env.GEA_COLLECTION_ROOT
-  if (explicit) return path.resolve(cwd, explicit)
-
-  const fromCwd = findCollectionRoot(cwd)
-  if (fromCwd) return fromCwd
-
-  const fromCli = findCollectionRoot(path.dirname(cliPackageRoot))
-  if (fromCli) return fromCli
-
-  return path.dirname(cliPackageRoot)
-}
-
-function findCollectionRoot(start) {
-  let current = path.resolve(start)
-  while (true) {
-    if (looksLikeCollectionRoot(current)) return current
-    const parent = path.dirname(current)
-    if (parent === current) return ''
-    current = parent
-  }
-}
-
-function looksLikeCollectionRoot(dir) {
-  let score = 0
-  for (const name of Object.values(repoNames)) {
-    if (exists(path.join(dir, name))) score += 1
-  }
-  return score >= 3
-}
-
-function resolvePathOption(parsed, env, optionName, envName, legacyEnvName, fallback) {
-  const value = option(parsed, optionName) || env[envName] || (legacyEnvName ? env[legacyEnvName] : '') || fallback
-  return path.resolve(value)
-}
-
-function normalizePackageRepoRoot(input, packageSubdir) {
-  const resolved = path.resolve(input)
-  if (exists(path.join(resolved, packageSubdir, 'package.json'))) return resolved
-  if (exists(path.join(resolved, 'package.json'))) return path.resolve(resolved, '..', '..')
-  return resolved
-}
-
-function findGeaProjectRoot(start) {
-  return findUp(start, (dir) => {
-    const packagePath = path.join(dir, 'package.json')
-    if (!exists(packagePath)) return false
-    try {
-      return Boolean(readJson(packagePath).gea)
-    } catch {
-      return false
+function resolveInstalledPackageDir(packageName, anchors) {
+  for (const anchor of anchors) {
+    let current = path.resolve(anchor)
+    while (true) {
+      const candidate = path.join(current, 'node_modules', ...packageName.split('/'))
+      if (exists(path.join(candidate, 'package.json'))) return candidate
+      const parent = path.dirname(current)
+      if (parent === current) break
+      current = parent
     }
-  })
+  }
+  try {
+    return path.dirname(requireFromCli.resolve(`${packageName}/package.json`))
+  } catch {
+    return ''
+  }
+}
+
+function packageFile(packageRoot, ...segments) {
+  return packageRoot ? path.join(packageRoot, ...segments) : ''
+}
+
+function appendPathList(current, value) {
+  const entries = String(current || '').split(path.delimiter).filter(Boolean)
+  if (value && !entries.includes(value)) entries.push(value)
+  return entries.join(path.delimiter)
+}
+
+function findNodeProjectRoot(start) {
+  return findUp(start, (dir) => exists(path.join(dir, 'package.json')))
 }

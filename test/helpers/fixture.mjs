@@ -4,46 +4,46 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const cliRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
-export const realCollectionRoot = path.resolve(cliRoot, '..')
 
 export function createFixture(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-cli-fixture-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
 
-  mkdir(root, 'core/packages/core/bin')
-  mkdir(root, 'compiler')
-  mkdir(root, 'examples/apps/watch')
-  mkdir(root, 'examples/apps/web-only')
-  mkdir(root, 'examples/apps/bad-app')
-  mkdir(root, 'companion/examples/gea-companion')
-  mkdir(root, 'simulator/targets/web')
-  mkdir(root, 'targets/scripts/boards')
-  mkdir(root, 'android/targets/android')
-  mkdir(root, 'apple/targets/macos')
-  mkdir(root, 'apple/targets/ios')
-  mkdir(root, 'geaos')
+  writeJson(path.join(root, 'package.json'), {
+    name: 'fixture-project',
+    private: true,
+    workspaces: ['apps/*']
+  })
 
-  writeJson(path.join(root, 'core/packages/core/package.json'), {
+  const installed = (name) => path.join(root, 'node_modules', '@geastack', name)
+  for (const name of ['chips', 'compiler', 'elements', 'engine', 'geaos', 'host', 'geatsc-plugin-gea']) {
+    writeJson(path.join(installed(name), 'package.json'), {
+      name: `@geastack/${name}`,
+      version: '0.1.0'
+    })
+  }
+  writeJson(path.join(installed('core'), 'package.json'), {
     name: '@geastack/core',
-    version: '0.1.0'
+    version: '0.1.2'
   })
-  writeExecutable(path.join(root, 'core/packages/core/bin/gea-embedded.mjs'), '#!/usr/bin/env node\n')
-  writeJson(path.join(root, 'compiler/package.json'), {
-    name: '@geastack/compiler',
-    version: '0.1.0'
+  writeExecutable(path.join(installed('core'), 'bin/gea-embedded.mjs'), '#!/usr/bin/env node\n')
+  writeJson(path.join(installed('targets'), 'package.json'), {
+    name: '@geastack/targets',
+    version: '0.1.1'
   })
+  writeExecutable(path.join(installed('targets'), 'scripts/board'), '#!/usr/bin/env bash\n')
 
-  writeApp(root, 'examples/apps/watch', {
+  writeApp(root, 'apps/watch', {
     id: 'watch',
     name: 'Watch',
     targets: { web: true, esp32: true, rp2350: false, geaos: true, macos: true, ios: true, android: true }
   })
-  writeApp(root, 'examples/apps/web-only', {
+  writeApp(root, 'apps/web-only', {
     id: 'web-only',
     name: 'Web Only',
     targets: { web: true, esp32: false, rp2350: false, geaos: false, macos: false, ios: false, android: false }
   })
-  writeJson(path.join(root, 'examples/apps/bad-app/package.json'), {
+  writeJson(path.join(root, 'apps/bad-app/package.json'), {
     name: '@fixture/bad-app',
     private: true,
     gea: {
@@ -54,20 +54,8 @@ export function createFixture(t, options = {}) {
       targets: { web: true }
     }
   })
-  writeApp(root, 'companion/examples/gea-companion', {
-    id: 'gea-companion',
-    name: 'Gea Companion',
-    targets: { macos: true, web: false, esp32: false, rp2350: false, geaos: false, ios: false, android: false }
-  })
 
-  writeExecutable(path.join(root, 'simulator/targets/web/dev-web.mjs'), '#!/usr/bin/env node\n')
-  writeExecutable(path.join(root, 'simulator/targets/web/build-web.sh'), '#!/usr/bin/env bash\n')
-  writeExecutable(path.join(root, 'targets/scripts/board'), '#!/usr/bin/env bash\n')
-  writeExecutable(path.join(root, 'android/targets/android/build-android.sh'), '#!/usr/bin/env bash\n')
-  writeExecutable(path.join(root, 'apple/targets/macos/build-macos.sh'), '#!/usr/bin/env bash\n')
-  writeExecutable(path.join(root, 'apple/targets/ios/build-ios.sh'), '#!/usr/bin/env bash\n')
-
-  writeJson(path.join(root, 'targets/scripts/boards/targets.json'), {
+  writeJson(path.join(installed('targets'), 'scripts/boards/targets.json'), {
     'esp32-s3-touch-amoled-2.06': {
       adapter: 'esp32-idf',
       targetPath: 'targets/esp32-s3-touch-amoled-2.06',
@@ -86,9 +74,9 @@ export function createFixture(t, options = {}) {
     }
   })
   if (options.invalidBoardsJson) {
-    fs.writeFileSync(path.join(root, 'targets/boards.json'), '{ this is not json\n')
+    fs.writeFileSync(path.join(installed('targets'), 'boards.json'), '{ this is not json\n')
   } else {
-    writeJson(path.join(root, 'targets/boards.json'), {
+    writeJson(path.join(installed('targets'), 'boards.json'), {
       amoled: {
         target: 'esp32-s3-touch-amoled-2.06',
         adapter: 'esp32-idf'
@@ -106,8 +94,9 @@ export function createFixture(t, options = {}) {
 
   return {
     root,
-    appDir: path.join(root, 'examples/apps/watch'),
-    badAppDir: path.join(root, 'examples/apps/bad-app')
+    appDir: path.join(root, 'apps/watch'),
+    badAppDir: path.join(root, 'apps/bad-app'),
+    installed
   }
 }
 
