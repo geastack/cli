@@ -18,7 +18,7 @@ import { runExternal } from './run.mjs'
 import { runSetupWizard } from './setup-wizard.mjs'
 import { commandVersion, nodeAtLeast } from './toolchain.mjs'
 
-const version = '0.1.0'
+const version = '0.1.1'
 
 export async function runGea(argv, io = {}) {
   const parsed = parseArgs(argv)
@@ -267,8 +267,6 @@ function runBoard(ctx, action, parsed, opts) {
   if (opts.board) args.push(`--board=${opts.board}`)
   if (opts.target) args.push(`--target=${opts.target}`)
   if (opts.appId) args.push(`--app=${opts.appId}`)
-  const residentApps = option(parsed, 'resident-apps')
-  if (residentApps) args.push(`--resident-apps=${residentApps}`)
   const port = option(parsed, 'port')
   if (port) args.push(String(port))
   args.push(...parsed.passthrough)

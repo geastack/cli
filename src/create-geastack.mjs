@@ -37,8 +37,8 @@ export async function runCreateGeastack(argv, io = {}) {
 
   const ctx = createContext(parsed, env, cwd)
   const displayName = option(parsed, 'name', titleFromId(appId))
-  const coreDependency = option(parsed, 'core-dependency') || '^0.1.2'
-  const cliDependency = option(parsed, 'cli-dependency') || '^0.1.0'
+  const coreDependency = option(parsed, 'core-dependency') || '^0.1.4'
+  const cliDependency = option(parsed, 'cli-dependency') || '^0.1.2'
   const starter = await resolveStarter(ctx, parsed, io)
 
   fs.mkdirSync(targetDir, { recursive: true })

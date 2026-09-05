@@ -45,14 +45,14 @@ test('list and inspect use the current npm project', async (t) => {
 test('embedded build delegates to the installed targets package', async (t) => {
   const fixture = createFixture(t)
   const out = capture()
-  await runGea(['build', '--board=amoled', '--resident-apps=none', '--dry-run'], {
+  await runGea(['build', '--board=amoled', '--dry-run'], {
     ...out.io,
     cwd: fixture.appDir
   })
 
   const command = out.out.join('\n')
   assert.match(command, new RegExp(`${escapeRegex(fixture.installed('targets'))}/scripts/board build`))
-  assert.match(command, /--board=amoled --app=watch --resident-apps=none/)
+  assert.match(command, /--board=amoled --app=watch/)
 })
 
 test('flash, monitor, and BLE OTA delegate all board options', async (t) => {
