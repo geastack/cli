@@ -279,6 +279,10 @@ function runBoard(ctx, action, parsed, opts) {
   if (opts.appId) args.push(`--app=${opts.appId}`)
   const port = option(parsed, 'port')
   if (port) args.push(String(port))
+  if (flag(parsed, 'manual-boot')) args.push('--manual-boot')
+  if (option(parsed, 'reset') === false) args.push('--no-reset')
+  const flashBaud = option(parsed, 'flash-baud')
+  if (flashBaud !== undefined) args.push(`--flash-baud=${flashBaud}`)
   args.push(...parsed.passthrough)
   const childEnv = createChildEnv(ctx, opts.env)
   if (opts.app?.manifest?.ota?.ble === true) childEnv.GEA_EMBEDDED_BLE_OTA = '1'
@@ -441,7 +445,7 @@ function usage() {
   gea chips remove <chip...> [--board <alias>]
   gea dev [app] [--target web] [--port 5181]
   gea build [app] [--target web|macos|ios|android|<target>] [--board <alias>] [--output-tag <tag>]
-  gea flash [app] --board <alias> [--monitor] [--port auto]
+  gea flash [app] --board <alias> [--monitor] [--port auto] [--manual-boot] [--no-reset] [--flash-baud <rate>]
   gea flash [app] --target android
   gea flash --bringup --board <alias> [--monitor] [--port auto]
   gea monitor --board <alias>

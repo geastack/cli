@@ -180,6 +180,28 @@ test('flash, monitor, and BLE OTA delegate all board options', async (t) => {
   assert.match(ota.out.join('\n'), /board ble-ota --board=amoled --app=watch/)
 })
 
+test('flash forwards USB controls without requiring a passthrough separator', async (t) => {
+  const fixture = createFixture(t)
+  const out = capture()
+  await runGea([
+    'flash',
+    '--board=amoled',
+    '--port=/dev/cu.usb',
+    '--manual-boot',
+    '--no-reset',
+    '--flash-baud=460800',
+    '--dry-run'
+  ], {
+    ...out.io,
+    cwd: fixture.appDir
+  })
+
+  assert.match(
+    out.out.join('\n'),
+    /board flash --board=amoled --app=watch \/dev\/cu\.usb --manual-boot --no-reset --flash-baud=460800/
+  )
+})
+
 test('setup routes known targets and can write a local board alias', async (t) => {
   const fixture = createFixture(t)
   const routed = capture()
