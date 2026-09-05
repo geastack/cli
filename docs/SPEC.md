@@ -87,6 +87,23 @@ The CLI should pass through board aliases from the active board config. A projec
 uses its own `.gea/boards.json`; otherwise the CLI reads the board catalog shipped
 by the installed `@geastack/targets` package.
 
+### `gea chips`
+
+Inspects the installed `@geastack/chips` catalog and composes a custom board
+definition without copying native driver source into the app.
+
+```sh
+gea chips list
+gea chips info co5300
+gea chips add co5300 ft3168 --board my-board
+gea chips remove ft3168 --board my-board
+```
+
+`add` asks only the interface and pin questions declared by each chip. Automation
+can answer them with repeated `--set chip.path=value` options. The command rejects
+chips without a binding for the board adapter and MCU before changing the target
+definition.
+
 ### `gea monitor`
 
 Starts a log monitor for a configured board or target.

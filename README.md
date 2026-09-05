@@ -73,20 +73,13 @@ flowchart TD
   ota --> reviewKnown["Review board setup"]
   reviewKnown --> writeKnown["Write .gea/boards.json"]
 
-  interactive -->|"Custom board profile"| custom["Collect hardware profile"]
-  custom --> core["Alias, MCU, closest base target"]
-  core --> depth{"Detail level?"}
-  depth -->|"Full"| chips["Display, touch,<br/>WiFi/BLE, GPS, audio"]
-  depth -->|"Fast"| fast["Display, touch,<br/>default peripherals"]
-  chips --> peripherals["Storage, sensors, power,<br/>USB serial or OTA"]
-  fast --> connection["USB serial or OTA"]
-  peripherals --> connection
-  connection --> notes["Notes and datasheet links"]
-  notes --> reviewCustom["Review custom profile"]
-  reviewCustom --> writeProfile["Write .gea/boards/alias.json"]
-  writeProfile --> maybeAlias{"Base target selected?"}
-  maybeAlias -->|"Yes"| writeCustomAlias["Write alias to .gea/boards.json"]
-  maybeAlias -->|"No"| profileOnly["Profile only, not flash-ready yet"]
+  interactive -->|"Custom board target"| custom["Choose MCU and compatible chips"]
+  custom --> chipConfig["Ask interface and pin questions<br/>from @geastack/chips/catalog.json"]
+  chipConfig --> features["Optional microSD and launcher button"]
+  features --> connection["Detect initial USB connection"]
+  connection --> reviewCustom["Review native composition"]
+  reviewCustom --> writeProfile["Write .gea/targets/alias.json"]
+  writeProfile --> writeCustomAlias["Write alias to .gea/boards.json"]
 
   interactive -->|"npm dependencies only"| npmInstall["Run npm install when package.json exists"]
   interactive -->|"ESP-IDF toolchain only"| idfOnly["Install or check ESP-IDF v6.0.1"]
@@ -94,7 +87,6 @@ flowchart TD
   writeKnown --> initialize["Initialize board target"]
   writeCustomAlias --> initialize
   initialize --> ready["Ready: npx gea flash --board alias --monitor"]
-  profileOnly --> done["Done"]
   npmInstall --> done
   idfOnly --> done
   directIdf --> done
@@ -106,6 +98,19 @@ The CLI resolves `@geastack/core`, `@geastack/targets`, the compiler, chips,
 host bindings, and the other native packages from npm. A project can use a
 local CLI with `npx gea` or a global installation with `gea`; neither command
 depends on a GeaStack source checkout.
+
+Custom boards remain editable after setup:
+
+```sh
+gea chips list
+gea chips info co5300
+gea chips add co5300 ft3168 --board my-board
+gea chips remove ft3168 --board my-board
+```
+
+These commands update the app-local target definition. They do not copy native
+sources into the application; the target adapter compiles the selected drivers
+directly from the installed `@geastack/chips` package.
 
 ## Development
 

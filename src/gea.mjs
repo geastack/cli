@@ -3,6 +3,7 @@ import fs from 'node:fs'
 
 import { flag, option, parseArgs } from './args.mjs'
 import { runCreateGeastack } from './create-geastack.mjs'
+import { runChips } from './chips.mjs'
 import { createChildEnv, createContext } from './context.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson } from './fs-utils.mjs'
@@ -59,6 +60,8 @@ export async function runGea(argv, io = {}) {
       return build(ctx, parsed, rest, { stdout, env })
     case 'setup':
       return setup(ctx, parsed, { stdout, env, stdin, output, prompt })
+    case 'chips':
+      return runChips(ctx, parsed, rest, { stdout, env, stdin, output, prompt })
     case 'flash':
       return flash(ctx, parsed, rest, { stdout, env })
     case 'monitor':
@@ -432,6 +435,10 @@ function usage() {
   gea create <name> [--starter counter|empty|example] [--targets <list>]
   gea doctor [--strict] [--json]
   gea setup --board <alias>
+  gea chips list [--json]
+  gea chips info <chip> [--json]
+  gea chips add <chip...> [--board <alias>] [--set chip.path=value]
+  gea chips remove <chip...> [--board <alias>]
   gea dev [app] [--target web] [--port 5181]
   gea build [app] [--target web|macos|ios|android|<target>] [--board <alias>] [--output-tag <tag>]
   gea flash [app] --board <alias> [--monitor] [--port auto]

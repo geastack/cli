@@ -23,7 +23,7 @@ Use these release packages instead:
   the `create-geastack` bin.
 - `@geastack/cli`: scoped private Gea CLI package exposing the `gea` bin.
 
-`create-geastack` should add `@geastack/cli` as a devDependency in generated
+`create-geastack` should add `@geastack/cli` as a dependency in generated
 projects and install dependencies by default in interactive terminals. After
 that, inside the project, `npx gea ...` works because npm finds the local
 `node_modules/.bin/gea` binary. It does not require an npm package named `gea`.
@@ -31,7 +31,7 @@ that, inside the project, `npx gea ...` works because npm finds the local
 If someone is wiring an existing app by hand, install the package first:
 
 ```sh
-npm install --save-dev @geastack/cli
+npm install @geastack/cli
 npx gea setup
 ```
 
@@ -89,7 +89,7 @@ packages are scoped and configured for restricted npmjs publication.
 `gea setup` with no `--board` or `--target` opens a guided setup flow:
 
 - known supported board, with descriptions for each board;
-- custom board profile, with fast and full hardware paths;
+- custom board target composed from the installed chip catalog;
 - npm dependency check/install only;
 - ESP-IDF toolchain check/install only.
 
@@ -102,38 +102,35 @@ initializes the selected board target so the next command can be
 .gea/boards.json
 ```
 
-Custom-board setup can run in two depths:
-
-- `Full hardware profile`: display, touch, WiFi/BLE, GPS, audio, storage,
-  sensors, power, transport, and notes.
-- `Fast profile`: core board identity, display/touch, transport, and inferred
-  defaults for optional peripherals.
-
-Both paths show a review screen before writing a profile under:
+Custom-board setup reads `@geastack/chips/catalog.json`, offers only drivers
+with a compatible platform binding, and asks the configuration questions
+declared by each selected driver. It shows a review before writing the target:
 
 ```text
-.gea/boards/<alias>.json
+.gea/targets/<alias>.json
 ```
 
-The full profile captures:
+The target captures:
 
 - MCU / SoC;
-- closest existing base target;
-- display type, controller, interface, resolution;
-- touch controller and interface;
-- WiFi and BLE;
-- GPS module and interface;
-- audio codec, input, and output;
-- storage;
-- sensors;
-- power path;
-- USB serial and OTA transports;
-- notes/datasheet links.
+- the generic platform base and adapter;
+- display controller, interface, dimensions, bus, and pins;
+- touch controller, bus, reset, and interrupt pins;
+- power, IMU, and audio drivers;
+- shared buses and audio pins;
+- optional storage and launcher-button pins;
+- the initial USB serial connection.
 
-If the user selects a base target, the wizard also writes an experimental board
-alias that points at that base target and references the custom profile. If no
-base target is selected, the profile is generated without claiming the board is
-flash-ready.
+The wizard also writes `.gea/boards.json`, where the physical board alias points
+to that definition. A partial composition is saved but is not described as
+flash-ready. It can be completed later with:
+
+```sh
+npx gea chips list
+npx gea chips info co5300
+npx gea chips add co5300 --board my-board
+npx gea chips remove co5300 --board my-board
+```
 
 ESP-IDF setup is available as:
 

@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { knownBoards } from './board-catalog.mjs'
+import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from './chips.mjs'
 import { flag, option } from './args.mjs'
 import { createChildEnv } from './context.mjs'
 import { ExitCode, fail } from './errors.mjs'
@@ -143,7 +144,7 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
 }
 
 async function setupCustomBoard(ctx, parsed, io, prompt) {
-  renderStep(io, 'Board', ['Name the profile and pick the closest target backend.'])
+  renderStep(io, 'Board', ['Create an app-local hardware target from the installed chip catalog.'])
   const alias = await ask(prompt, {
     message: 'Custom board alias',
     defaultValue: 'custom-board',
@@ -152,229 +153,118 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
   const mcu = await choose(prompt, {
     message: 'MCU / SoC',
     choices: [
-      { value: 'esp32-s3', label: 'ESP32-S3' },
-      { value: 'esp32-p4', label: 'ESP32-P4' },
-      { value: 'esp32-c6', label: 'ESP32-C6' },
-      { value: 'esp32', label: 'ESP32' },
-      { value: 'other', label: 'Other / not listed' }
-    ],
-    defaultValue: 'esp32-s3'
-  })
-  const mcuName = mcu === 'other' ? await ask(prompt, { message: 'MCU / SoC name', defaultValue: '' }) : mcu
-  const baseTarget = await choose(prompt, {
-    message: 'Closest existing target to start from',
-    choices: [
-      { value: '', label: 'None yet, generate profile only' },
-      ...knownBoards.map((board) => ({ value: board.target, label: `${board.label} (${board.target})` }))
-    ],
-    defaultValue: ''
-  })
-  const depth = await choose(prompt, {
-    message: 'How much hardware detail do you want to enter?',
-    choices: [
       {
-        value: 'full',
-        label: 'Full hardware profile',
-        description: 'Display, touch, wireless, GPS, audio, storage, sensors, power, and transport.'
-      },
-      {
-        value: 'quick',
-        label: 'Fast profile',
-        description: 'Core board, display/touch, transport, and sensible defaults for everything else.'
+        value: 'esp32s3',
+        label: 'ESP32-S3',
+        description: 'Composable ESP-IDF target with display, touch, power, IMU, audio, WiFi, BLE, and OTA support.'
       }
     ],
-    defaultValue: 'full'
+    defaultValue: 'esp32s3'
   })
 
-  renderStep(io, 'Display and touch', ['Describe what the user can see and touch on the board.'])
-  const displayKind = await choose(prompt, {
-    message: 'Display type',
-    choices: [
-      { value: 'amoled', label: 'AMOLED' },
-      { value: 'tft-lcd', label: 'TFT LCD' },
-      { value: 'epaper', label: 'E-paper' },
-      { value: 'monochrome-oled', label: 'Monochrome OLED' },
-      { value: 'none', label: 'No display' },
-      { value: 'other', label: 'Other' }
-    ],
-    defaultValue: 'tft-lcd'
-  })
-  const displayController = displayKind === 'none' ? '' : await ask(prompt, { message: 'Display controller/chip', defaultValue: '' })
-  const displayInterface = displayKind === 'none' ? '' : await choose(prompt, {
-    message: 'Display interface',
-    choices: [
-      { value: 'spi', label: 'SPI' },
-      { value: 'qspi', label: 'QSPI' },
-      { value: 'rgb', label: 'RGB parallel' },
-      { value: 'i8080', label: '8080 parallel' },
-      { value: 'mipi-dsi', label: 'MIPI DSI' },
-      { value: 'i2c', label: 'I2C' },
-      { value: 'other', label: 'Other' }
-    ],
-    defaultValue: 'spi'
-  })
-  const resolution = displayKind === 'none' ? '' : await ask(prompt, { message: 'Display resolution, for example 480x480', defaultValue: '' })
-  const touchController = await ask(prompt, { message: 'Touch controller/chip (blank for none)', defaultValue: '' })
-  const touchInterface = touchController ? await choose(prompt, {
-    message: 'Touch interface',
-    choices: [
-      { value: 'i2c', label: 'I2C' },
-      { value: 'spi', label: 'SPI' },
-      { value: 'gpio', label: 'GPIO buttons/interrupts' },
-      { value: 'other', label: 'Other' }
-    ],
-    defaultValue: 'i2c'
-  }) : ''
-
-  const defaults = defaultCustomPeripherals(mcuName)
-  let wifi = defaults.wifi
-  let ble = defaults.ble
-  let gpsModule = ''
-  let gpsInterface = ''
-  let audioCodec = ''
-  let audioOutput = ''
-  let audioInput = ''
-  let storage = defaults.storage
-  let sensors = ''
-  let power = 'USB'
-
-  if (depth === 'full') {
-    renderStep(io, 'Peripherals', ['Add wireless, location, audio, storage, sensors, and power details.'])
-    wifi = await choose(prompt, {
-      message: 'WiFi',
-      choices: [
-        { value: 'built-in', label: 'Built into MCU/module' },
-        { value: 'external', label: 'External WiFi chip/module' },
-        { value: 'none', label: 'None' }
-      ],
-      defaultValue: defaults.wifi
-    })
-    ble = await choose(prompt, {
-      message: 'BLE',
-      choices: [
-        { value: 'built-in', label: 'Built into MCU/module' },
-        { value: 'external', label: 'External BLE chip/module' },
-        { value: 'none', label: 'None' }
-      ],
-      defaultValue: defaults.ble
-    })
-    gpsModule = await ask(prompt, { message: 'GPS module/chip (blank for none)', defaultValue: '' })
-    gpsInterface = gpsModule ? await choose(prompt, {
-      message: 'GPS interface',
-      choices: [
-        { value: 'uart', label: 'UART' },
-        { value: 'i2c', label: 'I2C' },
-        { value: 'spi', label: 'SPI' },
-        { value: 'other', label: 'Other' }
-      ],
-      defaultValue: 'uart'
-    }) : ''
-    audioCodec = await ask(prompt, { message: 'Audio codec/chip (blank for none)', defaultValue: '' })
-    audioOutput = audioCodec ? await choose(prompt, {
-      message: 'Audio output',
-      choices: [
-        { value: 'i2s-speaker', label: 'I2S speaker/output' },
-        { value: 'dac', label: 'DAC output' },
-        { value: 'pwm', label: 'PWM/buzzer' },
-        { value: 'other', label: 'Other' }
-      ],
-      defaultValue: 'i2s-speaker'
-    }) : ''
-    audioInput = audioCodec ? await choose(prompt, {
-      message: 'Audio input',
-      choices: [
-        { value: 'none', label: 'None' },
-        { value: 'i2s-mic', label: 'I2S microphone' },
-        { value: 'pdm-mic', label: 'PDM microphone' },
-        { value: 'analog-mic', label: 'Analog microphone' },
-        { value: 'other', label: 'Other' }
-      ],
-      defaultValue: 'none'
-    }) : ''
-    storage = await ask(prompt, { message: 'Storage chips/features, comma-separated', defaultValue: defaults.storage })
-    sensors = await ask(prompt, { message: 'Sensors, comma-separated (IMU, light, temp, etc.)', defaultValue: '' })
-    power = await ask(prompt, { message: 'Power path (USB, battery charger, PMIC, etc.)', defaultValue: 'USB' })
-  } else {
-    renderStep(io, 'Peripherals', [
-      `Using defaults: WiFi ${wifi}, BLE ${ble}, storage ${storage}, power USB.`,
-      `You can edit .gea/boards/${alias}.json later if the board has GPS, audio, or sensors.`
-    ])
+  const definition = {
+    id: alias,
+    extends: 'esp32-s3',
+    adapter: 'esp32-idf',
+    mcu,
+    buses: {},
+    chips: {},
+    storage: {
+      microSD: {
+        interface: 'sdmmc-1bit',
+        pins: { clk: null, cmd: null, data0: null }
+      }
+    },
+    controls: {
+      launcherButton: { pin: null, activeLevel: 0 }
+    }
   }
 
-  renderStep(io, 'Connection', ['Choose how GeaStack should flash and monitor the board.'])
-  const transport = await choose(prompt, {
-    message: 'Primary flash/monitor transport',
-    choices: [
-      { value: 'usbSerial', label: 'USB serial' },
-      { value: 'ota', label: 'WiFi OTA' },
-      { value: 'both', label: 'USB serial + OTA' },
-      { value: 'custom', label: 'Custom' }
-    ],
-    defaultValue: 'usbSerial'
-  })
-  const usbSerial = transport === 'usbSerial' || transport === 'both'
-    ? await selectUsbSerial(prompt, io, { message: 'USB serial number (optional)' })
-    : ''
-  const otaHost = transport === 'ota' || transport === 'both'
-    ? await ask(prompt, { message: 'OTA host/IP (optional)', defaultValue: '' })
-    : ''
-  const notes = await ask(prompt, { message: 'Notes / links to schematic, display datasheet, etc. (optional)', defaultValue: '' })
+  const catalog = loadChipCatalog(ctx)
+  const roles = [
+    ['display', 'Display controller'],
+    ['touch', 'Touch controller'],
+    ['power', 'Power-management controller'],
+    ['imu', 'Inertial measurement unit'],
+    ['audio', 'Audio codec']
+  ]
+  renderStep(io, 'Chips', ['Choose each controller from @geastack/chips. Pin questions come from the installed catalog.'])
+  for (const [role, label] of roles) {
+    const compatible = Object.entries(catalog)
+      .filter(([, chip]) => chip.category === role && chip.adapters?.['esp32-idf']?.mcus?.includes(mcu))
+    const selected = await choose(prompt, {
+      message: label,
+      choices: [
+        ...compatible.map(([id, chip]) => ({ value: id, label: `${id} — ${chip.label}` })),
+        { value: '', label: 'None / configure later' }
+      ],
+      defaultValue: compatible[0]?.[0] || ''
+    })
+    if (!selected) continue
+    await configureChipSelection({
+      definition,
+      id: selected,
+      descriptor: catalog[selected],
+      prompt,
+      io,
+      replace: true,
+      boardName: alias
+    })
+  }
 
-  const profile = compactObject({
-    alias,
-    kind: 'custom-board-profile',
-    targetFamily: 'esp32',
-    adapter: 'esp32-idf',
-    baseTarget,
-    mcu: mcuName,
-    display: compactObject({
-      kind: displayKind,
-      controller: displayController,
-      interface: displayInterface,
-      resolution
-    }),
-    touch: compactObject({
-      controller: touchController,
-      interface: touchInterface
-    }),
-    wireless: compactObject({ wifi, ble }),
-    gps: compactObject({ module: gpsModule, interface: gpsInterface }),
-    audio: compactObject({ codec: audioCodec, output: audioOutput, input: audioInput }),
-    storage: csv(storage),
-    sensors: csv(sensors),
-    power,
-    transports: compactObject({
-      usbSerial: usbSerial ? { serial: usbSerial } : undefined,
-      ota: otaHost ? { host: otaHost } : undefined
-    }),
-    notes
+  renderStep(io, 'Board features', ['Configure physical features that are not separate chip drivers.'])
+  if (await confirm(prompt, { message: 'Does this board expose a microSD slot?', defaultValue: false })) {
+    definition.storage.microSD.pins.clk = await askPin(prompt, 'microSD clock pin')
+    definition.storage.microSD.pins.cmd = await askPin(prompt, 'microSD command pin')
+    definition.storage.microSD.pins.data0 = await askPin(prompt, 'microSD data 0 pin')
+  }
+  if (await confirm(prompt, { message: 'Use a hardware button to return to the launcher?', defaultValue: false })) {
+    definition.controls.launcherButton.pin = await askPin(prompt, 'Launcher button pin')
+    definition.controls.launcherButton.activeLevel = Number(await choose(prompt, {
+      message: 'Launcher button active level',
+      choices: [
+        { value: '0', label: 'Active low' },
+        { value: '1', label: 'Active high' }
+      ],
+      defaultValue: '0'
+    }))
+  }
+
+  renderStep(io, 'Connection', ['The first flash uses USB. BLE OTA can take over after the initial firmware is running.'])
+  const usbSerial = await selectUsbSerial(prompt, io, {
+    message: 'USB serial number (leave blank to auto-detect or pass --port)'
   })
 
-  const profilePath = path.join(ctx.cwd, '.gea', 'boards', `${alias}.json`)
   const configPath = boardConfigPath(ctx, parsed)
-  renderCustomBoardReview(io, { alias, profile, profilePath, configPath, flashReady: Boolean(baseTarget) })
-  if (!await shouldSaveSetup(parsed, prompt, 'Save this custom board profile?')) {
+  const definitionPath = path.join(path.dirname(configPath), 'targets', `${alias}.json`)
+  const relativeDefinition = path.relative(path.dirname(configPath), definitionPath)
+  const entry = compactObject({
+    target: alias,
+    targetDefinition: relativeDefinition,
+    adapter: 'esp32-idf',
+    appPlatform: 'esp32',
+    transports: compactObject({
+      usbSerial: usbSerial ? { serial: usbSerial } : undefined
+    })
+  })
+  const requiredRoles = roles.map(([role]) => role)
+  const missingRoles = requiredRoles.filter((role) => !definition.chips[role])
+  validateGpioAssignments(definition)
+  renderCustomBoardReview(io, { alias, definition, definitionPath, configPath, entry, missingRoles })
+  if (!await shouldSaveSetup(parsed, prompt, 'Save this custom board target?')) {
     return { alias, cancelled: true }
   }
-  writeJsonEnsured(profilePath, profile)
-  io.stdout(`Wrote custom board profile to ${profilePath}`)
 
-  if (baseTarget) {
-    const config = readBoardConfig(configPath)
-    config[alias] = compactObject({
-      target: baseTarget,
-      adapter: 'esp32-idf',
-      customProfile: profilePath,
-      transports: profile.transports
-    })
-    writeJsonEnsured(configPath, config)
-    io.stdout(`Wrote experimental board alias '${alias}' to ${configPath}`)
-    return { alias, flashReady: true }
-  } else {
-    io.stdout('No board alias was added because no base target was selected.')
-    io.stdout('Add a target backend before flashing this custom profile.')
-    return { alias, flashReady: false }
+  writeJsonEnsured(definitionPath, definition)
+  const config = readBoardConfig(configPath)
+  config[alias] = entry
+  writeJsonEnsured(configPath, config)
+  io.stdout(`Wrote custom target to ${definitionPath}`)
+  io.stdout(`Wrote board alias '${alias}' to ${configPath}`)
+  if (missingRoles.length) {
+    io.stdout(`Add the remaining roles with: npx gea chips add <chip> --board ${alias}`)
   }
+  return { alias, flashReady: missingRoles.length === 0 }
 }
 
 function renderHeader(io, title, lines = []) {
@@ -405,25 +295,24 @@ function renderKnownBoardReview(io, { alias, board, configPath, entry }) {
   ])
 }
 
-function renderCustomBoardReview(io, { alias, profile, profilePath, configPath, flashReady }) {
+function renderCustomBoardReview(io, { alias, definition, definitionPath, configPath, entry, missingRoles }) {
   renderStep(io, 'Review', [
     'This is what GeaStack will save.'
   ])
   writeRows(io, [
     ['Alias', alias],
-    ['MCU / SoC', profile.mcu],
-    ['Base target', profile.baseTarget || 'none yet'],
-    ['Display', describeObject(profile.display)],
-    ['Touch', describeObject(profile.touch)],
-    ['Wireless', describeObject(profile.wireless)],
-    ['GPS', describeObject(profile.gps)],
-    ['Audio', describeObject(profile.audio)],
-    ['Storage', list(profile.storage)],
-    ['Sensors', list(profile.sensors)],
-    ['Power', profile.power || 'not set'],
-    ['Transport', describeObject(profile.transports)],
-    ['Profile', profilePath],
-    ['Board config', flashReady ? configPath : 'not written until a base target is selected']
+    ['MCU / SoC', definition.mcu],
+    ['Platform base', definition.extends],
+    ['Display', describeObject(definition.chips.display)],
+    ['Touch', describeObject(definition.chips.touch)],
+    ['Power', describeObject(definition.chips.power)],
+    ['IMU', describeObject(definition.chips.imu)],
+    ['Audio', describeObject(definition.chips.audio)],
+    ['I2C', describeObject(definition.buses.i2c)],
+    ['USB serial', entry.transports?.usbSerial?.serial || 'auto / pass --port'],
+    ['Missing roles', missingRoles.join(', ') || 'none'],
+    ['Target definition', definitionPath],
+    ['Board config', configPath]
   ])
 }
 
@@ -459,17 +348,6 @@ function describeObject(value) {
       return [`${key}: ${entry}`]
     })
   return entries.length ? entries.join('; ') : 'not set'
-}
-
-function defaultCustomPeripherals(mcuName) {
-  const normalized = String(mcuName || '').toLowerCase()
-  const espWithWireless = ['esp32', 'esp32-s3', 'esp32-c3', 'esp32-c6', 'esp32-h2'].includes(normalized)
-  const hasPsramByDefault = ['esp32-s3', 'esp32-p4'].includes(normalized)
-  return {
-    wifi: espWithWireless && normalized !== 'esp32-h2' ? 'built-in' : 'none',
-    ble: espWithWireless ? 'built-in' : 'none',
-    storage: hasPsramByDefault ? 'flash, psram' : 'flash'
-  }
 }
 
 async function maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force = false } = {}) {
@@ -612,6 +490,18 @@ function validateAlias(value) {
   return ''
 }
 
+async function askPin(prompt, message) {
+  return Number(await ask(prompt, {
+    message,
+    defaultValue: '',
+    validate: (value) => {
+      if (!/^\d+$/.test(value)) return 'enter a GPIO number from 0 through 48'
+      const pin = Number(value)
+      return pin >= 0 && pin <= 48 ? '' : 'enter a GPIO number from 0 through 48'
+    }
+  }))
+}
+
 function compactObject(value) {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => {
     if (entry === undefined || entry === null || entry === '') return false
@@ -619,15 +509,4 @@ function compactObject(value) {
     if (typeof entry === 'object') return Object.keys(entry).length > 0
     return true
   }))
-}
-
-function csv(value) {
-  return String(value || '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-}
-
-function list(value) {
-  return Array.isArray(value) && value.length ? value.join(', ') : 'not set'
 }

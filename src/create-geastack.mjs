@@ -308,11 +308,11 @@ function packageJson({ appId, displayName, targets, entry, coreDependency, cliDe
     dependencies: {
       ...(sourcePackage.dependencies || {}),
       '@geajs/core': sourcePackage.dependencies?.['@geajs/core'] || '^1.3.0',
-      '@geastack/core': coreDependency
+      '@geastack/core': coreDependency,
+      '@geastack/cli': cliDependency
     },
     devDependencies: {
       ...(sourcePackage.devDependencies || {}),
-      '@geastack/cli': cliDependency,
       typescript: sourcePackage.devDependencies?.typescript || 'latest',
       ...(targets.web ? { vite: sourcePackage.devDependencies?.vite || 'latest' } : {})
     },

@@ -68,6 +68,86 @@ test('list and inspect use the current npm project', async (t) => {
   assert.equal(app.entry, 'index.tsx')
 })
 
+test('chips catalog can compose and edit an app-local custom board', async (t) => {
+  const fixture = createFixture(t)
+  const definitionPath = path.join(fixture.appDir, '.gea/targets/my-board.json')
+  writeJson(definitionPath, {
+    id: 'my-board',
+    extends: 'esp32-s3',
+    adapter: 'esp32-idf',
+    mcu: 'esp32s3',
+    buses: {},
+    chips: {}
+  })
+  writeJson(path.join(fixture.appDir, '.gea/boards.json'), {
+    'my-board': {
+      target: 'my-board',
+      targetDefinition: 'targets/my-board.json',
+      appPlatform: 'esp32'
+    }
+  })
+
+  const listed = capture()
+  await runGea(['chips', 'list'], { ...listed.io, cwd: fixture.appDir })
+  assert.match(listed.out.join('\n'), /co5300\tdisplay/)
+
+  const added = capture()
+  await runGea([
+    'chips', 'add', 'co5300', '--board', 'my-board',
+    '--set', 'co5300.width=410',
+    '--set', 'co5300.height=502',
+    '--set', 'co5300.pins.cs=12',
+    '--set', 'co5300.pins.pclk=11',
+    '--set', 'co5300.pins.data0=4',
+    '--set', 'co5300.pins.data1=5',
+    '--set', 'co5300.pins.data2=6',
+    '--set', 'co5300.pins.data3=7',
+    '--set', 'co5300.pins.reset=8'
+  ], { ...added.io, cwd: fixture.appDir })
+  let definition = readJson(definitionPath)
+  assert.deepEqual(definition.chips.display, {
+    driver: 'co5300',
+    interface: 'qspi',
+    width: 410,
+    height: 502,
+    spiHost: 'spi2',
+    pins: { cs: 12, pclk: 11, data0: 4, data1: 5, data2: 6, data3: 7, reset: 8, te: null }
+  })
+
+  const prompt = scriptedPrompt(['15', '14', '9', '38'])
+  await runGea(['chips', 'add', 'ft3168', '--board', 'my-board'], {
+    ...capture().io,
+    prompt,
+    cwd: fixture.appDir
+  })
+  definition = readJson(definitionPath)
+  assert.deepEqual(definition.buses.i2c, { sda: 15, scl: 14 })
+  assert.equal(definition.chips.touch.driver, 'ft3168')
+  assert.equal(definition.chips.touch.pins.interrupt, 38)
+
+  await runGea(['chips', 'remove', 'ft3168', '--board', 'my-board'], { ...capture().io, cwd: fixture.appDir })
+  definition = readJson(definitionPath)
+  assert.equal(definition.chips.touch, undefined)
+
+  await assert.rejects(
+    runGea([
+      'chips', 'add', 'ft3168', '--board', 'my-board',
+      '--set', 'i2c.sda=15',
+      '--set', 'i2c.scl=14',
+      '--set', 'ft3168.pins.reset=12',
+      '--set', 'ft3168.pins.interrupt=38'
+    ], { ...capture().io, cwd: fixture.appDir }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /GPIO 12 is assigned/.test(error.message)
+  )
+  definition = readJson(definitionPath)
+  assert.equal(definition.chips.touch, undefined)
+
+  await assert.rejects(
+    runGea(['chips', 'add', 'rm690b0', '--board', 'my-board'], { ...capture().io, cwd: fixture.appDir }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.targetUnavailable
+  )
+})
+
 test('embedded build delegates to the installed targets package', async (t) => {
   const fixture = createFixture(t)
   const out = capture()
@@ -119,6 +199,47 @@ test('setup routes known targets and can write a local board alias', async (t) =
   assert.equal(boards['desk-amoled'].target, 'esp32-s3-touch-amoled-2.06')
   assert.equal(boards['desk-amoled'].transports.usbSerial.serial, 'USB123')
   assert.match(out.out.join('\n'), /Ready: npx gea flash --board desk-amoled --monitor/)
+})
+
+test('custom setup composes a flash-ready target from the chip catalog', async (t) => {
+  const fixture = createFixture(t)
+  const tools = createFakeToolchain(t)
+  const out = capture()
+  const prompt = scriptedPrompt([
+    '2', 'from-scratch', '1',
+    '1', '410', '502', '1', '12', '11', '4', '5', '6', '7', '8', '13',
+    '1', '15', '14', '9', '38',
+    '1',
+    '1',
+    '1', '16', '41', '45', '40', '42', '46',
+    'y', '2', '1', '3',
+    'y', '0', '1',
+    '1', '',
+    'y'
+  ])
+  await runGea(['setup', '--dry-run'], {
+    ...out.io,
+    prompt,
+    cwd: fixture.appDir,
+    env: { ...tools.env, GEA_SERIAL_DEVICES: '/dev/cu.usbmodem101|ESP32-S3 USB/JTAG|USB123' }
+  })
+
+  const boards = readJson(path.join(fixture.appDir, '.gea/boards.json'))
+  assert.equal(boards['from-scratch'].target, 'from-scratch')
+  assert.equal(boards['from-scratch'].targetDefinition, 'targets/from-scratch.json')
+  assert.equal(boards['from-scratch'].transports.usbSerial.serial, 'USB123')
+
+  const definition = readJson(path.join(fixture.appDir, '.gea/targets/from-scratch.json'))
+  assert.equal(definition.extends, 'esp32-s3')
+  assert.equal(definition.chips.display.driver, 'co5300')
+  assert.equal(definition.chips.touch.driver, 'ft3168')
+  assert.equal(definition.chips.power.driver, 'axp2101')
+  assert.equal(definition.chips.imu.driver, 'qmi8658')
+  assert.equal(definition.chips.audio.driver, 'es8311')
+  assert.deepEqual(definition.buses.i2c, { sda: 15, scl: 14 })
+  assert.deepEqual(definition.storage.microSD.pins, { clk: 2, cmd: 1, data0: 3 })
+  assert.equal(definition.controls.launcherButton.pin, 0)
+  assert.match(out.out.join('\n'), /Ready: npx gea flash --board from-scratch --monitor/)
 })
 
 test('build rejects invalid manifests and incompatible boards', async (t) => {

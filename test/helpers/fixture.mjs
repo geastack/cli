@@ -22,6 +22,75 @@ export function createFixture(t, options = {}) {
       version: '0.1.0'
     })
   }
+  writeJson(path.join(installed('chips'), 'catalog.json'), {
+    schemaVersion: 1,
+    chips: {
+      co5300: {
+        label: 'CO5300 AMOLED display controller',
+        category: 'display',
+        interfaces: ['qspi'],
+        adapters: { 'esp32-idf': { mcus: ['esp32s3'], bindingSources: ['chip_bindings/displays/co5300.cpp'] } },
+        configuration: [
+          { path: 'width', label: 'Display width', type: 'integer', min: 1, max: 4096 },
+          { path: 'height', label: 'Display height', type: 'integer', min: 1, max: 4096 },
+          { path: 'spiHost', label: 'SPI host', type: 'choice', values: ['spi2', 'spi3'], default: 'spi2' },
+          { path: 'pins.cs', label: 'Chip-select pin', type: 'pin' },
+          { path: 'pins.pclk', label: 'Pixel-clock pin', type: 'pin' },
+          { path: 'pins.data0', label: 'QSPI data 0 pin', type: 'pin' },
+          { path: 'pins.data1', label: 'QSPI data 1 pin', type: 'pin' },
+          { path: 'pins.data2', label: 'QSPI data 2 pin', type: 'pin' },
+          { path: 'pins.data3', label: 'QSPI data 3 pin', type: 'pin' },
+          { path: 'pins.reset', label: 'Display reset pin', type: 'pin' },
+          { path: 'pins.te', label: 'Tearing-effect pin', type: 'pin', optional: true }
+        ]
+      },
+      ft3168: {
+        label: 'FT3168 capacitive touch controller',
+        category: 'touch',
+        interfaces: ['i2c'],
+        adapters: { 'esp32-idf': { mcus: ['esp32s3'], bindingSources: ['chip_bindings/touch/ft3168.cpp'] } },
+        configuration: [
+          { path: 'pins.reset', label: 'Touch reset pin', type: 'pin' },
+          { path: 'pins.interrupt', label: 'Touch interrupt pin', type: 'pin' }
+        ]
+      },
+      axp2101: {
+        label: 'AXP2101 power-management controller',
+        category: 'power',
+        interfaces: ['i2c'],
+        adapters: { 'esp32-idf': { mcus: ['esp32s3'], bindingSources: ['chip_bindings/power/axp2101.cpp'] } },
+        configuration: []
+      },
+      qmi8658: {
+        label: 'QMI8658 inertial measurement unit',
+        category: 'imu',
+        interfaces: ['i2c'],
+        adapters: { 'esp32-idf': { mcus: ['esp32s3'], bindingSources: ['chip_bindings/imu/qmi8658.cpp'] } },
+        configuration: []
+      },
+      es8311: {
+        label: 'ES8311 audio codec',
+        category: 'audio',
+        interfaces: ['i2s'],
+        adapters: { 'esp32-idf': { mcus: ['esp32s3'], bindingSources: ['chip_bindings/audio/es8311.cpp'] } },
+        configuration: [
+          { path: 'pins.mclk', label: 'I2S master-clock pin', type: 'pin' },
+          { path: 'pins.bclk', label: 'I2S bit-clock pin', type: 'pin' },
+          { path: 'pins.ws', label: 'I2S word-select pin', type: 'pin' },
+          { path: 'pins.dout', label: 'I2S data-out pin', type: 'pin' },
+          { path: 'pins.din', label: 'I2S data-in pin', type: 'pin' },
+          { path: 'pins.powerAmplifier', label: 'Power-amplifier enable pin', type: 'pin', optional: true }
+        ]
+      },
+      rm690b0: {
+        label: 'RM690B0 AMOLED display controller',
+        category: 'display',
+        interfaces: ['qspi'],
+        adapters: {},
+        configuration: []
+      }
+    }
+  })
   writeJson(path.join(installed('core'), 'package.json'), {
     name: '@geastack/core',
     version: '0.1.2'

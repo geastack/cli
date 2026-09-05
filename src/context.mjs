@@ -13,7 +13,7 @@ export function createContext(parsed, _env = process.env, cwd = process.cwd()) {
   const absoluteCwd = path.resolve(cwd)
   const projectRoot = findNodeProjectRoot(absoluteCwd) || absoluteCwd
   const initialAnchors = [projectRoot, cliPackageRoot]
-  const targetsRoot = resolveInstalledPackageDir('@geastack/targets', initialAnchors)
+  const targetsRoot = _env.GEA_TARGETS_ROOT || resolveInstalledPackageDir('@geastack/targets', initialAnchors)
   const corePackageDir = resolveInstalledPackageDir('@geastack/core', initialAnchors)
   const packageAnchors = [projectRoot, cliPackageRoot, targetsRoot, corePackageDir].filter(Boolean)
   const compilerPackageDir = resolveInstalledPackageDir('@geastack/compiler', packageAnchors)
@@ -28,7 +28,7 @@ export function createContext(parsed, _env = process.env, cwd = process.cwd()) {
     cliPackageRoot,
     compilerPackageDir,
     corePackageDir,
-    chipsPackageDir: resolveInstalledPackageDir('@geastack/chips', packageAnchors),
+    chipsPackageDir: _env.GEA_CHIPS_DIR || resolveInstalledPackageDir('@geastack/chips', packageAnchors),
     elementsPackageDir: resolveInstalledPackageDir('@geastack/elements', packageAnchors),
     enginePackageDir: resolveInstalledPackageDir('@geastack/engine', packageAnchors),
     geaosPackageDir: resolveInstalledPackageDir('@geastack/geaos', packageAnchors),
