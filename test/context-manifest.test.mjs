@@ -65,8 +65,15 @@ test('createContext discovers a project-local board config', (t) => {
 
   assert.equal(ctx.projectRoot, fixture.appDir)
   assert.equal(ctx.projectBoardsConfig, boardsPath)
-  assert.equal(ctx.boardsConfig, boardsPath)
-  assert.equal(env.GEA_BOARDS_CONFIG, boardsPath)
+  // The project tier is merged over the home tier by the config loader; only
+  // an explicit --boards-config is `boardsConfig`, and only that reaches
+  // child processes.
+  assert.equal(ctx.boardsConfig, '')
+  assert.equal(env.GEA_BOARDS_CONFIG, undefined)
+  assert.ok(ctx.homeBoardsConfig.endsWith(path.join('.geastack', 'boards.json')))
+  assert.equal(createContext(parseArgs([]), { HOME: fixture.root }, fixture.appDir).homeBoardsConfig, path.join(fixture.root, '.geastack', 'boards.json'))
+  assert.equal(createContext(parseArgs([]), { GEA_HOME: '/opt/gea' }, fixture.appDir).homeBoardsConfig, path.join('/opt/gea', 'boards.json'))
+  assert.equal(createContext(parseArgs([]), { GEA_BOARDS_CONFIG: '/etc/gea/boards.json' }, fixture.appDir).boardsConfig, '/etc/gea/boards.json')
 })
 
 test('targets.json entries resolve to installed target project directories', (t) => {
@@ -99,7 +106,7 @@ test('GEA_EXTRA_APP_DIRS adds apps outside the project', (t) => {
 
 test('manifest helpers validate current app and installed target metadata', (t) => {
   const fixture = createFixture(t)
-  const ctx = createContext(parseArgs([]), {}, fixture.root)
+  const ctx = createContext(parseArgs([]), { HOME: fixture.root }, fixture.root)
 
   const current = findCurrentApp(path.join(fixture.appDir, 'nested/deeper'))
   assert.equal(current.id, 'watch')

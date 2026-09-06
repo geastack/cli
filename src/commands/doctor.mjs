@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 import { flag } from '../args.mjs'
-import { boardConfigPath, loadBoardConfig } from '../boards/config.mjs'
+import { boardConfigPath, boardConfigTiers, loadBoardConfig } from '../boards/config.mjs'
 import { ExitCode } from '../errors.mjs'
 import { findEspIdf, findIdfPythonEnv } from '../esp32/idf-env.mjs'
 import { exists } from '../fs-utils.mjs'
@@ -53,10 +53,10 @@ export async function doctorCommand(ctx, parsed, rest, options) {
   add('picotool (RP2350)', onPath('picotool', env), onPath('picotool', env) ? 'on PATH' : 'optional', false)
   add('swift (BLE OTA)', onPath('swift', env), onPath('swift', env) ? 'on PATH' : 'optional; macOS only', false)
 
-  const boardFile = boardConfigPath(ctx)
+  const boardFiles = boardConfigTiers(ctx).filter((tier) => exists(tier.file)).map((tier) => tier.file)
   try {
-    const boards = exists(boardFile) ? loadBoardConfig(ctx) : {}
-    add('boards.json', true, exists(boardFile) ? `${boardFile} (${Object.keys(boards).length} board(s))` : 'not configured (gea setup)', false)
+    const boards = boardFiles.length ? loadBoardConfig(ctx) : {}
+    add('boards.json', true, boardFiles.length ? `${boardFiles.join(', ')} (${Object.keys(boards).length} board(s))` : `not configured (gea boards add; looked for ${boardConfigPath(ctx)})`, false)
   } catch (error) {
     add('boards.json', false, error.message, true)
   }

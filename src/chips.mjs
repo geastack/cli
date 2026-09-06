@@ -142,7 +142,7 @@ export function resolveTargetDefinition(ctx, parsed) {
   const configPath = option(parsed, 'boards-config')
     ? path.resolve(ctx.cwd, option(parsed, 'boards-config'))
     : ctx.projectBoardsConfig
-  if (!configPath || !exists(configPath)) fail('No project .gea/boards.json was found. Run gea setup and create a custom board first.', ExitCode.usage)
+  if (!configPath || !exists(configPath)) fail(`No board config was found at ${configPath || '.gea/boards.json'}. Run gea setup and create a custom board first.`, ExitCode.usage)
   const boards = readJson(configPath)
   const requested = option(parsed, 'board', '')
   const customBoards = Object.entries(boards).filter(([, entry]) => typeof entry?.targetDefinition === 'string' && entry.targetDefinition)

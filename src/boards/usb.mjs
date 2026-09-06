@@ -113,6 +113,47 @@ function macUsbCalloutPortsForSerial(serial, ioreg = runIoreg) {
   return [...matches].sort()
 }
 
+// Every USB callout port the registry knows, with the serial and product
+// name inherited from the enclosing USB device: the inverse of
+// macUsbCalloutPortsForSerial, for `gea boards discover` and the setup
+// wizard. The /dev name carries no identity (the usbmodem number changes on
+// every enumeration and identical boards share it), so this is the only
+// place a port's serial can come from on macOS.
+export function listMacUsbCalloutPorts(ioreg = runIoreg) {
+  let output = ''
+  try {
+    output = ioreg(['-p', 'IOService', '-l', '-w0'], { maxBuffer: 64 * 1024 * 1024 })
+  } catch {
+    return []
+  }
+  const stack = []
+  const ports = new Map()
+  for (const line of output.split(/\r?\n/)) {
+    const node = line.match(/^([\s|]*)[+\\-]*o\s+/)
+    if (node) {
+      const depth = (node[1].match(/\|/g) || []).length
+      while (stack.length > 0 && stack[stack.length - 1].depth >= depth) stack.pop()
+      stack.push({ depth, serial: '', product: '' })
+      continue
+    }
+    if (stack.length === 0) continue
+    const current = stack[stack.length - 1]
+    const serialValue = ioregStringProperty(line, 'kUSBSerialNumberString') || ioregStringProperty(line, 'USB Serial Number')
+    if (serialValue) current.serial = serialValue
+    const productValue = ioregStringProperty(line, 'kUSBProductString') || ioregStringProperty(line, 'USB Product Name')
+    if (productValue) current.product = productValue
+    const callout = ioregStringProperty(line, 'IOCalloutDevice')
+    if (!callout || !path.basename(callout).startsWith('cu.')) continue
+    // A callout with no USB serial above it is not a USB device at all
+    // (Bluetooth SPP, the debug console); probing those is a wasted timeout.
+    const serial = [...stack].reverse().find((entry) => entry.serial)?.serial || ''
+    if (!serial) continue
+    const label = [...stack].reverse().find((entry) => entry.product)?.product || ''
+    ports.set(callout, { path: callout, serial, label })
+  }
+  return [...ports.values()].sort((a, b) => a.path.localeCompare(b.path))
+}
+
 function runIoreg(args, options = {}) {
   return execFileSync('ioreg', args, { encoding: 'utf8', ...options })
 }

@@ -90,7 +90,7 @@ You do not need to run that before every command unless `gea doctor` says ESP-ID
 
 If the wizard finds a connected serial device, pick it. If no board is plugged in yet, that is fine; you can provide the port later.
 
-The wizard writes the board config into your app at `.gea/boards.json` and initializes the selected board target.
+The wizard writes the board alias into your app's `.gea/boards.json` (or `~/.geastack/boards.json` with `--global`, for every project on this machine) and initializes the selected board target.
 
 ## 4. Flash
 
@@ -134,4 +134,4 @@ Most first-run issues are one of:
 - ESP-IDF is not activated in the current shell.
 - The USB cable is power-only.
 - The serial port needs to be passed with `--port`.
-- The board alias does not match the name in `.gea/boards.json`.
+- The board alias does not match a name in `npx gea boards list` (`~/.geastack/boards.json` plus the app's `.gea/boards.json`). `npx gea boards discover` shows which registered board each USB port is.

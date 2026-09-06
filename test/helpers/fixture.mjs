@@ -99,10 +99,15 @@ export function createFixture(t, options = {}) {
       appPlatform: 'geaos'
     }
   })
+  // Board aliases live in the fixture's HOME (~/.geastack/boards.json), the
+  // machine-wide tier; tests that want a project override write
+  // apps/watch/.gea/boards.json themselves.
+  const homeBoards = path.join(root, '.geastack', 'boards.json')
+  fs.mkdirSync(path.dirname(homeBoards), { recursive: true })
   if (options.invalidBoardsJson) {
-    fs.writeFileSync(path.join(installed('targets'), 'boards.json'), '{ this is not json\n')
+    fs.writeFileSync(homeBoards, '{ this is not json\n')
   } else {
-    writeJson(path.join(installed('targets'), 'boards.json'), {
+    writeJson(homeBoards, {
       amoled: {
         target: 'esp32-s3-touch-amoled-2.06',
         adapter: 'esp32-idf',

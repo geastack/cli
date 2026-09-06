@@ -2,7 +2,6 @@ import { readdirSync } from 'node:fs'
 import path from 'node:path'
 
 import { flag, option, optionList } from '../args.mjs'
-import { loadBoardConfig, normalizeBoardConfig, boardConfigPath } from '../boards/config.mjs'
 import { loadTargets } from '../boards/targets.mjs'
 import { ExitCode, fail } from '../errors.mjs'
 import { exists } from '../fs-utils.mjs'
@@ -161,38 +160,7 @@ async function iconSheet(ctx, parsed, options) {
   return 0
 }
 
-// gea boards ... / gea targets ...
-
-export async function boardsCommand(ctx, parsed, rest, options) {
-  const sub = rest[0] || 'list'
-  const boards = normalizeBoardConfig(loadBoardConfig(ctx))
-  if (sub === 'list') {
-    if (flag(parsed, 'json')) options.stdout(JSON.stringify(boards, null, 2))
-    else {
-      const names = Object.keys(boards).sort()
-      if (names.length === 0) options.stdout(`No boards configured in ${boardConfigPath(ctx)}. Run gea setup, or gea boards add.`)
-      for (const name of names) {
-        const board = boards[name]
-        const bits = [board.target]
-        if (board.transports?.usbSerial?.serial) bits.push(`usb ${board.transports.usbSerial.serial}`)
-        if (board.transports?.ota?.host) bits.push(`wifi ${board.transports.ota.host}`)
-        options.stdout(`${name}\t${bits.join('  ')}`)
-      }
-    }
-    return 0
-  }
-  if (sub === 'show') {
-    const name = rest[1] || option(parsed, 'board', '')
-    if (!name || !boards[name]) fail(`Unknown board '${name}'. Run gea boards list.`, ExitCode.usage)
-    options.stdout(JSON.stringify({ [name]: boards[name] }, null, 2))
-    return 0
-  }
-  if (sub === 'add') {
-    const { runSetupWizard } = await import('../setup-wizard.mjs')
-    return runSetupWizard(ctx, parsed, options)
-  }
-  fail(`Unknown boards subcommand '${sub}'. Expected list, show, or add.`, ExitCode.usage)
-}
+// gea targets ...
 
 export function targetsCommand(ctx, parsed, rest, options) {
   const sub = rest[0] || 'list'

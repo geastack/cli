@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { knownBoards } from './board-catalog.mjs'
+import { boardConfigWritePath } from './boards/config.mjs'
 import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from './chips.mjs'
 import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
@@ -380,8 +381,7 @@ async function maybeInitializeBoardTarget(ctx, parsed, io, boardSetup) {
   io.stdout(`Initializing board target '${boardSetup.alias}'...`)
   const { buildCommand } = await import('./commands/board.mjs')
   const setupParsed = { ...parsed, options: { ...parsed.options, board: boardSetup.alias, 'configure-only': true } }
-  const reloaded = { ...ctx, boardsConfig: boardConfigPath(ctx, parsed) }
-  return buildCommand(reloaded, setupParsed, [], io)
+  return buildCommand(ctx, setupParsed, [], io)
 }
 
 async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false } = {}) {
@@ -464,10 +464,13 @@ async function selectUsbSerial(prompt, io, { message }) {
   })
 }
 
+// --global writes the alias to ~/.geastack/boards.json, --local to the
+// project's .gea/boards.json; otherwise the project config when it exists,
+// else the home one (src/boards/config.mjs owns that rule).
 function boardConfigPath(ctx, parsed) {
-  const explicit = option(parsed, 'boards-config') || ctx.boardsConfig
+  const explicit = option(parsed, 'boards-config')
   if (explicit) return path.resolve(ctx.cwd, explicit)
-  return ctx.projectBoardsConfig || path.join(ctx.cwd, '.gea', 'boards.json')
+  return boardConfigWritePath(ctx, { scope: flag(parsed, 'global') ? 'global' : flag(parsed, 'local') ? 'project' : '' })
 }
 
 function readBoardConfig(filePath) {

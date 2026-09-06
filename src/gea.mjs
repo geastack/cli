@@ -2,7 +2,8 @@ import fs from 'node:fs'
 
 import { flag, option, parseArgs } from './args.mjs'
 import { runChips } from './chips.mjs'
-import { appsCommand, boardsCommand, heapReportCommand, targetsCommand } from './commands/apps.mjs'
+import { appsCommand, heapReportCommand, targetsCommand } from './commands/apps.mjs'
+import { boardsCommand } from './commands/boards.mjs'
 import { buildCommand, cleanCommand, devctlCommand, flashCommand, geaosDeviceCommand, logsCommand, monitorCommand, otaCommand, screenshotCommand } from './commands/board.mjs'
 import { doctorCommand } from './commands/doctor.mjs'
 import { createContext } from './context.mjs'
@@ -42,7 +43,8 @@ export async function runGea(argv, io = {}) {
 
   const ctx = createContext(parsed, env, cwd)
   const rest = parsed.positionals.slice(1)
-  const options = { stdout, stderr, env, stdin, output, prompt }
+  // probeSerialDevice lets tests answer `gea boards discover` without a port.
+  const options = { stdout, stderr, env, stdin, output, prompt, probeSerialDevice: io.probeSerialDevice }
 
   // A platform name in --target (web, macos, ...) is not a board.
   const target = option(parsed, 'target', '')
@@ -137,10 +139,11 @@ Device access:
 
 Catalogs:
   gea apps list|inspect|pack|index|launcher|icons|icon-sheet|apple-icons
-  gea boards list|show <alias>|add
+  gea boards list|show|add|set|remove|rename|discover  (gea boards help)
   gea targets list|show <id>
   gea chips ...                                  custom board composition from the chip catalog
   gea heap-report [logs...] [--out file] [--map elf.map]
 
-Global options: --project <dir>  --boards-config <file>  --dry-run  --json`
+Global options: --project <dir>  --boards-config <file>  --global|--local (boards writes)  --dry-run  --json
+Board aliases: ~/.geastack/boards.json (this machine) + <project>/.gea/boards.json (overrides)`
 }

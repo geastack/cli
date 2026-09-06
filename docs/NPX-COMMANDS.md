@@ -94,7 +94,9 @@ packages are scoped and configured for restricted npmjs publication.
 - ESP-IDF toolchain check/install only.
 
 Known-board setup detects attached serial devices, asks for a stable USB serial,
-shows a review screen, writes a board alias into the active boards config, then
+shows a review screen, writes a board alias into the active boards config
+(`--global` for `~/.geastack/boards.json`, `--local` for the project's
+`.gea/boards.json`; by default the project config when it exists), then
 initializes the selected board target so the next command can be
 `npx gea flash --board <alias> --monitor`. In generated apps, that config is:
 

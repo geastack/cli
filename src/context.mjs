@@ -2,6 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { option } from './args.mjs'
+import { homeBoardsConfigPath } from './boards/config.mjs'
 import { exists, findUp } from './fs-utils.mjs'
 
 const srcDir = path.dirname(fileURLToPath(import.meta.url))
@@ -31,13 +32,15 @@ export function createContext(parsed, env = process.env, cwd = process.cwd()) {
   const explicitProject = option(parsed, 'project') || env.GEA_PROJECT_ROOT || ''
   const projectRoot = explicitProject ? path.resolve(absoluteCwd, explicitProject) : findNodeProjectRoot(absoluteCwd) || absoluteCwd
   const projectBoardsConfig = path.join(projectRoot, '.gea', 'boards.json')
-  const explicitBoardsConfig = option(parsed, 'boards-config') || ''
-  const boardsConfig = explicitBoardsConfig || (exists(projectBoardsConfig) ? projectBoardsConfig : '')
+  // Only an explicit file is `boardsConfig`; the project and home tiers are
+  // merged by src/boards/config.mjs, which also decides where a write goes.
+  const boardsConfig = option(parsed, 'boards-config') || env.GEA_BOARDS_CONFIG || ''
 
   const ctx = {
     cwd: absoluteCwd,
     projectRoot,
     projectBoardsConfig,
+    homeBoardsConfig: homeBoardsConfigPath(env),
     cliPackageRoot,
     cliBin,
     boardsConfig: boardsConfig ? path.resolve(absoluteCwd, boardsConfig) : '',

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { loadBoardConfig, normalizeBoardConfig } from './config.mjs'
+import { boardConfigOrigins, boardConfigPath, loadBoardConfig, normalizeBoardConfig } from './config.mjs'
 import { loadTargets } from './targets.mjs'
 import { resolveUsbSerialPort } from './usb.mjs'
 
@@ -30,14 +30,16 @@ export function resolveBoardSelection({
   needs = {},
   targets = ctx ? loadTargets(ctx) : {},
   config = ctx ? loadBoardConfig(ctx) : {},
-  configDir = ctx ? (ctx.boardsConfig ? path.dirname(ctx.boardsConfig) : path.dirname(ctx.projectBoardsConfig)) : process.cwd(),
+  // A targetDefinition is relative to the file its alias came from, which
+  // differs between the home and project tiers.
+  configDir = ctx ? path.dirname((boardName && boardConfigOrigins(ctx).get(boardName)) || boardConfigPath(ctx)) : process.cwd(),
   usbSerialResolver = resolveUsbSerialPort,
   deferUsbPort = false
 } = {}) {
   const boards = normalizeBoardConfig(config)
   const board = boardName ? boards[boardName] : null
   if (boardName && !board) {
-    throw new Error(`Unknown board '${boardName}'. Add it to .gea/boards.json (gea boards add) or run gea boards list.`)
+    throw new Error(`Unknown board '${boardName}'. Run gea boards list, or gea boards add to register it.`)
   }
 
   let target = board?.target || targetName || ''

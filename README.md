@@ -100,6 +100,18 @@ host bindings, and the other native packages from npm. A project can use a
 local CLI with `npx gea` or a global installation with `gea`; neither command
 depends on a GeaStack source checkout.
 
+Boards are managed without editing JSON by hand; aliases live in
+`~/.geastack/boards.json` (this machine) and the project's `.gea/boards.json`
+(overrides):
+
+```sh
+gea boards discover                    # which registered board is on which USB port, its app and IP
+gea boards list
+gea boards set amoled host 192.168.1.100
+gea boards rename amoled desk-amoled
+gea boards remove desk-amoled
+```
+
 Custom boards remain editable after setup:
 
 ```sh
@@ -169,4 +181,5 @@ First implementation is in place:
 - `list` and `inspect` helpers;
 - `create-geastack` with a bundled counter starter, a blank application, and a
   GitHub-backed rich example flow for web, embedded, GeaOS, iOS, macOS, and Android apps,
-  all with `.gea/boards.json`.
+  all with `.gea/boards.json`, plus `gea boards` for machine-wide aliases in
+  `~/.geastack/boards.json`.

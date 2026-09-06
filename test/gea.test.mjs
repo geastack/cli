@@ -65,7 +65,7 @@ test('apps, targets and boards are listed from the current npm project', async (
   assert.match(targets.out[1], new RegExp(`\tesp32-idf\t${escapeRegex(fixture.esp32Target)}$`))
 
   const boards = capture()
-  await runGea(['boards', 'list', '--json'], { ...boards.io, cwd: fixture.root })
+  await runGea(['boards', 'list', '--json'], { ...boards.io, cwd: fixture.root, env: fixture.env })
   assert.equal(JSON.parse(boards.out.join('\n')).amoled.target, 'esp32-s3-touch-amoled-2.06')
 
   const current = capture()
@@ -335,15 +335,22 @@ test('setup builds a known target in configure-only mode and can write a local b
     env: { ...fixture.env, GEA_SERIAL_DEVICES: '/dev/cu.usbmodem101|ESP32-S3 USB/JTAG|USB123' }
   })
 
-  const boards = readJson(path.join(fixture.appDir, '.gea/boards.json'))
+  // The fixture project has no .gea/boards.json, so a new alias joins the
+  // machine-wide config in HOME.
+  assert.equal(fs.existsSync(path.join(fixture.appDir, '.gea/boards.json')), false)
+  const boards = readJson(path.join(fixture.root, '.geastack/boards.json'))
   assert.equal(boards['desk-amoled'].target, 'esp32-s3-touch-amoled-2.06')
   assert.equal(boards['desk-amoled'].transports.usbSerial.serial, 'USB123')
+  assert.equal(boards.amoled.target, 'esp32-s3-touch-amoled-2.06', 'existing home aliases survive')
   assert.match(out.out.join('\n'), /Ready: npx gea flash --board desk-amoled --monitor/)
 })
 
 test('custom setup composes a flash-ready target from the chip catalog', async (t) => {
   const fixture = createFixture(t)
   const tools = createFakeToolchain(t)
+  // A generated project carries an (empty) .gea/boards.json, so the custom
+  // board and its target definition are written next to it.
+  writeJson(path.join(fixture.appDir, '.gea/boards.json'), {})
   const out = capture()
   const prompt = scriptedPrompt([
     '2', 'from-scratch', '1',
@@ -435,7 +442,7 @@ test('doctor requires npm packages while platform tools are optional', async (t)
 test('doctor fails closed for invalid board configuration', async (t) => {
   const fixture = createFixture(t, { invalidBoardsJson: true })
   const out = capture()
-  const code = await runGea(['doctor', '--json'], { ...out.io, cwd: fixture.root, env: { PATH: '' } })
+  const code = await runGea(['doctor', '--json'], { ...out.io, cwd: fixture.root, env: { PATH: '', HOME: fixture.root } })
   assert.equal(code, ExitCode.missingDependency)
   assert.equal(JSON.parse(out.out.join('\n')).ok, false)
 })

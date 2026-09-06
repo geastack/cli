@@ -35,7 +35,7 @@ For ESP32 hardware:
 - npm.
 - Python 3.
 - ESP-IDF v6.0.1.
-- `.gea/boards.json` configured for your board.
+- a board alias for your board (`~/.geastack/boards.json` or the project's `.gea/boards.json`, see Board Configuration).
 
 For the Waveshare ESP32-S3 AMOLED board, use
 [ESP32-WAVESHARE-AMOLED-QUICKSTART.md](ESP32-WAVESHARE-AMOLED-QUICKSTART.md).
@@ -224,9 +224,44 @@ manager or from python.org.
 
 ## Board Configuration
 
-Board aliases are project-local machine configuration. `create-geastack`
-creates an empty `.gea/boards.json`, and `npx gea setup` writes aliases there.
-Example:
+A board alias names one physical unit: `gea flash --board amoled` resolves
+`amoled` to a target, a USB serial and, optionally, an IP. Aliases are
+machine-local configuration and never come from a package. The CLI merges two
+files, project over home:
+
+| file | holds | written by |
+| --- | --- | --- |
+| `~/.geastack/boards.json` | every board on this machine (`GEA_HOME` relocates the directory) | `gea boards add --global`, `gea boards set` |
+| `<project>/.gea/boards.json` | aliases specific to one application; overrides a home alias of the same name | `create-geastack` (empty), `gea boards add` |
+
+`--boards-config <file>` (or `GEA_BOARDS_CONFIG`) replaces both with exactly
+that file. By default `gea boards add` writes to the project config when the
+project has one and to the home config otherwise; an existing alias is always
+edited where it lives.
+
+```sh
+npx gea boards discover                 # what is plugged in: alias, app, IP
+npx gea boards add                      # register a board (guided)
+npx gea boards list                     # every alias and which file it lives in
+npx gea boards set amoled host 192.168.1.100
+npx gea boards rename amoled desk-amoled
+npx gea boards remove desk-amoled
+npx gea doctor
+```
+
+`gea boards discover` sends one `GEADEV PING` to each serial device without
+resetting it; a board running gea firmware answers with its app id, its IP
+(when it has joined WiFi) and its MAC, and the CLI pairs the reply with an
+alias by USB serial. `--save` writes a reported IP into
+`transports.ota.host`, which is what `gea ota`, `gea logs` and
+`gea screenshot` use over WiFi.
+
+### Entry shapes
+
+Every entry names a `target` (`gea targets list`) and its `adapter`, then the
+transports the board offers. The USB serial is the stable identity: on ESP32
+boards it is the station MAC, and the CLI resolves it to today's `/dev` port
+at call time, so never record a port path.
 
 ```json
 {
@@ -234,22 +269,53 @@ Example:
     "target": "esp32-s3-touch-amoled-2.06",
     "adapter": "esp32-idf",
     "transports": {
-      "usbSerial": {
-        "serial": "YOUR_BOARD_USB_SERIAL"
-      }
+      "usbSerial": { "serial": "80:B5:4E:DA:73:88" },
+      "ota": { "host": "192.168.1.100" }
     }
+  },
+  "rotary": {
+    "target": "esp32-s3-elecrow-rotary-2.1",
+    "adapter": "esp32-idf",
+    "transports": {
+      "usbSerial": { "serial": "14:C1:9F:26:65:08", "restartAfterFlash": "manual" }
+    }
+  },
+  "tufty": {
+    "target": "rp2350-tufty-2350",
+    "adapter": "rp2350-pico",
+    "transports": { "usbSerial": { "serial": "fa59949adbb4802f" } }
+  },
+  "linux": {
+    "target": "geaos",
+    "adapter": "geaos-linux",
+    "transports": {
+      "telnet": { "host": "192.168.7.2", "port": 2323 },
+      "fastboot": { "serial": "geaos001" }
+    }
+  },
+  "lokmat": {
+    "target": "lokmat-applp2max",
+    "adapter": "geaos-arm64",
+    "transports": {
+      "usbSerial": { "serial": "geaos01" },
+      "fastboot": { "serial": "0123456789ABCDEF" },
+      "mtk": { "workdir": "~/lokmat-root" }
+    }
+  },
+  "my-board": {
+    "target": "my-board",
+    "targetDefinition": "targets/my-board.json",
+    "adapter": "esp32-idf",
+    "transports": { "usbSerial": { "serial": "YOUR_BOARD_USB_SERIAL" } }
   }
 }
 ```
 
-Then check discovery:
-
-```sh
-npx gea setup
-npx gea list boards
-npx gea list targets
-npx gea doctor
-```
+- `restartAfterFlash: "manual"` marks a board whose USB-Serial-JTAG port
+  re-enters ROM download mode after a flash; the CLI stops and asks for a
+  power cycle instead of pulsing the reset lines.
+- `targetDefinition` points at a custom target composed by `gea setup` /
+  `gea chips`, relative to the file the alias lives in.
 
 ## Common Verification Flow
 

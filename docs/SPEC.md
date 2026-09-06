@@ -83,9 +83,12 @@ gea flash --app bouncing-balls-jsx --board amoled --monitor
 gea flash --app css-3d-cube --target android
 ```
 
-The CLI should pass through board aliases from the active board config. A project
-uses its own `.gea/boards.json`; otherwise the CLI reads the board catalog shipped
-by the installed `@geastack/targets` package.
+The CLI resolves board aliases from two machine-local files merged project over
+home: `~/.geastack/boards.json` (every board on the machine, `GEA_HOME`
+relocates it) and the project's `.gea/boards.json`. `--boards-config` replaces
+both. No package ships aliases. `gea boards` manages them: `list`, `show`,
+`add`, `set <alias> <key> <value>`, `remove`, `rename`, and `discover`, which
+identifies connected boards over USB (`GEADEV PING` reports app, IP and MAC).
 
 ### `gea chips`
 
