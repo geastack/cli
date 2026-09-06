@@ -327,7 +327,9 @@ test('setup builds a known target in configure-only mode and can write a local b
   assert.doesNotMatch(routed.out, /cmake --build/)
 
   const out = capture()
-  const prompt = scriptedPrompt(['1', '1', 'desk-amoled', '1', '', '', 'y', 'n'])
+  // known board, amoled, alias, connected over USB (the one detected device
+  // is taken without asking for its serial), no OTA host, save, no ESP-IDF install.
+  const prompt = scriptedPrompt(['1', '1', 'desk-amoled', 'y', '', 'y', 'n'])
   await runGea(['setup', '--dry-run'], {
     ...out.io,
     prompt,
@@ -361,7 +363,7 @@ test('custom setup composes a flash-ready target from the chip catalog', async (
     '1', '16', '41', '45', '40', '42', '46',
     'y', '2', '1', '3',
     'y', '0', '1',
-    '1', '',
+    'y',
     'y'
   ])
   await runGea(['setup', '--dry-run'], {
@@ -512,3 +514,45 @@ test('setup wizard reinstalls when the resolved target outgrows what is installe
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
+
+test('an ESP32 board cannot be configured without an app, and the wizard picks one for the board', async (t) => {
+  const fixture = createFixture(t)
+  const noApp = capture()
+  await assert.rejects(
+    runGea(['setup', '--board', 'amoled', '--dry-run'], { ...noApp.io, cwd: fixture.root, env: fixture.env }),
+    /builds one app at a time: pass --app <id>.*apps targeting 'amoled': watch/
+  )
+
+  // From the project root the wizard cannot infer an app; `watch` is the
+  // only one targeting the new board, so it is configured without asking.
+  const out = capture()
+  const prompt = scriptedPrompt(['1', '1', 'root-amoled', 'y', '', 'y', 'n'])
+  const code = await runGea(['setup', '--dry-run'], {
+    ...out.io,
+    prompt,
+    cwd: fixture.root,
+    env: { ...fixture.env, GEA_SERIAL_DEVICES: '/dev/cu.usbmodem101|ESP32-S3 USB/JTAG|USB123' }
+  })
+  assert.equal(code, 0, out.err.join('\n'))
+  const text = out.out.join('\n')
+  assert.match(text, /Detected ESP32-S3 USB\/JTAG on \/dev\/cu\.usbmodem101, serial USB123/)
+  assert.doesNotMatch(prompt.questions.join('\n'), /USB serial number/)
+  assert.match(text, /Initializing board target 'root-amoled' for app 'watch'/)
+  assert.match(text, /-DGEA_EMBEDDED_APP=watch/)
+})
+
+test('a board that is not plugged in is registered without a serial', async (t) => {
+  const fixture = createFixture(t)
+  const out = capture()
+  const prompt = scriptedPrompt(['1', '1', 'later', 'n', '', 'y', 'n'])
+  const code = await runGea(['setup', '--dry-run', '--no-initialize'], {
+    ...out.io,
+    prompt,
+    cwd: fixture.appDir,
+    env: { ...fixture.env, GEA_SERIAL_DEVICES: '' }
+  })
+  assert.equal(code, 0, out.err.join('\n'))
+  assert.match(out.out.join('\n'), /gea boards discover --save/)
+  const boards = readJson(path.join(fixture.root, '.geastack/boards.json'))
+  assert.deepEqual(boards.later.transports, {})
+})

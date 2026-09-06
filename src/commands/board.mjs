@@ -11,7 +11,7 @@ import { eraseSlot, flashFirmware, flashImageSet, flashOptions, postFlashRestart
 import { bleOta, otaEraseSlot, otaFlash, otaStage, waitForReboot } from '../esp32/ota.mjs'
 import { manifestRequestsBleOta } from '../esp32/capabilities.mjs'
 import { runGeaos } from '../geaos/adapter.mjs'
-import { assertTargetEnabled, assertValidApp, resolveRequestedApp } from '../manifest.mjs'
+import { assertTargetEnabled, assertValidApp, discoverApps, resolveRequestedApp, targetEnabledForApp } from '../manifest.mjs'
 import { buildRp2350, flashRp2350, rp2350BuildDir } from '../rp2350/adapter.mjs'
 import { runTargetHook } from '../taurus/adapter.mjs'
 
@@ -69,9 +69,22 @@ function io(parsed, options) {
 
 // ---- build ------------------------------------------------------------------
 
+// Firmware is built per app and the ESP32/RP2350 CMake refuses to configure
+// without one (its script-mode pass would otherwise analyze a directory), so
+// those adapters need an app even for --configure-only; the geaos and taurus
+// adapters have app-less actions.
+const appRequiredAdapters = new Set(['esp32-idf', 'rp2350-pico'])
+
+function requireAppForAdapter(ctx, parsed, selection, app) {
+  if (app || !appRequiredAdapters.has(selection.adapter)) return app
+  const candidates = discoverApps(ctx).filter((candidate) => targetEnabledForApp(ctx, candidate, selection.boardName || selection.target))
+  const hint = candidates.length > 0 ? `apps targeting '${selection.boardName || selection.target}': ${candidates.map((candidate) => candidate.id).join(', ')}` : `no app in ${ctx.projectRoot} targets '${selection.boardName || selection.target}' yet`
+  fail(`Board '${selection.boardName || selection.target}' builds one app at a time: pass --app <id> or run inside the app folder (${hint}).`, ExitCode.usage)
+}
+
 export async function buildCommand(ctx, parsed, rest, options) {
   const selection = selectBoard(ctx, parsed)
-  const app = optionalApp(ctx, parsed, rest, selection)
+  const app = requireAppForAdapter(ctx, parsed, selection, optionalApp(ctx, parsed, rest, selection))
   const base = io(parsed, options)
   const env = createChildEnv(ctx, base.env)
   switch (selection.adapter) {

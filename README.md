@@ -69,7 +69,7 @@ flowchart TD
   interactive -->|"Known supported board"| knownBoard["Pick board"]
   knownBoard --> alias["Set board alias"]
   alias --> serial["Detect serial devices"]
-  serial --> saveSerial["Save stable USB serial"]
+  serial --> saveSerial["Detect the USB serial (registry + GEADEV ping)"]
   saveSerial --> ota["Optional OTA host"]
   ota --> reviewKnown["Review board setup"]
   reviewKnown --> writeKnown["Write .gea/boards.json"]

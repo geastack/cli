@@ -93,8 +93,9 @@ packages are scoped and configured for restricted npmjs publication.
 - npm dependency check/install only;
 - ESP-IDF toolchain check/install only.
 
-Known-board setup detects attached serial devices, asks for a stable USB serial,
-shows a review screen, writes a board alias into the active boards config
+Known-board setup asks whether the board is plugged in, reads each USB
+device's serial from the OS and pings it (so a board is picked by the app it
+reports running, never by a `/dev` name), shows a review screen, writes a board alias into the active boards config
 (`--global` for `~/.geastack/boards.json`, `--local` for the project's
 `.gea/boards.json`; by default the project config when it exists), then
 initializes the selected board target so the next command can be

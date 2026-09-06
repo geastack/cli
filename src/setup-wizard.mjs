@@ -3,7 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { knownBoards } from './board-catalog.mjs'
-import { boardConfigWritePath } from './boards/config.mjs'
+import { boardConfigWritePath, loadBoardConfig } from './boards/config.mjs'
+import { discoverBoards, probeSerialDevice } from './commands/boards.mjs'
+import { discoverApps, resolveRequestedApp, targetEnabledForApp } from './manifest.mjs'
 import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from './chips.mjs'
 import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
@@ -12,7 +14,7 @@ import { extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTar
 import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { ask, choose, confirm, createPrompt } from './prompts.mjs'
 import { runExternal } from './run.mjs'
-import { detectSerialDevices, formatSerialDevice } from './serial-devices.mjs'
+import { detectSerialDevices } from './serial-devices.mjs'
 import { commandVersion } from './toolchain.mjs'
 
 const espIdfInstallTargets = 'esp32,esp32s3,esp32p4'
@@ -83,7 +85,7 @@ export async function runSetupWizard(ctx, parsed, io) {
     if (option(parsed, 'install') === true) {
       await maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force: true })
     }
-    await maybeInitializeBoardTarget(ctx, parsed, io, boardSetup)
+    await maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup)
     if (boardSetup?.flashReady) {
       stdout(`Ready: npx gea flash --board ${boardSetup.alias} --monitor`)
     } else {
@@ -116,8 +118,8 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
     validate: validateAlias
   })
   renderStep(io, 'Connection', ['Use a detected serial device, enter one manually, or skip it for now.'])
-  const serial = await selectUsbSerial(prompt, io, {
-    message: 'USB serial number (leave blank to pass --port manually)'
+  const serial = await selectUsbSerial(prompt, io, ctx, {
+    message: 'The USB serial identifies this board whatever port it lands on.'
   })
   const otaHost = await ask(prompt, {
     message: 'OTA host/IP (optional)',
@@ -233,8 +235,8 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
   }
 
   renderStep(io, 'Connection', ['The first flash uses USB. BLE OTA can take over after the initial firmware is running.'])
-  const usbSerial = await selectUsbSerial(prompt, io, {
-    message: 'USB serial number (leave blank to auto-detect or pass --port)'
+  const usbSerial = await selectUsbSerial(prompt, io, ctx, {
+    message: 'The USB serial identifies this board whatever port it lands on.'
   })
 
   const configPath = boardConfigPath(ctx, parsed)
@@ -370,20 +372,51 @@ async function maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force = fa
   })
 }
 
-async function maybeInitializeBoardTarget(ctx, parsed, io, boardSetup) {
+// A board target is configured for one app (the firmware is built per app,
+// and its CMake refuses to run without one), so initialization needs an
+// app: the current one when the wizard runs inside an app, else the only
+// app in the project that targets this board, else the user's pick.
+async function maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup) {
   if (!boardSetup?.alias || !boardSetup.flashReady) return 0
   if (option(parsed, 'initialize') === false) {
-    io.stdout(`Board initialization skipped. Later: npx gea setup --board ${boardSetup.alias}`)
+    io.stdout(`Board initialization skipped. Later: npx gea setup --board ${boardSetup.alias} --app <id>`)
     return 0
   }
   if (!ctx.targetsRoot) {
-    io.stdout(`@geastack/targets is not installed. Later: npx gea setup --board ${boardSetup.alias}`)
+    io.stdout(`@geastack/targets is not installed. Later: npx gea setup --board ${boardSetup.alias} --app <id>`)
     return 0
   }
-  io.stdout(`Initializing board target '${boardSetup.alias}'...`)
+  const app = await chooseAppForBoard(ctx, parsed, io, prompt, boardSetup.alias)
+  if (!app) return 0
+  io.stdout(`Initializing board target '${boardSetup.alias}' for app '${app.id}'...`)
   const { buildCommand } = await import('./commands/board.mjs')
-  const setupParsed = { ...parsed, options: { ...parsed.options, board: boardSetup.alias, 'configure-only': true } }
+  const setupParsed = { ...parsed, options: { ...parsed.options, board: boardSetup.alias, app: app.id, 'configure-only': true } }
   return buildCommand(ctx, setupParsed, [], io)
+}
+
+async function chooseAppForBoard(ctx, parsed, io, prompt, alias) {
+  let current = null
+  try {
+    current = resolveRequestedApp(ctx, parsed, [])
+  } catch {
+    current = null
+  }
+  if (current && targetEnabledForApp(ctx, current, alias)) return current
+  const candidates = discoverApps(ctx).filter((app) => targetEnabledForApp(ctx, app, alias))
+  if (candidates.length === 0) {
+    io.stdout(`No app in ${ctx.projectRoot} targets '${alias}' yet; skipping board initialization. Later: npx gea setup --board ${alias} --app <id>`)
+    return null
+  }
+  if (candidates.length === 1) return candidates[0]
+  const picked = await choose(prompt, {
+    message: `Which app should the first '${alias}' build target?`,
+    choices: [
+      ...candidates.map((app) => ({ value: app.id, label: app.id, description: app.root })),
+      { value: '', label: 'Skip board initialization for now' }
+    ],
+    defaultValue: candidates[0].id
+  })
+  return picked ? candidates.find((app) => app.id === picked) : null
 }
 
 // Resolves the ESP-IDF version target once for the whole wizard run:
@@ -466,32 +499,54 @@ function detectEspIdf(env, targetVersion) {
   return { available: false, detail: '' }
 }
 
-async function selectUsbSerial(prompt, io, { message }) {
-  const devices = detectSerialDevices({ env: io.env || process.env })
-  if (devices.length === 0) {
-    return ask(prompt, {
-      message,
-      defaultValue: ''
-    })
+// Nobody knows their board's USB serial by heart, so the wizard never asks
+// for one. It asks whether the board is plugged in, reads the serial from the
+// USB registry, and PINGs each port so the user picks by what the board says
+// it is running rather than by a /dev name. A board that is not connected is
+// registered without a serial; `gea boards discover --save` fills it in later.
+async function selectUsbSerial(prompt, io, ctx, { message }) {
+  const env = io.env || process.env
+  io.stdout(message)
+  const connected = await confirm(prompt, { message: 'Is the board connected over USB right now?', defaultValue: true })
+  if (!connected) {
+    io.stdout('No USB serial recorded. Later, with the board plugged in: gea boards discover --save')
+    return ''
   }
-
-  const selected = await choose(prompt, {
-    message: 'Detected serial devices. Which board is connected?',
-    choices: [
-      ...devices.map((device, index) => ({ value: `device-${index}`, label: formatSerialDevice(device) })),
-      { value: 'manual', label: 'Enter stable USB serial manually' },
-      { value: 'skip', label: 'Skip for now' }
-    ],
-    defaultValue: 'device-0'
-  })
-  if (selected === 'skip') return ''
-  if (selected === 'manual') return ask(prompt, { message, defaultValue: '' })
-  const index = Number.parseInt(selected.slice('device-'.length), 10)
-  const device = devices[index]
-  return ask(prompt, {
-    message: `Stable USB serial for ${device.path}`,
-    defaultValue: device.serial || ''
-  })
+  const known = loadBoardConfig(ctx)
+  const probe = io.probeSerialDevice || ((device) => probeSerialDevice(device, { env }))
+  while (true) {
+    const devices = detectSerialDevices({ env }).filter((device) => device.serial)
+    if (devices.length === 0) {
+      io.stdout('No USB board detected. Check the cable (some are power-only) and that the board is on.')
+      const retry = await confirm(prompt, { message: 'Retry detection?', defaultValue: true })
+      if (retry) continue
+      io.stdout('No USB serial recorded. Later, with the board plugged in: gea boards discover --save')
+      return ''
+    }
+    const results = await discoverBoards({ devices, boards: known, probe })
+    const describe = (result) => {
+      const bits = [result.label && result.label !== result.path ? `${result.label} on ${result.path}` : result.path, `serial ${result.serial}`]
+      if (result.responds) bits.push(result.app ? `running ${result.app}` : 'gea firmware')
+      if (result.alias) bits.push(`already registered as '${result.alias}'`)
+      return bits.join(', ')
+    }
+    if (results.length === 1) {
+      io.stdout(`Detected ${describe(results[0])}`)
+      return results[0].serial
+    }
+    const selected = await choose(prompt, {
+      message: 'Several USB devices are connected. Which one is this board?',
+      choices: [
+        ...results.map((result, index) => ({ value: `device-${index}`, label: describe(result) })),
+        { value: 'retry', label: 'Unplug the others and detect again' },
+        { value: 'skip', label: 'Skip for now' }
+      ],
+      defaultValue: 'device-0'
+    })
+    if (selected === 'skip') return ''
+    if (selected === 'retry') continue
+    return results[Number.parseInt(selected.slice('device-'.length), 10)].serial
+  }
 }
 
 // --global writes the alias to ~/.geastack/boards.json, --local to the

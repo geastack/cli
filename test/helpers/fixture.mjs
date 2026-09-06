@@ -239,7 +239,10 @@ export function capture() {
       // "latest release" lookup is stubbed to behave like it is unreachable,
       // so version resolution deterministically falls back to the pin.
       // Tests exercising the lookup itself pass their own fetchEspIdfLatest.
-      fetchEspIdfLatest: async () => ''
+      fetchEspIdfLatest: async () => '',
+      // Nor a serial port: GEADEV probes answer "no reply" unless a test
+      // passes its own probeSerialDevice.
+      probeSerialDevice: async () => ({ ok: false, error: 'not probed in tests' })
     }
   }
 }
