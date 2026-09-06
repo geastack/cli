@@ -15,7 +15,9 @@ import {
   formatStarterChoice
 } from './starter-catalog.mjs'
 
-const cliVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+const cliPackage = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const cliVersion = cliPackage.version
+const coreVersion = String(cliPackage.dependencies?.['@geastack/core'] || '').replace(/^[^0-9]*/, '')
 
 export async function runCreateGeastack(argv, io = {}) {
   const parsed = parseArgs(argv)
@@ -40,7 +42,7 @@ export async function runCreateGeastack(argv, io = {}) {
 
   const ctx = createContext(parsed, env, cwd)
   const displayName = option(parsed, 'name', titleFromId(appId))
-  const coreDependency = option(parsed, 'core-dependency') || '^0.1.4'
+  const coreDependency = option(parsed, 'core-dependency') || `^${coreVersion}`
   const cliDependency = option(parsed, 'cli-dependency') || `^${cliVersion}`
   const starter = await resolveStarter(ctx, parsed, io)
   const entry = projectRelativePath(starter.starter?.entry || starter.example?.entry || 'index.tsx', 'entry')

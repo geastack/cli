@@ -9,6 +9,10 @@ import { runCreateGeastack } from '../src/create-geastack.mjs'
 import { runGea } from '../src/gea.mjs'
 import { cliRoot, createFixture, readJson, scriptedPrompt } from './helpers/fixture.mjs'
 
+const cliPackage = readJson(path.join(cliRoot, 'package.json'))
+const expectedCliDependency = `^${cliPackage.version}`
+const expectedCoreDependency = `^${String(cliPackage.dependencies['@geastack/core']).replace(/^[^0-9]*/, '')}`
+
 test('create-geastack scaffolds a valid app manifest', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-'))
   const out = []
@@ -27,8 +31,8 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.gea.targets.rp2350, false)
   assert.equal(packageJson.gea.targets.android, false)
   assert.equal('runtime' in packageJson.gea, false)
-  assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.4')
-  assert.equal(packageJson.dependencies['@geastack/cli'], '^0.1.17')
+  assert.equal(packageJson.dependencies['@geastack/core'], expectedCoreDependency)
+  assert.equal(packageJson.dependencies['@geastack/cli'], expectedCliDependency)
   assert.equal(fs.existsSync(path.join(tmp, 'src/index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'src/App.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
@@ -123,8 +127,8 @@ test('create-geastack always defaults to registry dependencies', async (t) => {
   })
 
   const packageJson = readJson(path.join(targetDir, 'package.json'))
-  assert.equal(packageJson.dependencies['@geastack/core'], '^0.1.4')
-  assert.equal(packageJson.dependencies['@geastack/cli'], '^0.1.17')
+  assert.equal(packageJson.dependencies['@geastack/core'], expectedCoreDependency)
+  assert.equal(packageJson.dependencies['@geastack/cli'], expectedCliDependency)
   assert.equal(packageJson.gea.targets.esp32, true)
   assert.equal(packageJson.gea.targets.rp2350, false)
   assert.equal(packageJson.gea.targets.android, false)
@@ -158,7 +162,7 @@ test('create-geastack can interactively fetch a rich GitHub example', async () =
   assert.equal(packageJson.gea.name, 'Example App')
   assert.equal(packageJson.gea.entry, 'index.tsx')
   assert.equal(packageJson.gea.targets.esp32, true)
-  assert.equal(packageJson.dependencies['@geastack/cli'], '^0.1.17')
+  assert.equal(packageJson.dependencies['@geastack/cli'], expectedCliDependency)
   assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /watch\.init/)
   assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /Started from GitHub example: `Watch`/)
   assert.match(prompt.questions.join('\n'), /What do you want to build\?/)
