@@ -1,6 +1,6 @@
 {
   "name": "@geastack/cli",
-  "version": "0.1.52",
+  "version": "0.1.53",
   "type": "module",
   "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
   "publishConfig": {
@@ -27,8 +27,7 @@
     "create-geastack": "bin/create-geastack.mjs"
   },
   "dependencies": {
-    "@geastack/core": "0.1.10",
-    "@geastack/targets": "0.1.47"
+    "serialport": "^13.0.0"
   },
   "scripts": {
     "check": "node --check bin/gea.mjs && node --check bin/create-geastack.mjs && find src test packages -name '*.mjs' -print0 | xargs -0 -n1 node --check",

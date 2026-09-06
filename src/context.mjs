@@ -1,5 +1,4 @@
 import path from 'node:path'
-import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 import { option } from './args.mjs'
@@ -7,16 +6,30 @@ import { exists, findUp } from './fs-utils.mjs'
 
 const srcDir = path.dirname(fileURLToPath(import.meta.url))
 export const cliPackageRoot = path.resolve(srcDir, '..')
-const requireFromCli = createRequire(import.meta.url)
+export const cliBin = path.join(cliPackageRoot, 'bin', 'gea.mjs')
 
-export function createContext(parsed, _env = process.env, cwd = process.cwd()) {
+// Every @geastack package the CLI reads. They are sources and data (IDF
+// projects, chip catalogs, C++ trees, the compiler) and they belong to the
+// USER'S project: the CLI resolves them from the project's node_modules the
+// way node itself would, never from its own install. The CLI has no @geastack
+// dependencies of its own, so availability of a command is simply "is that
+// package installed here".
+const geastackPackages = Object.freeze({
+  targetsRoot: { name: '@geastack/targets', env: 'GEA_TARGETS_ROOT' },
+  corePackageDir: { name: '@geastack/core', env: 'GEA_CORE_DIR' },
+  compilerPackageDir: { name: '@geastack/compiler', env: 'GEA_COMPILER_DIR' },
+  chipsPackageDir: { name: '@geastack/chips', env: 'GEA_CHIPS_DIR' },
+  elementsPackageDir: { name: '@geastack/elements', env: 'GEA_ELEMENTS_DIR' },
+  enginePackageDir: { name: '@geastack/engine', env: 'GEA_ENGINE_DIR' },
+  geaosPackageDir: { name: '@geastack/geaos', env: 'GEA_GEAOS_PACKAGE_DIR' },
+  hostPackageDir: { name: '@geastack/host', env: 'GEA_HOST_DIR' },
+  pluginPackageDir: { name: '@geastack/geatsc-plugin-gea', env: 'GEA_PLUGIN_DIR' }
+})
+
+export function createContext(parsed, env = process.env, cwd = process.cwd()) {
   const absoluteCwd = path.resolve(cwd)
-  const projectRoot = findNodeProjectRoot(absoluteCwd) || absoluteCwd
-  const initialAnchors = [projectRoot, cliPackageRoot]
-  const targetsRoot = _env.GEA_TARGETS_ROOT || resolveInstalledPackageDir('@geastack/targets', initialAnchors)
-  const corePackageDir = resolveInstalledPackageDir('@geastack/core', initialAnchors)
-  const packageAnchors = [projectRoot, cliPackageRoot, targetsRoot, corePackageDir].filter(Boolean)
-  const compilerPackageDir = resolveInstalledPackageDir('@geastack/compiler', packageAnchors)
+  const explicitProject = option(parsed, 'project') || env.GEA_PROJECT_ROOT || ''
+  const projectRoot = explicitProject ? path.resolve(absoluteCwd, explicitProject) : findNodeProjectRoot(absoluteCwd) || absoluteCwd
   const projectBoardsConfig = path.join(projectRoot, '.gea', 'boards.json')
   const explicitBoardsConfig = option(parsed, 'boards-config') || ''
   const boardsConfig = explicitBoardsConfig || (exists(projectBoardsConfig) ? projectBoardsConfig : '')
@@ -26,40 +39,31 @@ export function createContext(parsed, _env = process.env, cwd = process.cwd()) {
     projectRoot,
     projectBoardsConfig,
     cliPackageRoot,
-    compilerPackageDir,
-    corePackageDir,
-    chipsPackageDir: _env.GEA_CHIPS_DIR || resolveInstalledPackageDir('@geastack/chips', packageAnchors),
-    elementsPackageDir: resolveInstalledPackageDir('@geastack/elements', packageAnchors),
-    enginePackageDir: resolveInstalledPackageDir('@geastack/engine', packageAnchors),
-    geaosPackageDir: resolveInstalledPackageDir('@geastack/geaos', packageAnchors),
-    hostPackageDir: resolveInstalledPackageDir('@geastack/host', packageAnchors),
-    pluginPackageDir: resolveInstalledPackageDir('@geastack/geatsc-plugin-gea', packageAnchors),
+    cliBin,
     boardsConfig: boardsConfig ? path.resolve(absoluteCwd, boardsConfig) : '',
-    examplesRoot: projectRoot,
-    simulatorRoot: '',
-    androidRoot: '',
-    appleRoot: '',
-    targetsRoot
+    // Generated state (IDF build directories, sdkconfigs, generated board
+    // headers) lives in the project, never inside an installed package.
+    buildRoot: env.GEA_PROJECT_BUILD_ROOT
+      ? path.resolve(absoluteCwd, env.GEA_PROJECT_BUILD_ROOT)
+      : path.join(projectRoot, '.gea', 'build'),
+    env
   }
-  ctx.scripts = {
-    board: packageFile(ctx.targetsRoot, 'scripts', 'board'),
-    webBuild: '',
-    webDev: '',
-    androidBuild: '',
-    macosBuild: '',
-    iosBuild: '',
-    geaEmbedded: packageFile(ctx.corePackageDir, 'bin', 'gea-embedded.mjs')
+  for (const [field, { name, env: envName }] of Object.entries(geastackPackages)) {
+    ctx[field] = env[envName] || resolveInstalledPackageDir(name, projectRoot)
   }
+  ctx.packageName = (field) => geastackPackages[field]?.name || field
   return ctx
 }
 
-export function createChildEnv(ctx, env = process.env) {
+// Environment handed to every build system the CLI drives (IDF/CMake, the
+// Pico SDK, the geaos scripts). They receive exact package paths and never
+// resolve anything themselves.
+export function createChildEnv(ctx, env = ctx.env || process.env) {
   const out = {
     ...env,
     GEA_APPS_ROOT: ctx.projectRoot,
-    GEA_CLI_BIN: path.join(ctx.cliPackageRoot, 'bin', 'gea.mjs'),
+    GEA_CLI_BIN: ctx.cliBin,
     GEA_CHIPS_DIR: ctx.chipsPackageDir,
-    GEA_CORE_PACKAGE: ctx.corePackageDir,
     GEA_CORE_DIR: ctx.corePackageDir,
     GEA_COMPILER_DIR: ctx.compilerPackageDir,
     GEA_ELEMENTS_DIR: ctx.elementsPackageDir,
@@ -77,26 +81,15 @@ export function createChildEnv(ctx, env = process.env) {
   return out
 }
 
-function resolveInstalledPackageDir(packageName, anchors) {
-  for (const anchor of anchors) {
-    let current = path.resolve(anchor)
-    while (true) {
-      const candidate = path.join(current, 'node_modules', ...packageName.split('/'))
-      if (exists(path.join(candidate, 'package.json'))) return candidate
-      const parent = path.dirname(current)
-      if (parent === current) break
-      current = parent
-    }
+export function resolveInstalledPackageDir(packageName, anchor) {
+  let current = path.resolve(anchor)
+  while (true) {
+    const candidate = path.join(current, 'node_modules', ...packageName.split('/'))
+    if (exists(path.join(candidate, 'package.json'))) return candidate
+    const parent = path.dirname(current)
+    if (parent === current) return ''
+    current = parent
   }
-  try {
-    return path.dirname(requireFromCli.resolve(`${packageName}/package.json`))
-  } catch {
-    return ''
-  }
-}
-
-function packageFile(packageRoot, ...segments) {
-  return packageRoot ? path.join(packageRoot, ...segments) : ''
 }
 
 function appendPathList(current, value) {

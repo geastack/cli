@@ -228,8 +228,8 @@ Use predictable exit codes:
 1. Implement `gea doctor` for toolchain discovery and app manifest validation.
 2. Implement `gea dev --target web` by delegating to the simulator repo.
 3. Implement `gea build --target web`.
-4. Implement `gea flash --board <alias>` by delegating to
-   `targets/scripts/board`.
+4. Implement `gea flash --board <alias>` natively (ESP-IDF, esptool, OTA and
+   device transports live in `src/esp32` and `src/device`).
 5. Add `create-geastack` with one JSX app template.
 
 Status: implemented.

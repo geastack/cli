@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "chips": {
+    "co5300": { "category": "display", "interfaces": ["qspi"], "sources": ["displays/co5300/co5300.cpp"], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/displays/co5300.cpp"] } } },
+    "ft3168": { "category": "touch", "interfaces": ["i2c"], "sources": ["touch/ft3168/ft3168.cpp"], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/touch/ft3168.cpp"] } } },
+    "axp2101": { "category": "power", "interfaces": ["i2c"], "sources": ["power/axp2101/axp2101.cpp"], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/power/axp2101.cpp"] } } },
+    "qmi8658": { "category": "imu", "interfaces": ["i2c"], "sources": ["imu/qmi8658/qmi8658.cpp"], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/imu/qmi8658.cpp"] } } },
+    "es8311": { "category": "audio", "interfaces": ["i2s"], "sources": [], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/audio/es8311.cpp"] } } },
+    "unknown-panel": { "category": "display", "interfaces": ["qspi"], "sources": [], "adapters": {} }
+  }
+}

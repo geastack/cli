@@ -5,7 +5,6 @@ import path from 'node:path'
 import { knownBoards } from './board-catalog.mjs'
 import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from './chips.mjs'
 import { flag, option } from './args.mjs'
-import { createChildEnv } from './context.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { ask, choose, confirm, createPrompt } from './prompts.mjs'
@@ -374,18 +373,15 @@ async function maybeInitializeBoardTarget(ctx, parsed, io, boardSetup) {
     io.stdout(`Board initialization skipped. Later: npx gea setup --board ${boardSetup.alias}`)
     return 0
   }
-  if (!exists(ctx.scripts.board)) {
-    io.stdout(`Board backend not found. Later: npx gea setup --board ${boardSetup.alias}`)
+  if (!ctx.targetsRoot) {
+    io.stdout(`@geastack/targets is not installed. Later: npx gea setup --board ${boardSetup.alias}`)
     return 0
   }
   io.stdout(`Initializing board target '${boardSetup.alias}'...`)
-  return runExternal(ctx.scripts.board, ['setup', `--board=${boardSetup.alias}`], {
-    cwd: ctx.targetsRoot,
-    env: createChildEnv(ctx, io.env || process.env),
-    dryRun: flag(parsed, 'dry-run'),
-    failureCode: ExitCode.buildFailed,
-    stdout: io.stdout
-  })
+  const { buildCommand } = await import('./commands/board.mjs')
+  const setupParsed = { ...parsed, options: { ...parsed.options, board: boardSetup.alias, 'configure-only': true } }
+  const reloaded = { ...ctx, boardsConfig: boardConfigPath(ctx, parsed) }
+  return buildCommand(reloaded, setupParsed, [], io)
 }
 
 async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false } = {}) {

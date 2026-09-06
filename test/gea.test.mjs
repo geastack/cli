@@ -12,6 +12,8 @@ test('help, version, and unknown command behavior are stable', async () => {
   const help = capture()
   assert.equal(await runGea(['help'], help.io), 0)
   assert.match(help.out.join('\n'), /gea doctor/)
+  assert.match(help.out.join('\n'), /gea ota/)
+  assert.match(help.out.join('\n'), /gea devctl/)
 
   const version = capture()
   assert.equal(await runGea(['--version'], version.io), 0)
@@ -46,26 +48,48 @@ test('gea create help presents the guided command', async () => {
   assert.match(out.out.join('\n'), /Run without options for guided setup/)
 })
 
-test('list and inspect use the current npm project', async (t) => {
+test('apps, targets and boards are listed from the current npm project', async (t) => {
   const fixture = createFixture(t)
 
   const apps = capture()
-  await runGea(['list', 'apps'], { ...apps.io, cwd: fixture.root })
+  await runGea(['apps', 'list'], { ...apps.io, cwd: fixture.root })
   assert.deepEqual(apps.out, ['bad-app', 'watch', 'web-only'])
 
+  const esp32Apps = capture()
+  await runGea(['apps', 'list', '--target', 'esp32'], { ...esp32Apps.io, cwd: fixture.root })
+  assert.deepEqual(esp32Apps.out, ['watch'])
+
   const targets = capture()
-  await runGea(['list', 'targets'], { ...targets.io, cwd: fixture.root })
-  assert.deepEqual(targets.out, ['esp32-s3-touch-amoled-2.06', 'geaos', 'rp2350-tufty-2350'])
+  await runGea(['targets', 'list'], { ...targets.io, cwd: fixture.root })
+  assert.deepEqual(targets.out.map((line) => line.split('\t')[0]), ['esp32-s3', 'esp32-s3-touch-amoled-2.06', 'geaos', 'rp2350-tufty-2350'])
+  assert.match(targets.out[1], new RegExp(`\tesp32-idf\t${escapeRegex(fixture.esp32Target)}$`))
 
   const boards = capture()
-  await runGea(['list', 'boards', '--json'], { ...boards.io, cwd: fixture.root })
+  await runGea(['boards', 'list', '--json'], { ...boards.io, cwd: fixture.root })
   assert.equal(JSON.parse(boards.out.join('\n')).amoled.target, 'esp32-s3-touch-amoled-2.06')
 
   const current = capture()
-  await runGea(['inspect', '--json'], { ...current.io, cwd: path.join(fixture.appDir, 'nested') })
+  await runGea(['apps', 'inspect', '--json'], { ...current.io, cwd: path.join(fixture.appDir, 'nested') })
   const app = JSON.parse(current.out.join('\n'))
   assert.equal(app.id, 'watch')
   assert.equal(app.entry, 'index.tsx')
+  assert.equal(app.root, '.', 'roots are relative to the project the command runs in')
+
+  const fromRoot = capture()
+  await runGea(['apps', 'inspect', 'watch', '--json'], { ...fromRoot.io, cwd: fixture.root })
+  assert.equal(JSON.parse(fromRoot.out.join('\n')).root, 'apps/watch')
+
+  const shell = capture()
+  await runGea(['apps', 'inspect', 'watch', '--format', 'shell'], { ...shell.io, cwd: fixture.root })
+  assert.deepEqual(shell.out, ['apps/watch\tindex.tsx\tgea\tWatch'], 'the tab-separated form the Apple build scripts parse')
+
+  const cmake = capture()
+  await runGea(['apps', 'inspect', 'watch', '--format', 'cmake'], { ...cmake.io, cwd: fixture.root })
+  assert.deepEqual(cmake.out, ['apps/watch;index.tsx;gea'])
+
+  const legacy = capture()
+  await runGea(['list', 'apps'], { ...legacy.io, cwd: fixture.root })
+  assert.deepEqual(legacy.out, ['bad-app', 'watch', 'web-only'])
 })
 
 test('chips catalog can compose and edit an app-local custom board', async (t) => {
@@ -148,75 +172,159 @@ test('chips catalog can compose and edit an app-local custom board', async (t) =
   )
 })
 
-test('embedded build delegates to the installed targets package', async (t) => {
-  const fixture = createFixture(t)
+function gea(args, fixture, extra = {}) {
   const out = capture()
-  await runGea(['build', '--board=amoled', '--dry-run'], {
-    ...out.io,
-    cwd: fixture.appDir
-  })
+  return runGea(args, { ...out.io, cwd: fixture.appDir, env: fixture.env, ...extra }).then((code) => ({ code, out: out.out.join('\n'), err: out.err.join('\n') }))
+}
 
-  const command = out.out.join('\n')
-  assert.match(command, new RegExp(`${escapeRegex(fixture.installed('targets'))}/scripts/board build`))
-  assert.match(command, /--board=amoled --app=watch/)
+test('build configures and builds the app in its own ESP-IDF build directory', async (t) => {
+  const fixture = createFixture(t)
+  const buildDir = fixture.buildDir('esp32-s3-touch-amoled-2.06', 'watch')
+
+  const dry = await gea(['build', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(dry.code, 0)
+  const python = path.join(fixture.env.IDF_PYTHON_ENV_PATH, 'bin/python')
+  assert.match(dry.out, new RegExp(`^${escapeRegex(python)} ${escapeRegex(fixture.env.IDF_PATH)}/tools/idf.py -G Ninja -B ${escapeRegex(buildDir)} -DSDKCONFIG=${escapeRegex(buildDir)}/sdkconfig -DSDKCONFIG_DEFAULTS=${escapeRegex(fixture.esp32Target)}/sdkconfig.defaults -DIDF_TARGET=esp32s3 -DGEA_APPS_ROOT=${escapeRegex(fixture.appDir)} -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=.;index.tsx;gea' -DGEA_EMBEDDED_CAPABILITY_NETWORK=1 -DGEA_EMBEDDED_CAPABILITY_BLE=0 -DGEA_EMBEDDED_CAPABILITY_AUDIO=1 reconfigure$`, 'm'))
+  assert.match(dry.out, new RegExp(`^cmake --build ${escapeRegex(buildDir)} --parallel 8$`, 'm'))
+  assert.doesNotMatch(dry.out, /--ccache/, 'ccache is only passed when it is on PATH')
+  assert.equal(fs.existsSync(path.join(buildDir, 'CMakeCache.txt')), false, 'dry-run never configures')
+  // Preparation still happens in dry-run so the printed command is real.
+  assert.match(fs.readFileSync(path.join(buildDir, 'sdkconfig'), 'utf8'), /^CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768$/m)
+  assert.match(fs.readFileSync(path.join(buildDir, 'apps/watch/wifi_config.h'), 'utf8'), /GEA_EMBEDDED_WIFI_EARLY_CONNECT 0/)
+
+  const real = await gea(['build', '--board', 'amoled'], fixture)
+  assert.equal(real.code, 0, real.err)
+  const calls = fixture.calls()
+  const configure = calls.find((line) => / reconfigure$/.test(line))
+  assert.ok(configure, `expected a reconfigure call, got:\n${calls.join('\n')}`)
+  assert.match(configure, /-DGEA_EMBEDDED_APP=watch/)
+  assert.ok(calls.some((line) => line === `cmake --build ${buildDir} --parallel 8`), calls.join('\n'))
+  assert.ok(fs.existsSync(path.join(buildDir, 'gea_embedded.bin')))
+  assert.equal(fs.readFileSync(path.join(buildDir, '.gea-configure-args'), 'utf8').includes('-DGEA_EMBEDDED_APP=watch'), true)
+
+  // A second build with the same inputs skips reconfigure entirely.
+  fs.rmSync(fixture.callLog)
+  const again = await gea(['build', '--board', 'amoled', '--jobs', '2'], fixture, { env: { ...fixture.env, GEA_IDF_JOBS: '2' } })
+  assert.equal(again.code, 0)
+  const second = fixture.calls().filter((line) => !line.includes('idf_tools.py export') && !line.startsWith('compiler '))
+  assert.deepEqual(second, [`cmake --build ${buildDir} --parallel 2`])
 })
 
-test('flash, monitor, screenshot, and BLE OTA delegate all board options', async (t) => {
+test('flash writes bootloader, app, partition table and otadata over USB and then monitors', async (t) => {
   const fixture = createFixture(t)
+  const buildDir = fixture.buildDir('esp32-s3-touch-amoled-2.06', 'watch')
+  assert.equal((await gea(['build', '--board', 'amoled'], fixture)).code, 0)
 
-  const flash = capture()
-  await runGea(['flash', '--board=amoled', '--port=/dev/cu.usb', '--monitor', '--dry-run', '--', '--manual-boot'], {
-    ...flash.io,
-    cwd: fixture.appDir
-  })
-  assert.match(flash.out.join('\n'), /board flash-monitor --board=amoled --app=watch \/dev\/cu\.usb --manual-boot/)
+  const dry = await gea(['flash', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(dry.code, 0, dry.err)
+  assert.match(dry.out, /USB flash attempt 1 on <usb serial USB123>/)
+  const esptool = dry.out.split('\n').find((line) => line.includes('-m esptool'))
+  assert.ok(esptool, dry.out)
+  assert.match(esptool, /-m esptool -p '<usb serial USB123>' --chip esp32s3 --before default_reset --after hard_reset -b 921600 write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB/)
+  assert.match(esptool, new RegExp(`0x0 ${escapeRegex(buildDir)}/bootloader/bootloader.bin 0x10000 ${escapeRegex(buildDir)}/gea_embedded.bin 0x8000 ${escapeRegex(buildDir)}/partition_table/partition-table.bin 0xd000 ${escapeRegex(buildDir)}/ota_data_initial.bin`))
 
-  const monitor = capture()
-  await runGea(['monitor', '--board=amoled', '--port=auto', '--dry-run'], { ...monitor.io, cwd: fixture.appDir })
-  assert.match(monitor.out.join('\n'), /board monitor --board=amoled auto/)
+  const options = await gea(['flash', '--board', 'amoled', '--port', fixture.fakePort, '--manual-boot', '--no-reset', '--flash-baud', '460800', '--dry-run'], fixture)
+  assert.equal(options.code, 0, options.err)
+  assert.match(options.out, /Manual boot mode: hold BOOT/)
+  assert.match(options.out, new RegExp(`-p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before no_reset --after no_reset -b 460800 write_flash`))
 
-  const screenshot = capture()
-  await runGea(['screenshot', 'counter.png', '--board=amoled', '--port=/dev/cu.usb', '--timeout=45', '--legacy', '--dry-run'], {
-    ...screenshot.io,
-    cwd: fixture.appDir
-  })
-  assert.match(
-    screenshot.out.join('\n'),
-    new RegExp(`board screenshot --board=amoled --port=/dev/cu\\.usb ${escapeRegex(path.join(fixture.appDir, 'counter.png'))} --timeout=45 --legacy`)
-  )
+  const manual = await gea(['flash', '--board', 'amoled-manual', '--dry-run'], fixture)
+  assert.match(manual.err, /power-cycle/i)
 
-  const ota = capture()
-  await runGea(['ota', '--board=amoled', '--transport=ble', '--dry-run'], { ...ota.io, cwd: fixture.appDir })
-  assert.match(ota.out.join('\n'), /board ble-ota --board=amoled --app=watch/)
+  const real = await gea(['flash', '--board', 'amoled', '--port', fixture.fakePort, '--no-build'], fixture)
+  assert.equal(real.code, 0, real.err)
+  const call = fixture.calls().find((line) => line.includes('-m esptool'))
+  assert.ok(call, fixture.calls().join('\n'))
+  assert.match(call, new RegExp(`^python -m esptool -p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before default_reset --after hard_reset -b 921600 write_flash`))
+
+  const monitor = await gea(['run', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(monitor.code, 0, monitor.err)
+  assert.match(monitor.out, /-m esptool/)
+  assert.match(monitor.out, /\[dry-run\] usb device: usb serial USB123/)
 })
 
-test('flash forwards USB controls without requiring a passthrough separator', async (t) => {
+test('flash slot management: erase, stage into a slot, and restore boot metadata', async (t) => {
   const fixture = createFixture(t)
-  const out = capture()
-  await runGea([
-    'flash',
-    '--board=amoled',
-    '--port=/dev/cu.usb',
-    '--manual-boot',
-    '--no-reset',
-    '--flash-baud=460800',
-    '--dry-run'
-  ], {
-    ...out.io,
-    cwd: fixture.appDir
-  })
+  const image = path.join(fixture.root, 'other.bin')
+  fs.writeFileSync(image, 'x')
 
-  assert.match(
-    out.out.join('\n'),
-    /board flash --board=amoled --app=watch \/dev\/cu\.usb --manual-boot --no-reset --flash-baud=460800/
-  )
+  const erase = await gea(['flash', '--board', 'amoled', '--erase-slot', 'ota_1', '--dry-run'], fixture)
+  assert.equal(erase.code, 0, erase.err)
+  assert.match(erase.out, /erase_region 0x210000 2097152/)
+
+  const stage = await gea(['flash', '--board', 'amoled', '--image', image, '--slot', '1', '--dry-run'], fixture)
+  assert.equal(stage.code, 0, stage.err)
+  assert.match(stage.out, new RegExp(`write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB 0x210000 ${escapeRegex(image)}`))
+
+  const built = await gea(['build', '--board', 'amoled'], fixture)
+  assert.equal(built.code, 0, built.err)
+  const restore = await gea(['flash', '--board', 'amoled', '--restore-boot', '--dry-run'], fixture)
+  assert.equal(restore.code, 0, restore.err)
+  assert.match(restore.out, /write_flash .* 0xd000 .*ota_data_initial\.bin$/m)
+  assert.doesNotMatch(restore.out, /gea_embedded\.bin/)
 })
 
-test('setup routes known targets and can write a local board alias', async (t) => {
+test('ota uploads the built image over WiFi and BLE OTA runs the swift helper', async (t) => {
   const fixture = createFixture(t)
-  const routed = capture()
-  await runGea(['setup', '--board=amoled', '--dry-run'], { ...routed.io, cwd: fixture.appDir })
-  assert.match(routed.out.join('\n'), /board setup --board=amoled/)
+  const buildDir = fixture.buildDir('esp32-s3-touch-amoled-2.06', 'watch')
+  assert.equal((await gea(['build', '--board', 'amoled'], fixture)).code, 0)
+
+  const wifi = await gea(['ota', '--board', 'amoled-wifi', '--dry-run'], fixture)
+  assert.equal(wifi.code, 0, wifi.err)
+  assert.match(wifi.out, new RegExp(`^POST http://10\\.0\\.0\\.5:8080/ota <- ${escapeRegex(buildDir)}/gea_embedded\\.bin$`, 'm'))
+
+  const host = await gea(['ota', '--board', 'amoled', '--host', '10.0.0.9', '--slot', 'ota_1', '--boot', '--dry-run'], fixture)
+  assert.equal(host.code, 0, host.err)
+  assert.match(host.out, /http:\/\/10\.0\.0\.9:8080\/ota\?slot=ota_1&boot=1&reboot=0/)
+
+  await assert.rejects(gea(['ota', '--board', 'amoled', '--dry-run'], fixture), /transports\.ota\.host/)
+
+  const ble = await gea(['ota', '--board', 'amoled', '--transport', 'ble', '--dry-run'], fixture)
+  assert.equal(ble.code, 0, ble.err)
+  assert.match(ble.out, /-DGEA_EMBEDDED_CAPABILITY_BLE=1/)
+  assert.match(ble.out, new RegExp(`swift .*src/ble/ble-ota\\.swift ${escapeRegex(buildDir)}/gea_embedded\\.bin`))
+})
+
+test('logs and screenshots pick WiFi when the board has an address, USB otherwise', async (t) => {
+  const fixture = createFixture(t)
+
+  const explicit = await gea(['logs', '--board', 'amoled', '--host', '10.0.0.5', '--follow', '--dry-run'], fixture)
+  assert.match(explicit.out, /\[dry-run\] wifi device: 10\.0\.0\.5/)
+
+  const auto = await gea(['logs', '--board', 'amoled-wifi', '--dry-run'], fixture)
+  assert.match(auto.out, /\[dry-run\] wifi device: 10\.0\.0\.5/)
+
+  const shot = await gea(['screenshot', 'shot.png', '--board', 'amoled-wifi', '--dry-run'], fixture)
+  assert.match(shot.out, /\[dry-run\] wifi device: 10\.0\.0\.5/)
+
+  const serial = await gea(['screenshot', 'shot.png', '--board', 'amoled', '--dry-run'], fixture)
+  assert.match(serial.out, /\[dry-run\] usb device: usb serial USB123/)
+
+  const forced = await gea(['logs', '--board', 'amoled-wifi', '--transport', 'usb', '--dry-run'], fixture)
+  assert.match(forced.out, /\[dry-run\] usb device: usb serial USB123/)
+
+  const hbm = await gea(['devctl', 'hbm', 'on', '--board', 'amoled-wifi', '--dry-run'], fixture)
+  assert.match(hbm.out, /\[dry-run\] wifi device: 10\.0\.0\.5/)
+
+  await assert.rejects(gea(['logs', '--board', 'amoled', '--transport', 'ble'], fixture), (error) => error instanceof CliError && error.exitCode === ExitCode.usage)
+  await assert.rejects(gea(['logs'], fixture), /--board/)
+})
+
+test('rp2350 boards build with the Pico SDK toolchain and flash a UF2', async (t) => {
+  const fixture = createFixture(t)
+  const dry = await gea(['build', '--board', 'tufty', '--dry-run'], fixture, { env: { ...fixture.env, PICO_SDK_PATH: '/pico-sdk', PICO_TOOLCHAIN_PATH: '/arm' } })
+  assert.equal(dry.code, 0, dry.err)
+  assert.match(dry.out, new RegExp(`^${escapeRegex(fixture.env.PATH.split(path.delimiter)[0])}/cmake -S ${escapeRegex(fixture.installed('targets'))}/targets/rp2350-tufty-2350 -B ${escapeRegex(fixture.appDir)}/.gea/build/rp2350-tufty-2350 -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=.;index.tsx;gea'$`, 'm'))
+  assert.match(dry.out, /cmake --build .*rp2350-tufty-2350 --target gea_rp2350_tufty_2350_app$/m)
+})
+
+test('setup builds a known target in configure-only mode and can write a local board alias', async (t) => {
+  const fixture = createFixture(t)
+  const routed = await gea(['setup', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(routed.code, 0, routed.err)
+  assert.match(routed.out, /Configuring target esp32s3/)
+  assert.match(routed.out, /idf\.py .* reconfigure$/m)
+  assert.doesNotMatch(routed.out, /cmake --build/)
 
   const out = capture()
   const prompt = scriptedPrompt(['1', '1', 'desk-amoled', '1', '', '', 'y', 'n'])
@@ -224,7 +332,7 @@ test('setup routes known targets and can write a local board alias', async (t) =
     ...out.io,
     prompt,
     cwd: fixture.appDir,
-    env: { ...process.env, GEA_SERIAL_DEVICES: '/dev/cu.usbmodem101|ESP32-S3 USB/JTAG|USB123' }
+    env: { ...fixture.env, GEA_SERIAL_DEVICES: '/dev/cu.usbmodem101|ESP32-S3 USB/JTAG|USB123' }
   })
 
   const boards = readJson(path.join(fixture.appDir, '.gea/boards.json'))
@@ -253,7 +361,7 @@ test('custom setup composes a flash-ready target from the chip catalog', async (
     ...out.io,
     prompt,
     cwd: fixture.appDir,
-    env: { ...tools.env, GEA_SERIAL_DEVICES: '/dev/cu.usbmodem101|ESP32-S3 USB/JTAG|USB123' }
+    env: { ...tools.env, ...fixture.env, PATH: `${tools.bin}${path.delimiter}${fixture.env.PATH}`, GEA_SERIAL_DEVICES: '/dev/cu.usbmodem101|ESP32-S3 USB/JTAG|USB123' }
   })
 
   const boards = readJson(path.join(fixture.appDir, '.gea/boards.json'))
@@ -272,36 +380,56 @@ test('custom setup composes a flash-ready target from the chip catalog', async (
   assert.deepEqual(definition.storage.microSD.pins, { clk: 2, cmd: 1, data0: 3 })
   assert.equal(definition.controls.launcherButton.pin, 0)
   assert.match(out.out.join('\n'), /Ready: npx gea flash --board from-scratch --monitor/)
+
+  // The custom target is materialized into the build directory and handed to CMake.
+  const built = await gea(['build', '--board', 'from-scratch', '--dry-run'], fixture)
+  assert.equal(built.code, 0, built.err)
+  const customDir = path.join(fixture.appDir, '.gea/build/from-scratch/app-builds/watch/gea-custom-target')
+  assert.match(built.out, new RegExp(`-DGEA_BOARD_DEFINITION=${escapeRegex(path.join(fixture.appDir, '.gea/targets/from-scratch.json'))} -DGEA_CUSTOM_TARGET_DIR=${escapeRegex(customDir)}`))
+  assert.match(fs.readFileSync(path.join(customDir, 'board.h'), 'utf8'), /\.cs = GPIO_NUM_12/)
+  assert.match(fs.readFileSync(path.join(customDir, 'target.cmake'), 'utf8'), /GEA_EMBEDDED_DISPLAY_WIDTH=410/)
 })
 
-test('build rejects invalid manifests and incompatible boards', async (t) => {
+test('build rejects invalid manifests, incompatible boards, and platform names', async (t) => {
   const fixture = createFixture(t)
 
   await assert.rejects(
-    runGea(['build', '--target=web', '--dry-run'], { ...capture().io, cwd: fixture.badAppDir }),
+    gea(['build', '--board', 'amoled', '--dry-run'], fixture, { cwd: fixture.badAppDir }),
     (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /gea.entry does not exist/.test(error.message)
   )
   await assert.rejects(
-    runGea(['build', '--board=amoled', '--dry-run'], { ...capture().io, cwd: path.join(fixture.root, 'apps/web-only') }),
+    gea(['build', '--board', 'amoled', '--dry-run'], fixture, { cwd: path.join(fixture.root, 'apps/web-only') }),
     (error) => error instanceof CliError && error.exitCode === ExitCode.targetUnavailable
   )
   await assert.rejects(
-    runGea(['ota', '--board=amoled', '--transport=serial'], { ...capture().io, cwd: fixture.appDir }),
+    gea(['ota', '--board', 'amoled', '--transport', 'serial'], fixture),
     (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /transport/.test(error.message)
+  )
+  await assert.rejects(
+    gea(['build', '--target', 'web', '--dry-run'], fixture),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /web build is not driven by gea/.test(error.message)
+  )
+  await assert.rejects(
+    gea(['build', '--board', 'amoled', '--dry-run'], fixture, { env: { ...fixture.env, IDF_PATH: '', IDF_PYTHON_ENV_PATH: '', HOME: fixture.root } }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.missingDependency && /ESP-IDF/.test(error.message)
   )
 })
 
-test('doctor requires npm packages and the board adapter, while platform tools are optional', async (t) => {
+test('doctor requires npm packages while platform tools are optional', async (t) => {
   const fixture = createFixture(t)
   const tools = createFakeToolchain(t)
   const out = capture()
-  const code = await runGea(['doctor', '--json'], { ...out.io, cwd: fixture.appDir, env: tools.env })
+  const code = await runGea(['doctor', '--json'], { ...out.io, cwd: fixture.appDir, env: { ...fixture.env, PATH: `${tools.bin}${path.delimiter}${fixture.env.PATH}` } })
   const result = JSON.parse(out.out.join('\n'))
 
   assert.equal(code, 0)
   assert.equal(result.ok, true)
   assert.equal(result.checks.find((check) => check.name === '@geastack/targets').ok, true)
-  assert.equal(result.checks.find((check) => check.name === 'board script').ok, true)
+  assert.equal(result.checks.find((check) => check.name === 'ESP-IDF').ok, true)
+  assert.equal(result.checks.find((check) => check.name === 'ESP-IDF python env').ok, true)
+  assert.equal(result.checks.find((check) => check.name === 'ninja').ok, true)
+  assert.equal(result.checks.find((check) => check.name === 'ccache').ok, false)
+  assert.equal(result.checks.find((check) => check.name === 'ccache').required, false)
 })
 
 test('doctor fails closed for invalid board configuration', async (t) => {
