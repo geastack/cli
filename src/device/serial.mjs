@@ -221,6 +221,17 @@ export const geadev = {
     return value === undefined ? parseKeyValues(raw).value ?? '' : raw
   },
 
+  async hbm(d, enabled) {
+    const raw = await d.command(`GEADEV HBM${enabled === undefined ? '' : ` ${enabled ? 'on' : 'off'}`}`, ['GEADEV:OK HBM', 'GEADEV:ERR HBM'])
+    const values = parseKeyValues(raw)
+    return { hbm: values.value === '1', supported: values.supported === undefined ? true : values.supported === '1' }
+  },
+
+  async vsync(d, enabled) {
+    const raw = await d.command(`GEADEV VSYNC${enabled === undefined ? '' : ` ${enabled ? 'on' : 'off'}`}`, ['GEADEV:OK VSYNC', 'GEADEV:ERR VSYNC'])
+    return { vsync: parseKeyValues(raw).value === '1' }
+  },
+
   async i2cScan(d) {
     const { lines } = await d.collect('GEADEV I2CSCAN', { data: ' ', end: 'GEADEV:I2CSCAN END', timeoutMs: 8000 })
     return lines.filter((line) => line.startsWith('GEADEV:I2CSCAN')).join('\n')

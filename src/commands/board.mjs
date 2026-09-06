@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import { flag, option, optionList } from '../args.mjs'
 import { resolveBoardSelection } from '../boards/resolve.mjs'
+import { resolveUsbSerialPort } from '../boards/usb.mjs'
 import { createChildEnv } from '../context.mjs'
 import { chooseTransport, openDevice, saveScreenshot } from '../device/device.mjs'
 import { geadev } from '../device/serial.mjs'
@@ -339,11 +340,60 @@ Verbs (USB, GEADEV protocol):
   back                    key <code>             notify <text>
   storage get <key> | storage set <key> <value>
   set-default <app-id>    set-time [epochSeconds]
-  brightness [0-100]      ls [path]              rm <path>
+  ls [path]               rm <path>
   push <local> <remote> [--base64]               pull <remote> <local>
   playfile <path>
-Verbs (WiFi):
-  hbm on|off              -- high-brightness mode (POST /display/hbm)`
+
+Display knobs (either transport; no value reports the current one):
+  brightness [0-100]      hbm [on|off]           vsync [on|off]`
+
+// Brightness, high-brightness mode and vsync: the board answers all three
+// over USB (GEADEV) and over WiFi (/display/*), and the device handle exposes
+// the same method for either, so this is transport-agnostic. Passing no value
+// reports the knob rather than setting it -- an app with no network binding
+// builds firmware with WiFi off, and USB is then the only way to reach them.
+const displayVerbs = new Set(['brightness', 'hbm', 'vsync'])
+
+// A knob is a one-shot control, not a stream, so the cable is its reliable
+// path: `auto` prefers USB whenever the board is actually attached and only
+// falls back to the board's address when it is not. This is the opposite of
+// the logs/screenshot preference, where an address saves plugging in at all.
+// It matters because an app with no network binding builds firmware with WiFi
+// off while the alias still records the OTA host an earlier app answered on --
+// exactly when `hbm` used to be unreachable.
+function usbAttached(selection) {
+  if (selection.port) return true
+  if (!selection.usbSerial) return false
+  try {
+    return Boolean(resolveUsbSerialPort({ serial: selection.usbSerial }))
+  } catch {
+    return false
+  }
+}
+
+function displayTransport(ctx, parsed, selection) {
+  const requested = option(parsed, 'transport', '')
+  const host = option(parsed, 'host', '')
+  if (requested) return chooseTransport(requested, selection, { host })
+  if (!host && usbAttached(selection)) return 'usb'
+  return chooseTransport('auto', selection, { host })
+}
+
+function parseOnOff(verb, value) {
+  if (['on', '1', 'true', 'yes'].includes(value)) return true
+  if (['off', '0', 'false', 'no'].includes(value)) return false
+  fail(`devctl ${verb} expects on|off (or no value to report the current one).`, ExitCode.usage)
+}
+
+function displayKnob(device, verb, value) {
+  if (verb === 'brightness') {
+    if (value === undefined) return device.brightness()
+    const percent = Number(value)
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) fail('devctl brightness expects 0-100 (or no value to report the current one).', ExitCode.usage)
+    return device.brightness(percent)
+  }
+  return value === undefined ? device[verb]() : device[verb](parseOnOff(verb, value))
+}
 
 export async function devctlCommand(ctx, parsed, rest, options) {
   const verb = rest[0]
@@ -353,15 +403,16 @@ export async function devctlCommand(ctx, parsed, rest, options) {
     return verb ? 0 : ExitCode.usage
   }
   const selection = selectBoard(ctx, parsed, {})
-  const wifiVerbs = new Set(['hbm'])
-  const requested = option(parsed, 'transport', wifiVerbs.has(verb) ? 'wifi' : 'usb')
-  const transport = chooseTransport(requested, selection, { host: option(parsed, 'host', '') })
+  // Display knobs answer on both transports, so they follow the board's own
+  // preference (WiFi when it has an address) instead of forcing one; every
+  // other verb is GEADEV-only and needs the cable.
+  const transport = displayVerbs.has(verb)
+    ? displayTransport(ctx, parsed, selection)
+    : chooseTransport(option(parsed, 'transport', 'usb'), selection, { host: option(parsed, 'host', '') })
   const usbSelection = transport === 'usb' ? selectBoard(ctx, parsed, { usbPort: true }) : selection
   return withDevice(ctx, parsed, options, usbSelection, transport, async (device, base) => {
-    if (verb === 'hbm') {
-      const state = args[0]
-      if (!['on', 'off', '1', '0'].includes(state)) fail('devctl hbm expects on|off.', ExitCode.usage)
-      const reply = await device.hbm(state === 'on' || state === '1')
+    if (displayVerbs.has(verb)) {
+      const reply = await displayKnob(device, verb, args[0])
       base.stdout(JSON.stringify(reply))
       return 0
     }
@@ -400,7 +451,6 @@ export async function devctlCommand(ctx, parsed, rest, options) {
         break
       case 'set-default': need(1); print(await geadev.setDefault(d, args[0])); break
       case 'set-time': print(await geadev.setTime(d, args[0] ? num(args[0], 'epoch') : Math.floor(Date.now() / 1000))); break
-      case 'brightness': print(await geadev.brightness(d, args[0] === undefined ? undefined : num(args[0], 'value'))); break
       case 'ls': print(await geadev.ls(d, args[0] || '/sdcard')); break
       case 'rm': need(1); print(await geadev.rm(d, args[0])); break
       case 'push': need(2); print(await geadev.pushFile(d, path.resolve(ctx.cwd, args[0]), args[1], { base64: flag(parsed, 'base64'), stderr: base.stderr })); break

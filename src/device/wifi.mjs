@@ -166,12 +166,32 @@ export async function otaErase({ host, slot }) {
   return response.body.toString('utf8').trim()
 }
 
-export async function setHighBrightnessMode({ host, enabled }) {
-  const url = `${otaBaseUrl(host)}/display/hbm?on=${enabled ? 1 : 0}`
-  const response = await httpRequest(url, { method: 'POST', timeoutMs: 10000 })
-  if (response.status === 501) throw new Error('This board has no high-brightness mode.')
+// The display knobs the board exposes over HTTP: /display/<knob>, with the
+// value in the query string and the current state in the JSON reply. Omitting
+// the value reads the knob instead of setting it, so one request shape serves
+// both. A 501 means the panel has no such mode (high-brightness on a panel
+// without a sunlight boost), which is an answer, not a transport failure.
+export async function displayControl({ host, knob, query = '', timeoutMs = 10000 }) {
+  const url = `${otaBaseUrl(host)}/display/${knob}${query ? `?${query}` : ''}`
+  const response = await httpRequest(url, { method: 'POST', timeoutMs })
+  if (response.status === 501) throw new Error(`This board has no ${knob === 'hbm' ? 'high-brightness mode' : knob} control.`)
+  if (response.status === 404) {
+    throw new Error(`This board's firmware has no /display/${knob} endpoint; reflash it (gea ota --board <alias> --app <id>) or use --transport usb.`)
+  }
   if (response.status !== 200) throw new Error(`${url} returned HTTP ${response.status}`)
   return JSON.parse(response.body.toString('utf8'))
+}
+
+export async function setHighBrightnessMode({ host, enabled }) {
+  return displayControl({ host, knob: 'hbm', query: enabled === undefined ? '' : `on=${enabled ? 1 : 0}` })
+}
+
+export async function setDisplayBrightness({ host, percent }) {
+  return displayControl({ host, knob: 'brightness', query: percent === undefined ? '' : `value=${percent}` })
+}
+
+export async function setDisplayVSync({ host, enabled }) {
+  return displayControl({ host, knob: 'vsync', query: enabled === undefined ? '' : `on=${enabled ? 1 : 0}` })
 }
 
 export function waitForOtaServer({ host, timeoutMs = 120000, pollMs = 2000 }) {

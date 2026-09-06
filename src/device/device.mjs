@@ -1,8 +1,8 @@
 import { waitForSerialPort } from '../boards/usb.mjs'
 import { ExitCode, fail } from '../errors.mjs'
 import { writeImage } from './image.mjs'
-import { SerialDevice, geadev, streamSerialMonitor } from './serial.mjs'
-import { fetchScreenshot, setHighBrightnessMode, tailLogs } from './wifi.mjs'
+import { SerialDevice, geadev, parseKeyValues, streamSerialMonitor } from './serial.mjs'
+import { fetchScreenshot, setDisplayBrightness, setDisplayVSync, setHighBrightnessMode, tailLogs } from './wifi.mjs'
 
 // One handle for "the board", whichever cable (or no cable) reaches it. Logs
 // and screenshots are written once against this interface; the transport
@@ -58,7 +58,18 @@ export class WifiDevice {
   }
 
   async hbm(enabled) {
-    return setHighBrightnessMode({ host: this.host, enabled })
+    const reply = await setHighBrightnessMode({ host: this.host, enabled })
+    return { hbm: reply.hbm === true, supported: reply.ok !== false }
+  }
+
+  async brightness(percent) {
+    const reply = await setDisplayBrightness({ host: this.host, percent })
+    return { brightness: Number(reply.brightness) }
+  }
+
+  async vsync(enabled) {
+    const reply = await setDisplayVSync({ host: this.host, enabled })
+    return { vsync: reply.vsync === true }
   }
 
   async close() {}
@@ -80,8 +91,20 @@ export class UsbDevice {
     return geadev.screenshot(this.serial, options)
   }
 
-  async hbm() {
-    fail('High-brightness mode is toggled over WiFi (POST /display/hbm); use --transport wifi.', ExitCode.usage)
+  async hbm(enabled) {
+    return geadev.hbm(this.serial, enabled)
+  }
+
+  async brightness(percent) {
+    const raw = await geadev.brightness(this.serial, percent)
+    // Reading answers with the value alone; setting answers with the full
+    // GEADEV line, whose readback is what the panel actually took.
+    const values = typeof raw === 'string' && raw.startsWith('GEADEV:') ? parseKeyValues(raw) : { value: raw }
+    return { brightness: Number(values.readback ?? values.value) }
+  }
+
+  async vsync(enabled) {
+    return geadev.vsync(this.serial, enabled)
   }
 
   async close() {

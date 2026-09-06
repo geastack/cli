@@ -4,7 +4,7 @@ import http from 'node:http'
 import net from 'node:net'
 import test from 'node:test'
 
-import { chooseTransport } from '../src/device/device.mjs'
+import { UsbDevice, WifiDevice, chooseTransport } from '../src/device/device.mjs'
 import { crc32, decodeRgb565Raw, decodeRgb565Rle, encodePng, nonblackRatio } from '../src/device/image.mjs'
 import { SerialDevice, geadev, geadevFragment, parseKeyValues } from '../src/device/serial.mjs'
 import { fetchScreenshot, otaBaseUrl, otaUpload, setHighBrightnessMode, tailLogs } from '../src/device/wifi.mjs'
@@ -190,4 +190,74 @@ test('the USB transport speaks GEADEV: commands, binary screenshots with CRC, an
 
   await assert.rejects(device.command('GEADEV NOPE', ['GEADEV:OK'], 100), /timed out/)
   await device.close()
+})
+
+test('every display knob answers on both transports through one device interface', async (t) => {
+  // USB: the GEADEV verbs. Reading takes no argument; setting reads back.
+  let hbmState = false
+  const serial = new SerialDevice(fakePort((line) => {
+    if (line === 'GEADEV BRIGHTNESS') return 'GEADEV:OK BRIGHTNESS value=70\n'
+    if (line === 'GEADEV BRIGHTNESS 40') return 'GEADEV:OK BRIGHTNESS value=40 readback=39\n'
+    if (line === 'GEADEV HBM') return `GEADEV:OK HBM value=${hbmState ? 1 : 0}\n`
+    if (line === 'GEADEV HBM on') {
+      hbmState = true
+      return 'GEADEV:OK HBM value=1 supported=1\n'
+    }
+    if (line === 'GEADEV HBM off') {
+      hbmState = false
+      return 'GEADEV:OK HBM value=0 supported=1\n'
+    }
+    if (line === 'GEADEV VSYNC on') return 'GEADEV:OK VSYNC value=1\n'
+    return null
+  }), { path: '/dev/fake' })
+  const usb = new UsbDevice(serial, { stderr: () => {} })
+
+  assert.deepEqual(await usb.brightness(), { brightness: 70 })
+  assert.deepEqual(await usb.brightness(40), { brightness: 39 }, 'a set reports what the panel took, not what was asked')
+  assert.deepEqual(await usb.hbm(true), { hbm: true, supported: true })
+  assert.deepEqual(await usb.hbm(), { hbm: true, supported: true })
+  assert.deepEqual(await usb.hbm(false), { hbm: false, supported: true })
+  assert.deepEqual(await usb.vsync(true), { vsync: true })
+  await usb.close()
+
+  // WiFi: the same three knobs over /display/*, same shapes back.
+  const requests = []
+  const server = http.createServer((req, res) => {
+    requests.push(`${req.method} ${req.url}`)
+    res.setHeader('content-type', 'application/json')
+    if (req.url.startsWith('/display/brightness')) return res.end('{"ok":true,"brightness":55}\n')
+    if (req.url.startsWith('/display/vsync')) return res.end('{"ok":true,"vsync":true}\n')
+    if (req.url.startsWith('/display/hbm')) return res.end('{"ok":true,"hbm":true}\n')
+    res.statusCode = 404
+    res.end('{}')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const wifi = new WifiDevice(`127.0.0.1:${server.address().port}`, { stderr: () => {} })
+
+  assert.deepEqual(await wifi.brightness(55), { brightness: 55 })
+  assert.deepEqual(await wifi.hbm(true), { hbm: true, supported: true })
+  assert.deepEqual(await wifi.vsync(false), { vsync: true })
+  assert.deepEqual(requests, [
+    'POST /display/brightness?value=55',
+    'POST /display/hbm?on=1',
+    'POST /display/vsync?on=0'
+  ])
+})
+
+test('a panel without high-brightness mode reports it, and old firmware says so instead of timing out', async (t) => {
+  const serial = new SerialDevice(fakePort((line) => (line === 'GEADEV HBM on' ? 'GEADEV:OK HBM value=0 supported=0\n' : null)), { path: '/dev/fake' })
+  const usb = new UsbDevice(serial, { stderr: () => {} })
+  assert.deepEqual(await usb.hbm(true), { hbm: false, supported: false })
+  await usb.close()
+
+  const server = http.createServer((req, res) => {
+    res.statusCode = req.url.startsWith('/display/hbm') ? 501 : 404
+    res.end('{}')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const wifi = new WifiDevice(`127.0.0.1:${server.address().port}`, { stderr: () => {} })
+  await assert.rejects(wifi.hbm(true), /no high-brightness mode/)
+  await assert.rejects(wifi.vsync(true), /has no \/display\/vsync endpoint.*--transport usb/s)
 })

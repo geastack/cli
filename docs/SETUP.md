@@ -261,6 +261,13 @@ npx gea boards remove desk-amoled
 npx gea doctor
 ```
 
+Device control is transport-agnostic: `gea devctl brightness [0-100]`,
+`gea devctl hbm [on|off]` and `gea devctl vsync [on|off]` answer over USB
+(GEADEV verbs) and over WiFi (`POST /display/<knob>`), and each reports the
+current value when given none. `devctl` prefers the cable for these when the
+board is attached, because an app with no network binding builds firmware
+with WiFi switched off while the alias still records an OTA host.
+
 `gea boards discover` sends one `GEADEV PING` to each serial device without
 resetting it; a board running gea firmware answers with its app id, its IP
 (when it has joined WiFi) and its MAC, and the CLI pairs the reply with an
