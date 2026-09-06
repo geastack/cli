@@ -107,6 +107,58 @@ can answer them with repeated `--set chip.path=value` options. The command rejec
 chips without a binding for the board adapter and MCU before changing the target
 definition.
 
+### `gea boards`
+
+Manages the board aliases every other command resolves `--board` against.
+
+```sh
+gea boards list
+gea boards show amoled
+gea boards add
+gea boards set amoled host 192.168.1.100
+gea boards rename amoled amoled-desk
+gea boards remove amoled
+gea boards discover --save
+```
+
+Aliases come from two files merged project over machine:
+`~/.geastack/boards.json` holds every board on this machine, and the project's
+`.gea/boards.json` holds project overrides. `--boards-config` or
+`GEA_BOARDS_CONFIG` replaces both. `list` names the file each alias came from.
+
+`--global` and `--local` choose where a write lands. By default an existing
+alias is edited in the file it already lives in, and a new one joins the
+project config when the project has one.
+
+`set` takes a shorthand key or any dotted path into the entry: `host` for
+`transports.ota.host`, `serial` for `transports.usbSerial.serial`, `restart`
+for `transports.usbSerial.restartAfterFlash`, plus `target` and `adapter`. An
+empty value removes the field.
+
+`discover` sends one identity probe to each USB serial port and prints what
+answered: the port, the matching alias, the USB serial number, the app running,
+and the board's address. `--save` writes each discovered address into that
+alias's `transports.ota.host`. A port whose board is not registered shows as
+not configured, which is how an unknown board gets an alias.
+
+### `gea devctl`
+
+Controls a board that is already running an app: state, input injection, file
+transfer, and display settings. Fully documented in
+[DEVICE-CONTROL.md](DEVICE-CONTROL.md).
+
+```sh
+gea devctl ping --board amoled
+gea devctl tap 120 240 --board amoled
+gea devctl brightness 40 --board amoled
+gea devctl hbm on --board amoled --transport usb
+```
+
+Most verbs speak the GEADEV line protocol over USB and require the cable. The
+three display knobs (`brightness`, `hbm`, `vsync`) also answer over HTTP, so
+they accept `--transport`; each reports the current setting when given no
+value.
+
 ### `gea monitor`
 
 Starts a log monitor for a configured board or target.

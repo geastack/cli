@@ -146,3 +146,59 @@ toolchains. The version is resolved dynamically: `--idf-version <tag>` or
 `GEA_ESP_IDF_VERSION` pins an exact release, otherwise GeaStack tries the
 latest stable ESP-IDF release on GitHub and falls back to its pinned default
 (currently v6.0.2) when that cannot be determined.
+
+## Board Management
+
+Board aliases are machine state, not package content. They live in
+`~/.geastack/boards.json` for every board on the machine, and in the project's
+`.gea/boards.json` for project overrides, merged project over machine. Nothing
+ships aliases inside an npm package, so installing or updating GeaStack can
+never overwrite the boards someone has registered.
+
+```sh
+npx gea boards list
+npx gea boards discover
+npx gea boards set amoled host 192.168.1.100 --global
+```
+
+`--global` writes the machine file, `--local` the project's. Without either, an
+existing alias is edited where it already lives and a new one joins the project
+config when there is one. `--boards-config <file>` or `GEA_BOARDS_CONFIG`
+replaces both tiers for a single run.
+
+`gea boards discover` answers "which board is this, and what is it doing". It
+probes each USB serial port, reads the port's real USB serial number from the
+operating system, matches it against the registered aliases, and asks the
+firmware to identify itself:
+
+```text
+/dev/cu.usbmodemXXXX  amoled (esp32-s3-touch-amoled-2.06)  serial ...  app tilt-breakout  ip 192.168.1.100
+```
+
+Add `--save` to record each discovered address in the matching alias, which is
+the reliable way to fix a stale over-the-air host after a board changes
+address.
+
+Two details are deliberate. Only call-out devices are listed, not their
+`tty` twins, because a single board otherwise appears twice under two names.
+And a board is identified by what it reports, never by its `/dev` path, whose
+numeric suffix changes on every re-plug.
+
+## Choosing An App
+
+ESP32 and RP2350 firmware is built for exactly one app. The app decides which
+capabilities are compiled in, so WiFi, Bluetooth and audio exist in the binary
+only when that app's bindings need them.
+
+Because of that, `build`, `flash` and `ota` for those boards refuse to run
+without an app rather than falling back to a placeholder, and the error lists
+the apps they can see:
+
+```text
+Board 'amoled' builds one app at a time: pass --app <id> or run inside the app folder
+```
+
+Run the command from inside an app folder, or name it with `--app <id>`. The
+setup wizard picks an app while registering a board and prints the complete
+next command, including `--app` when the chosen app is not the folder you are
+standing in.

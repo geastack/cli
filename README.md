@@ -170,6 +170,12 @@ expose stable command contracts.
 
 - [docs/SPEC.md](docs/SPEC.md): command surface, manifest expectations, and
   backend contract for the first implementation.
+- [docs/SETUP.md](docs/SETUP.md): toolchains per target, the ESP-IDF version
+  GeaStack resolves, and the board configuration files.
+- [docs/DEVICE-CONTROL.md](docs/DEVICE-CONTROL.md): `gea devctl` in full, both
+  wire protocols, and the display knobs.
+- [docs/NPX-COMMANDS.md](docs/NPX-COMMANDS.md): the npm onboarding flow, the
+  setup wizard, board management, and app selection.
 
 ## Current Status
 
