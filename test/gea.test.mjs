@@ -447,6 +447,68 @@ test('doctor fails closed for invalid board configuration', async (t) => {
   assert.equal(JSON.parse(out.out.join('\n')).ok, false)
 })
 
+test('setup --esp-idf resolves the pinned default (never the stale v6.0.1) and accepts the fixture\'s installed 6.0.2', async (t) => {
+  const fixture = createFixture(t)
+  // capture()'s fetchEspIdfLatest stub answers as if the network is
+  // unreachable, so this exercises the "fall back to the pin" path.
+  const found = await gea(['setup', '--esp-idf'], fixture, { prompt: scriptedPrompt([]) })
+  assert.equal(found.code, 0, found.err)
+  assert.match(found.out, /ESP-IDF found: 6\.0\.2 at /)
+  assert.doesNotMatch(found.out, /6\.0\.1/)
+})
+
+test('setup wizard: --idf-version overrides GEA_ESP_IDF_VERSION, which overrides the pin, and the menu describes the resolved version', async (t) => {
+  const fixture = createFixture(t)
+  const out = capture()
+  const prompt = scriptedPrompt(['4']) // "Only install/check ESP-IDF toolchain"
+  const code = await runGea(['setup'], {
+    ...out.io,
+    prompt,
+    cwd: fixture.appDir,
+    env: { ...fixture.env, GEA_ESP_IDF_VERSION: 'v6.0.0' },
+    fetchEspIdfLatest: async () => { throw new Error('must not be called when an override is given') }
+  })
+  assert.equal(code, 0)
+  assert.match(prompt.questions.join('\n'), /Installs or verifies ESP-IDF v6\.0\.0\./)
+  assert.match(out.out.join('\n'), /ESP-IDF found: 6\.0\.2 at /, 'an installed 6.0.2 still satisfies a v6.0.0 floor')
+
+  // --idf-version takes precedence over GEA_ESP_IDF_VERSION.
+  const winner = await gea(['setup', '--esp-idf', '--idf-version', 'v6.0.4'], fixture, {
+    prompt: scriptedPrompt([]),
+    env: { ...fixture.env, GEA_ESP_IDF_VERSION: 'v9.9.9' }
+  })
+  assert.equal(winner.code, 0, winner.err)
+  assert.match(winner.out, /ESP-IDF found: 6\.0\.2 at /, 'v6.0.4 shares 6.0.2\'s major.minor, so it is still accepted')
+})
+
+test('setup wizard prefers a stable latest ESP-IDF release over the pin when the lookup succeeds', async (t) => {
+  const fixture = createFixture(t)
+  const out = capture()
+  const prompt = scriptedPrompt(['4'])
+  const code = await runGea(['setup'], {
+    ...out.io,
+    prompt,
+    cwd: fixture.appDir,
+    env: fixture.env,
+    fetchEspIdfLatest: async () => 'v6.0.5'
+  })
+  assert.equal(code, 0)
+  assert.match(prompt.questions.join('\n'), /Installs or verifies ESP-IDF v6\.0\.5\./)
+  assert.match(out.out.join('\n'), /ESP-IDF found: 6\.0\.2 at /, 'still within the same major.minor as the resolved target')
+})
+
+test('setup wizard reinstalls when the resolved target outgrows what is installed, cloning the resolved tag', async (t) => {
+  const fixture = createFixture(t)
+  const idfDir = path.join(fixture.root, 'esp-idf-v6.1.0')
+  const install = await gea(['setup', '--esp-idf', '--idf-version', 'v6.1.0', '--idf-dir', idfDir, '--dry-run'], fixture, {
+    prompt: scriptedPrompt([])
+  })
+  assert.equal(install.code, 0, install.err)
+  assert.match(install.out, new RegExp(`git clone -b v6\\.1\\.0 --recursive https://github\\.com/espressif/esp-idf\\.git ${escapeRegex(idfDir)}$`, 'm'))
+  assert.match(install.out, new RegExp(`${escapeRegex(path.join(idfDir, 'install.sh'))} esp32,esp32s3,esp32p4$`, 'm'))
+  assert.match(install.out, new RegExp(`ESP-IDF installed at ${escapeRegex(idfDir)}$`, 'm'))
+})
+
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

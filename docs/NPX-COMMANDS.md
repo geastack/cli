@@ -140,5 +140,8 @@ ESP-IDF setup is available as:
 npx gea setup --esp-idf
 ```
 
-It installs or dry-runs ESP-IDF v6.0.1 with the ESP32, ESP32-S3, and ESP32-P4
-toolchains.
+It installs or dry-runs ESP-IDF with the ESP32, ESP32-S3, and ESP32-P4
+toolchains. The version is resolved dynamically: `--idf-version <tag>` or
+`GEA_ESP_IDF_VERSION` pins an exact release, otherwise GeaStack tries the
+latest stable ESP-IDF release on GitHub and falls back to its pinned default
+(currently v6.0.2) when that cannot be determined.

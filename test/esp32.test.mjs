@@ -8,6 +8,7 @@ import { createContext } from '../src/context.mjs'
 import { applySdkconfigPolicy, esp32BuildDir } from '../src/esp32/build.mjs'
 import { manifestRequestsBleOta, parseAnalysis, resolveAppCapabilities } from '../src/esp32/capabilities.mjs'
 import { activateEspIdf, esptoolCommand, findEspIdf, findIdfPythonEnv } from '../src/esp32/idf-env.mjs'
+import { DEFAULT_ESP_IDF_VERSION, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
 import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from '../src/esp32/partitions.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig, withSdkconfigUnset, withSdkconfigValue } from '../src/esp32/sdkconfig.mjs'
 import { quoteCString, wifiConfigContents } from '../src/esp32/wifi-config.mjs'
@@ -27,6 +28,79 @@ test('ESP-IDF activation runs idf_tools export from the installed python env, ne
   assert.ok(idf.env.PATH.endsWith(fixture.env.PATH), 'the literal $PATH placeholder is replaced with the caller PATH')
   assert.deepEqual(esptoolCommand(idf, ['--chip', 'esp32s3']), { command: idf.python, args: ['-m', 'esptool', '--chip', 'esp32s3'] })
   assert.match(fixture.calls().join('\n'), /idf_tools\.py export --format key-value/)
+})
+
+test('ESP-IDF version resolution: default pin, env/option override, latest-release lookup, and the acceptance floor', async () => {
+  assert.equal(DEFAULT_ESP_IDF_VERSION, 'v6.0.2')
+
+  // No override and no fetch available (offline/never-hit-network in tests):
+  // falls back to the pin.
+  assert.equal(
+    await resolveEspIdfVersion({ env: {}, fetchLatest: async () => '' }),
+    'v6.0.2'
+  )
+
+  // --idf-version wins outright, without ever calling fetchLatest.
+  let fetchCalled = false
+  assert.equal(
+    await resolveEspIdfVersion({
+      override: 'v6.0.3',
+      env: { GEA_ESP_IDF_VERSION: 'v9.9.9' },
+      fetchLatest: async () => { fetchCalled = true; return 'v7.0.0' }
+    }),
+    'v6.0.3'
+  )
+  assert.equal(fetchCalled, false, 'an explicit override short-circuits the network lookup')
+
+  // GEA_ESP_IDF_VERSION wins when no --idf-version is given, and a bare
+  // version (no leading v) is normalized so it works as a git tag.
+  assert.equal(
+    await resolveEspIdfVersion({ env: { GEA_ESP_IDF_VERSION: '6.1.0-rc1' }, fetchLatest: async () => '' }),
+    'v6.1.0-rc1'
+  )
+
+  // A stable latest release is used when no override is given.
+  assert.equal(
+    await resolveEspIdfVersion({ env: {}, fetchLatest: async () => 'v6.1.0' }),
+    'v6.1.0'
+  )
+
+  // fetchLatestEspIdfVersion itself: stable tag accepted.
+  assert.equal(
+    await fetchLatestEspIdfVersion({
+      fetchImpl: async () => ({ ok: true, json: async () => ({ tag_name: 'v6.1.0' }) })
+    }),
+    'v6.1.0'
+  )
+  // Pre-releases/RCs are ignored -- caller falls back to the pin.
+  assert.equal(
+    await fetchLatestEspIdfVersion({
+      fetchImpl: async () => ({ ok: true, json: async () => ({ tag_name: 'v6.1.0-rc1' }) })
+    }),
+    ''
+  )
+  // A failed/timed-out/offline request falls back silently (empty string,
+  // at most one log line -- never throws).
+  let logged = ''
+  assert.equal(
+    await fetchLatestEspIdfVersion({
+      fetchImpl: async () => { throw new Error('network unreachable') },
+      log: (line) => { logged = line }
+    }),
+    ''
+  )
+  assert.match(logged, /Could not determine the latest ESP-IDF release/)
+  assert.equal(await fetchLatestEspIdfVersion({ fetchImpl: async () => ({ ok: false }) }), '')
+
+  // Installed-version acceptance is a floor on major.minor: newer, equal,
+  // and a newer major all pass; an older minor or major fails.
+  assert.equal(idfVersionMeetsTarget({ majorMinor: '6.0' }, 'v6.0.2'), true)
+  assert.equal(idfVersionMeetsTarget({ majorMinor: '6.1' }, 'v6.0.2'), true)
+  assert.equal(idfVersionMeetsTarget({ majorMinor: '7.0' }, 'v6.0.2'), true)
+  assert.equal(idfVersionMeetsTarget({ majorMinor: '5.4' }, 'v6.0.2'), false)
+  assert.equal(idfVersionMeetsTarget({ majorMinor: '6.0' }, 'v6.1.0'), false, 'a user on 6.0 is told to move up to a 6.1 target')
+  assert.equal(idfVersionMeetsTarget(null, 'v6.0.2'), false, 'nothing installed never passes')
+  assert.equal(idfVersionMeetsTarget({ majorMinor: '6.0' }, ''), true, 'an unresolved target never blocks')
 })
 
 test('sdkconfig edits are idempotent and keep one line per key', () => {

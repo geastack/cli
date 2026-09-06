@@ -60,7 +60,7 @@ flowchart TD
 flowchart TD
   setup["npx gea setup"] --> mode{"Mode?"}
 
-  mode -->|"--esp-idf"| directIdf["Install or check ESP-IDF v6.0.1"]
+  mode -->|"--esp-idf"| directIdf["Install or check ESP-IDF v6.0.2"]
   mode -->|"--board alias"| directBoard["Run target setup for board alias"]
   mode -->|"--target target-id"| directTarget["Run target setup directly"]
 
@@ -83,7 +83,7 @@ flowchart TD
   writeProfile --> writeCustomAlias["Write alias to .gea/boards.json"]
 
   interactive -->|"npm dependencies only"| npmInstall["Run npm install when package.json exists"]
-  interactive -->|"ESP-IDF toolchain only"| idfOnly["Install or check ESP-IDF v6.0.1"]
+  interactive -->|"ESP-IDF toolchain only"| idfOnly["Install or check ESP-IDF v6.0.2"]
 
   writeKnown --> initialize["Initialize board target"]
   writeCustomAlias --> initialize

@@ -234,7 +234,12 @@ export function capture() {
     io: {
       stdout: (line) => out.push(String(line)),
       stderr: (line) => err.push(String(line)),
-      output: { write: (chunk) => raw.push(Buffer.from(chunk)) }
+      output: { write: (chunk) => raw.push(Buffer.from(chunk)) },
+      // Tests never hit the network: the setup wizard's best-effort ESP-IDF
+      // "latest release" lookup is stubbed to behave like it is unreachable,
+      // so version resolution deterministically falls back to the pin.
+      // Tests exercising the lookup itself pass their own fetchEspIdfLatest.
+      fetchEspIdfLatest: async () => ''
     }
   }
 }

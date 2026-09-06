@@ -7,26 +7,28 @@ import { boardConfigWritePath } from './boards/config.mjs'
 import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from './chips.mjs'
 import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
+import { espIdfVersion as readInstalledEspIdfVersion, findEspIdf } from './esp32/idf-env.mjs'
+import { extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { ask, choose, confirm, createPrompt } from './prompts.mjs'
 import { runExternal } from './run.mjs'
 import { detectSerialDevices, formatSerialDevice } from './serial-devices.mjs'
 import { commandVersion } from './toolchain.mjs'
 
-const espIdfVersion = 'v6.0.1'
 const espIdfInstallTargets = 'esp32,esp32s3,esp32p4'
 
 export async function runSetupWizard(ctx, parsed, io) {
   const stdout = io.stdout || console.log
   const prompt = createPrompt(io)
   try {
+    const targetIdfVersion = await resolveEspIdfVersionForWizard(parsed, io)
     renderHeader(io, 'GeaStack setup', [
       `Project: ${ctx.projectRoot}`,
       `Boards: ${boardConfigPath(ctx, parsed)}`
     ])
     if (option(parsed, 'esp-idf') === true) {
       renderStep(io, 'Toolchain', ['Checking ESP-IDF for ESP32 builds.'])
-      await maybeSetupEspIdf(ctx, parsed, io, prompt, { force: true })
+      await maybeSetupEspIdf(ctx, parsed, io, prompt, { force: true, targetVersion: targetIdfVersion })
       return 0
     }
     const mode = await choose(prompt, {
@@ -50,7 +52,7 @@ export async function runSetupWizard(ctx, parsed, io) {
         {
           value: 'esp-idf',
           label: 'Only install/check ESP-IDF toolchain',
-          description: `Installs or verifies ESP-IDF ${espIdfVersion}.`
+          description: `Installs or verifies ESP-IDF ${targetIdfVersion}.`
         }
       ],
       defaultValue: 'known'
@@ -64,7 +66,7 @@ export async function runSetupWizard(ctx, parsed, io) {
 
     if (mode === 'esp-idf') {
       renderStep(io, 'Toolchain', ['Checking ESP-IDF for ESP32 builds.'])
-      await maybeSetupEspIdf(ctx, parsed, io, prompt, { force: true })
+      await maybeSetupEspIdf(ctx, parsed, io, prompt, { force: true, targetVersion: targetIdfVersion })
       return 0
     }
 
@@ -77,7 +79,7 @@ export async function runSetupWizard(ctx, parsed, io) {
     }
 
     renderStep(io, 'Toolchain', ['Checking ESP-IDF before board initialization.'])
-    await maybeSetupEspIdf(ctx, parsed, io, prompt)
+    await maybeSetupEspIdf(ctx, parsed, io, prompt, { targetVersion: targetIdfVersion })
     if (option(parsed, 'install') === true) {
       await maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force: true })
     }
@@ -384,16 +386,31 @@ async function maybeInitializeBoardTarget(ctx, parsed, io, boardSetup) {
   return buildCommand(ctx, setupParsed, [], io)
 }
 
-async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false } = {}) {
+// Resolves the ESP-IDF version target once for the whole wizard run:
+// --idf-version / GEA_ESP_IDF_VERSION win outright; otherwise a best-effort
+// GitHub "latest release" lookup, falling back to the pinned default when it
+// cannot be determined. `io.fetchEspIdfLatest` lets callers (tests) inject a
+// fake fetch instead of touching the network -- mirrors `probeSerialDevice`.
+async function resolveEspIdfVersionForWizard(parsed, io) {
+  return resolveEspIdfVersion({
+    override: option(parsed, 'idf-version'),
+    env: io.env || process.env,
+    fetchLatest: io.fetchEspIdfLatest || fetchLatestEspIdfVersion,
+    log: io.stderr || (() => {})
+  })
+}
+
+async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, targetVersion } = {}) {
   const env = io.env || process.env
-  const status = detectEspIdf(env)
+  const resolvedVersion = targetVersion || await resolveEspIdfVersionForWizard(parsed, io)
+  const status = detectEspIdf(env, resolvedVersion)
   if (status.available) {
     if (force) io.stdout(`ESP-IDF found: ${status.detail}`)
     return 0
   }
 
   const install = force || await confirm(prompt, {
-    message: `ESP-IDF ${espIdfVersion} was not found. Install it now?`,
+    message: `ESP-IDF ${resolvedVersion} was not found${status.detail ? ` (found ${status.detail})` : ''}. Install it now?`,
     defaultValue: false
   })
   if (!install) {
@@ -405,7 +422,7 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false } = {})
   const dryRun = flag(parsed, 'dry-run')
   if (!dryRun) fs.mkdirSync(path.dirname(idfDir), { recursive: true })
   if (!exists(path.join(idfDir, 'install.sh')) && !exists(path.join(idfDir, 'install.bat'))) {
-    runExternal('git', ['clone', '-b', espIdfVersion, '--recursive', 'https://github.com/espressif/esp-idf.git', idfDir], {
+    runExternal('git', ['clone', '-b', resolvedVersion, '--recursive', 'https://github.com/espressif/esp-idf.git', idfDir], {
       cwd: ctx.cwd,
       env,
       dryRun,
@@ -429,10 +446,23 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false } = {})
   return 0
 }
 
-function detectEspIdf(env) {
-  const idfVersion = commandVersion('idf.py', ['--version'], env)
-  if (idfVersion) return { available: true, detail: idfVersion }
-  if (env.IDF_PATH) return { available: true, detail: env.IDF_PATH }
+// Prefers the same conventional-directory detection the build path uses
+// (`findEspIdf` + its version.cmake), which lets a version-floor check run;
+// falls back to a bare `idf.py --version` on PATH when no such directory is
+// found but some ESP-IDF install has still put idf.py on PATH.
+function detectEspIdf(env, targetVersion) {
+  const idfDir = findEspIdf(env)
+  if (idfDir) {
+    const installed = readInstalledEspIdfVersion(idfDir)
+    const detail = `${installed?.full || 'unknown version'} at ${idfDir}`
+    return { available: idfVersionMeetsTarget(installed, targetVersion), detail }
+  }
+  const legacyOutput = commandVersion('idf.py', ['--version'], env)
+  if (legacyOutput) {
+    const installed = extractIdfVersionFromText(legacyOutput)
+    const available = !installed || idfVersionMeetsTarget(installed, targetVersion)
+    return { available, detail: legacyOutput }
+  }
   return { available: false, detail: '' }
 }
 

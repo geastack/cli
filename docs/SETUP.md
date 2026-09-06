@@ -34,7 +34,7 @@ For ESP32 hardware:
 - Node.js 20.19 or newer.
 - npm.
 - Python 3.
-- ESP-IDF v6.0.1.
+- ESP-IDF v6.0.2 (GeaStack's pinned default; see ESP-IDF For ESP32 Targets below).
 - a board alias for your board (`~/.geastack/boards.json` or the project's `.gea/boards.json`, see Board Configuration).
 
 For the Waveshare ESP32-S3 AMOLED board, use
@@ -69,9 +69,21 @@ npm --version
 
 ## ESP-IDF For ESP32 Targets
 
-The embedded board scripts currently target ESP-IDF v6.0.1. Newer ESP-IDF
-6.0.x releases may work, but v6.0.1 is the known target until the board scripts
-are updated.
+The embedded board scripts target ESP-IDF v6.0.2 by default. GeaStack resolves
+the version it installs or verifies dynamically, in this order:
+
+1. `--idf-version <tag>` (e.g. `npx gea setup --esp-idf --idf-version v6.1.0-rc1`)
+   to pin an exact release or try a release candidate.
+2. `GEA_ESP_IDF_VERSION` (same shape) when no `--idf-version` is given.
+3. The latest stable ESP-IDF release on GitHub, when it can be determined
+   (release candidates and betas are ignored).
+4. The pinned default, v6.0.2, when nothing above applies (offline, GitHub
+   unreachable, etc).
+
+Verifying an existing install accepts any installed version whose
+major.minor is the same as or newer than the resolved target -- an installed
+6.0.2 is never rejected just because the resolved target moved on to, say,
+6.1.0, unless it genuinely trails it.
 
 Command-line install:
 
@@ -84,7 +96,7 @@ Equivalent manual install:
 ```sh
 mkdir -p "$HOME/esp"
 cd "$HOME/esp"
-git clone -b v6.0.1 --recursive https://github.com/espressif/esp-idf.git
+git clone -b v6.0.2 --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf
 ./install.sh esp32,esp32s3,esp32p4
 . ./export.sh
@@ -106,7 +118,7 @@ export GEA_EMBEDDED_IDF_EXPORT="/path/to/esp-idf/export.sh"
 ```
 
 The board script also checks common locations such as `$HOME/esp/esp-idf`,
-`$HOME/esp32/esp-idf`, and `$HOME/esp32/esp-idf-v6.0.1`.
+`$HOME/esp32/esp-idf`, and `$HOME/esp32/esp-idf-v6.0.2`.
 
 Verify through GeaStack:
 

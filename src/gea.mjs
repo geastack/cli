@@ -43,8 +43,10 @@ export async function runGea(argv, io = {}) {
 
   const ctx = createContext(parsed, env, cwd)
   const rest = parsed.positionals.slice(1)
-  // probeSerialDevice lets tests answer `gea boards discover` without a port.
-  const options = { stdout, stderr, env, stdin, output, prompt, probeSerialDevice: io.probeSerialDevice }
+  // probeSerialDevice lets tests answer `gea boards discover` without a port;
+  // fetchEspIdfLatest likewise lets tests answer the setup wizard's ESP-IDF
+  // "latest release" lookup without touching the network.
+  const options = { stdout, stderr, env, stdin, output, prompt, probeSerialDevice: io.probeSerialDevice, fetchEspIdfLatest: io.fetchEspIdfLatest }
 
   // A platform name in --target (web, macos, ...) is not a board.
   const target = option(parsed, 'target', '')
