@@ -5,7 +5,7 @@ import path from 'node:path'
 import { knownBoards } from './board-catalog.mjs'
 import { boardConfigWritePath, loadBoardConfig } from './boards/config.mjs'
 import { discoverBoards, probeSerialDevice } from './commands/boards.mjs'
-import { discoverApps, resolveRequestedApp, targetEnabledForApp } from './manifest.mjs'
+import { discoverApps, findCurrentApp, resolveRequestedApp, targetEnabledForApp } from './manifest.mjs'
 import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from './chips.mjs'
 import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
@@ -87,7 +87,8 @@ export async function runSetupWizard(ctx, parsed, io) {
     }
     await maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup)
     if (boardSetup?.flashReady) {
-      stdout(`Ready: npx gea flash --board ${boardSetup.alias} --monitor`)
+      const appFlag = boardSetup.app && boardSetup.app.root !== findCurrentApp(ctx.cwd)?.root ? ` --app ${boardSetup.app.id}` : ''
+      stdout(`Ready: npx gea flash --board ${boardSetup.alias}${appFlag} --monitor`)
     } else {
       stdout('Profile saved. Add or select a target backend before flashing this board.')
     }
@@ -388,6 +389,9 @@ async function maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup) {
   }
   const app = await chooseAppForBoard(ctx, parsed, io, prompt, boardSetup.alias)
   if (!app) return 0
+  // The Ready hint must repeat the app when the wizard chose it: from a
+  // project root the next command cannot infer one.
+  boardSetup.app = app
   io.stdout(`Initializing board target '${boardSetup.alias}' for app '${app.id}'...`)
   const { buildCommand } = await import('./commands/board.mjs')
   const setupParsed = { ...parsed, options: { ...parsed.options, board: boardSetup.alias, app: app.id, 'configure-only': true } }

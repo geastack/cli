@@ -39,7 +39,7 @@ export function selectBoard(ctx, parsed, needs = {}) {
 function optionalApp(ctx, parsed, rest, selection, { required = false } = {}) {
   const requested = option(parsed, 'app') || rest[0]
   let app = null
-  if (requested || required) {
+  if (requested) {
     app = resolveRequestedApp(ctx, parsed, rest)
   } else {
     try {
@@ -47,6 +47,9 @@ function optionalApp(ctx, parsed, rest, selection, { required = false } = {}) {
     } catch {
       app = null
     }
+    // Outside an app folder the bare "No app selected" is useless; name the
+    // apps this board can take instead.
+    if (!app && required) requireApp(ctx, selection, null)
   }
   if (!app) return null
   assertValidApp(app)
@@ -77,6 +80,11 @@ const appRequiredAdapters = new Set(['esp32-idf', 'rp2350-pico'])
 
 function requireAppForAdapter(ctx, parsed, selection, app) {
   if (app || !appRequiredAdapters.has(selection.adapter)) return app
+  return requireApp(ctx, selection, app)
+}
+
+function requireApp(ctx, selection, app) {
+  if (app) return app
   const candidates = discoverApps(ctx).filter((candidate) => targetEnabledForApp(ctx, candidate, selection.boardName || selection.target))
   const hint = candidates.length > 0 ? `apps targeting '${selection.boardName || selection.target}': ${candidates.map((candidate) => candidate.id).join(', ')}` : `no app in ${ctx.projectRoot} targets '${selection.boardName || selection.target}' yet`
   fail(`Board '${selection.boardName || selection.target}' builds one app at a time: pass --app <id> or run inside the app folder (${hint}).`, ExitCode.usage)

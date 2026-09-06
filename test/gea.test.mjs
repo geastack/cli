@@ -539,6 +539,14 @@ test('an ESP32 board cannot be configured without an app, and the wizard picks o
   assert.doesNotMatch(prompt.questions.join('\n'), /USB serial number/)
   assert.match(text, /Initializing board target 'root-amoled' for app 'watch'/)
   assert.match(text, /-DGEA_EMBEDDED_APP=watch/)
+  assert.match(text, /Ready: npx gea flash --board root-amoled --app watch --monitor/)
+
+  // flash from the root, with no app to infer, names the candidates too.
+  const flash = capture()
+  await assert.rejects(
+    runGea(['flash', '--board', 'root-amoled', '--dry-run'], { ...flash.io, cwd: fixture.root, env: fixture.env }),
+    /builds one app at a time: pass --app <id>.*apps targeting 'root-amoled': watch/
+  )
 })
 
 test('a board that is not plugged in is registered without a serial', async (t) => {
