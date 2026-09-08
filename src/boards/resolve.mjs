@@ -119,6 +119,7 @@ export function resolveBoardSelection({
     boardName,
     target,
     adapter,
+    bootMode: targetInfo.bootMode || '',
     targetDir: board?.targetDir || targetInfo.targetDir || '',
     flashSize: board?.flashSize || targetInfo.flashSize || '',
     appPlatform: board?.appPlatform || targetInfo.appPlatform || '',

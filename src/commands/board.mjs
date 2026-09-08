@@ -214,6 +214,17 @@ export async function otaCommand(ctx, parsed, rest, options) {
   const transport = option(parsed, 'transport', 'wifi')
   if (transport !== 'wifi' && transport !== 'ble') fail("--transport must be 'wifi' or 'ble'.", ExitCode.usage)
   const selection = selectBoard(ctx, parsed, transport === 'wifi' ? { otaHost: true } : {})
+  if (selection.bootMode === 'ram-only') {
+    if (transport !== 'wifi' || option(parsed, 'slot') || option(parsed, 'erase-slot') ||
+        flag(parsed, 'boot') || flag(parsed, 'reboot')) {
+      fail('This target supports Wi-Fi application replacement in RAM only; firmware slots and reboot flags do not apply.', ExitCode.usage)
+    }
+    const base = io(parsed, options)
+    const env = createChildEnv(ctx, base.env)
+    if (flag(parsed, 'no-build')) env.W87_NO_BUILD = '1'
+    if (option(parsed, 'image')) env.W87_APP_IMAGE = path.resolve(ctx.cwd, option(parsed, 'image'))
+    return runGeaos({ ctx, selection, action: 'ota', positionals: rest, env, dryRun: base.dryRun, stdout: base.stdout })
+  }
   if (selection.adapter !== 'esp32-idf') fail(`OTA is only available for ESP32 boards (board '${selection.boardName}' is ${selection.adapter}).`, ExitCode.usage)
   const base = io(parsed, options)
   const env = createChildEnv(ctx, base.env)

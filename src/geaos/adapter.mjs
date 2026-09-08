@@ -77,6 +77,18 @@ export function runGeaos({ ctx, selection, action, app = null, positionals = [],
     if (!appId) fail('A geaos app id is required (--app <id>).', ExitCode.usage)
     return appId
   }
+  if (selection.bootMode === 'ram-only') {
+    if (!['build', 'flash', 'flash-monitor', 'monitor', 'ota'].includes(action)) {
+      fail(`'${action}' is not supported by this RAM-only target.`, ExitCode.usage)
+    }
+    // The CLI's deployment actions invoke fastboot boot, never flash. Keep
+    // this route ahead of the legacy MediaTek scripts and their fallbacks.
+    const ramAction = action === 'ota' ? 'deploy' : action === 'flash' || action === 'flash-monitor' ? 'boot' : action
+    if (selection.host || selection.otaHost) childEnv.GEAOS_DEVICE_HOST = selection.host || selection.otaHost
+    return run(path.join(targetDir, 'board.py'), [ramAction, appId || 'taurus-pedal'],
+      { cwd: targetDir, env: childEnv, dryRun, stdout,
+        failureCode: action === 'build' ? ExitCode.buildFailed : ExitCode.deployFailed })
+  }
   if (selection.adapter === 'geaos-arm64') {
     const script = path.join(targetDir, 'flash-geaos-arm64.sh')
     switch (action) {
