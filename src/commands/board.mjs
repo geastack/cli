@@ -15,6 +15,7 @@ import { runGeaos } from '../geaos/adapter.mjs'
 import { assertTargetEnabled, assertValidApp, discoverApps, resolveRequestedApp, targetEnabledForApp } from '../manifest.mjs'
 import { buildRp2350, flashRp2350, rp2350BuildDir } from '../rp2350/adapter.mjs'
 import { runTargetHook } from '../taurus/adapter.mjs'
+import { runXbox } from '../xbox/adapter.mjs'
 
 // Every board-facing command: resolve the alias, pick the adapter, run.
 
@@ -77,7 +78,7 @@ function io(parsed, options) {
 // without one (its script-mode pass would otherwise analyze a directory), so
 // those adapters need an app even for --configure-only; the geaos and taurus
 // adapters have app-less actions.
-const appRequiredAdapters = new Set(['esp32-idf', 'rp2350-pico'])
+const appRequiredAdapters = new Set(['esp32-idf', 'rp2350-pico', 'xbox-uwp'])
 
 function requireAppForAdapter(ctx, parsed, selection, app) {
   if (app || !appRequiredAdapters.has(selection.adapter)) return app
@@ -97,6 +98,8 @@ export async function buildCommand(ctx, parsed, rest, options) {
   const base = io(parsed, options)
   const env = createChildEnv(ctx, base.env)
   switch (selection.adapter) {
+    case 'xbox-uwp':
+      return runXbox({ app, action: 'build', env, dryRun: base.dryRun, stdout: base.stdout })
     case 'esp32-idf': {
       buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr, configureOnly: flag(parsed, 'configure-only') })
       return 0
@@ -186,6 +189,11 @@ export async function flashCommand(ctx, parsed, rest, options, { monitor = false
   const base = io(parsed, options)
   const env = createChildEnv(ctx, base.env)
   switch (selection.adapter) {
+    case 'xbox-uwp': {
+      const app = optionalApp(ctx, parsed, rest, selection, { required: true })
+      return runXbox({ app, action: 'deploy', env, host: option(parsed, 'host', '') || selection.otaHost,
+        noBuild: option(parsed, 'build') === false, dryRun: base.dryRun, stdout: base.stdout })
+    }
     case 'esp32-idf':
       return flashEsp32(ctx, parsed, rest, options, selection, { monitor })
     case 'rp2350-pico': {

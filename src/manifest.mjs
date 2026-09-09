@@ -102,7 +102,7 @@ export function assertTargetEnabled(ctx, app, targetOrPlatform) {
   }
 }
 
-export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios', 'android'])
+export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios', 'android', 'xbox'])
 
 export function appPlatformForTarget(ctx, targetOrBoard) {
   return appPlatformsForTarget(ctx, targetOrBoard)[0] || ''

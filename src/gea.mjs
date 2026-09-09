@@ -48,9 +48,9 @@ export async function runGea(argv, io = {}) {
   // "latest release" lookup without touching the network.
   const options = { stdout, stderr, env, stdin, output, prompt, probeSerialDevice: io.probeSerialDevice, fetchEspIdfLatest: io.fetchEspIdfLatest }
 
-  // A platform name in --target (web, macos, ...) is not a board.
+  // Xbox is both a platform and a concrete built-in UWP target.
   const target = option(parsed, 'target', '')
-  if (target && knownPlatforms.includes(target) && ['build', 'flash', 'run', 'monitor', 'ota'].includes(command)) {
+  if (target && target !== 'xbox' && knownPlatforms.includes(target) && ['build', 'flash', 'run', 'monitor', 'ota'].includes(command)) {
     if (target === 'esp32' || target === 'rp2350' || target === 'geaos') {
       fail(`--target ${target} names a platform; pass --board <alias> (gea boards list) or --target <target id> (gea targets list).`, ExitCode.usage)
     }
