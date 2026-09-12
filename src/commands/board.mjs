@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import { flag, option, optionList } from '../args.mjs'
+import { loadBoardConfig, normalizeBoardConfig } from '../boards/config.mjs'
 import { resolveBoardSelection } from '../boards/resolve.mjs'
 import { resolveUsbSerialPort } from '../boards/usb.mjs'
 import { createChildEnv } from '../context.mjs'
@@ -19,8 +20,8 @@ import { runXbox } from '../xbox/adapter.mjs'
 // Every board-facing command: resolve the alias, pick the adapter, run.
 
 export function selectBoard(ctx, parsed, needs = {}) {
-  const boardName = option(parsed, 'board', '')
   const targetName = option(parsed, 'target', '')
+  const boardName = option(parsed, 'board', '') || (targetName ? '' : onlyRegisteredBoard(ctx))
   if (!boardName && !targetName) fail('--board <alias> is required (see gea boards list).', ExitCode.usage)
   try {
     return resolveBoardSelection({
@@ -35,6 +36,16 @@ export function selectBoard(ctx, parsed, needs = {}) {
   } catch (error) {
     fail(error.message, ExitCode.usage)
   }
+}
+
+// A single registered alias needs no --board; several do, and the error names
+// them so the reader can pick.
+function onlyRegisteredBoard(ctx) {
+  const aliases = Object.keys(normalizeBoardConfig(loadBoardConfig(ctx)))
+  if (aliases.length === 1) return aliases[0]
+  if (aliases.length > 1) fail(`--board <alias> is required, several boards are registered: ${aliases.join(', ')}.`, ExitCode.usage)
+
+  return ''
 }
 
 function optionalApp(ctx, parsed, rest, selection, { required = false } = {}) {
@@ -56,6 +67,18 @@ function optionalApp(ctx, parsed, rest, selection, { required = false } = {}) {
   assertValidApp(app)
   assertTargetEnabled(ctx, app, selection.boardName || selection.target)
   return app
+}
+
+// An app that asked for BLE updates at create time updates over BLE unless
+// --transport says otherwise. Outside an app folder there is nothing to read,
+// and Wi-Fi stays the default.
+function defaultOtaTransport(ctx, parsed, rest) {
+  try {
+    const app = resolveRequestedApp(ctx, parsed, option(parsed, 'app') || rest[0] ? rest : [])
+    return manifestRequestsBleOta(app?.packageJson) ? 'ble' : 'wifi'
+  } catch {
+    return 'wifi'
+  }
 }
 
 function bleOtaRequested(parsed, app, env) {
@@ -212,7 +235,7 @@ export async function flashCommand(ctx, parsed, rest, options, { monitor = false
 // ---- ota ------------------------------------------------------------------------
 
 export async function otaCommand(ctx, parsed, rest, options) {
-  const transport = option(parsed, 'transport', 'wifi')
+  const transport = option(parsed, 'transport', '') || defaultOtaTransport(ctx, parsed, rest)
   if (transport !== 'wifi' && transport !== 'ble') fail("--transport must be 'wifi' or 'ble'.", ExitCode.usage)
   const selection = selectBoard(ctx, parsed, transport === 'wifi' ? { otaHost: true } : {})
   if (selection.bootMode === 'ram-only') {

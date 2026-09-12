@@ -29,6 +29,10 @@
   "dependencies": {
     "serialport": "^13.0.0"
   },
+  "starterDependencies": {
+    "@geastack/core": "^0.1.12",
+    "@geastack/targets": "^0.1.57"
+  },
   "scripts": {
     "check": "node --check bin/gea.mjs && node --check bin/create-geastack.mjs && find src test packages -name '*.mjs' -print0 | xargs -0 -n1 node --check",
     "test": "node --test"

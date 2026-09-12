@@ -208,6 +208,30 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
   assert.equal(again.code, 0)
   const second = fixture.calls().filter((line) => !line.includes('idf_tools.py export') && !line.startsWith('compiler '))
   assert.deepEqual(second, [`cmake --build ${buildDir} --parallel 2`])
+
+  // CMake lists app sources at configure time, so a file added afterwards
+  // has to trigger a reconfigure or it is never compiled.
+  fs.rmSync(fixture.callLog)
+  fs.writeFileSync(path.join(fixture.appDir, 'App.tsx'), 'export const added = 1\n')
+  const grown = await gea(['build', '--board', 'amoled'], fixture)
+  assert.equal(grown.code, 0, grown.err)
+  assert.ok(fixture.calls().some((line) => / reconfigure$/.test(line)), 'a new source file reconfigures')
+})
+
+test('--board can be omitted when exactly one board is registered', async (t) => {
+  const fixture = createFixture(t)
+
+  // The fixture home registers amoled and amoled-wifi, so the choice is ambiguous.
+  await assert.rejects(
+    gea(['build', '--dry-run'], fixture),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /amoled, amoled-wifi/.test(error.message)
+  )
+
+  const single = path.join(fixture.root, 'one-board.json')
+  writeJson(single, { amoled: { target: 'esp32-s3-touch-amoled-2.06', adapter: 'esp32-idf' } })
+  const dry = await gea(['build', '--dry-run', '--boards-config', single], fixture)
+  assert.equal(dry.code, 0, dry.err)
+  assert.match(dry.out, /-DGEA_EMBEDDED_APP=watch/)
 })
 
 test('flash writes bootloader, app, partition table and otadata over USB and then monitors', async (t) => {
@@ -283,6 +307,14 @@ test('ota uploads the built image over WiFi and BLE OTA runs the swift helper', 
   assert.equal(ble.code, 0, ble.err)
   assert.match(ble.out, /-DGEA_EMBEDDED_CAPABILITY_BLE=1/)
   assert.match(ble.out, new RegExp(`swift .*src/ble/ble-ota\\.swift ${escapeRegex(buildDir)}/gea_embedded\\.bin`))
+
+  // An app created with BLE updates enabled does not need --transport.
+  const manifestPath = path.join(fixture.appDir, 'package.json')
+  const manifest = readJson(manifestPath)
+  writeJson(manifestPath, { ...manifest, gea: { ...manifest.gea, ota: { ble: true } } })
+  const implied = await gea(['ota', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(implied.code, 0, implied.err)
+  assert.match(implied.out, /ble-ota\.swift/)
 })
 
 test('logs and screenshots pick WiFi when the board has an address, USB otherwise', async (t) => {
@@ -329,7 +361,8 @@ test('setup builds a known target in configure-only mode and can write a local b
   const out = capture()
   // known board, amoled, alias, connected over USB (the one detected device
   // is taken without asking for its serial), no OTA host, save, no ESP-IDF install.
-  const prompt = scriptedPrompt(['1', '1', 'desk-amoled', 'y', '', 'y', 'n'])
+  // "y" is not a host, so the wizard asks again before accepting an empty answer.
+  const prompt = scriptedPrompt(['1', '1', 'desk-amoled', 'y', 'y', '', 'y', 'n'])
   await runGea(['setup', '--dry-run'], {
     ...out.io,
     prompt,

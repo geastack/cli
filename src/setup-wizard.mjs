@@ -124,7 +124,8 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
   })
   const otaHost = await ask(prompt, {
     message: 'OTA host/IP (optional)',
-    defaultValue: ''
+    defaultValue: '',
+    validate: validateOtaHost
   })
 
   const configPath = boardConfigPath(ctx, parsed)
@@ -570,6 +571,14 @@ function readBoardConfig(filePath) {
 function writeJsonEnsured(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   writeJson(filePath, value)
+}
+
+function validateOtaHost(value) {
+  if (!value) return ''
+  const ipv4 = /^(\d{1,3})(\.\d{1,3}){3}$/.test(value)
+  const hostname = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(value)
+  if (ipv4 || hostname) return ''
+  return 'enter an IP address such as 192.168.1.20 or a hostname such as board.local, or leave it empty'
 }
 
 function validateAlias(value) {

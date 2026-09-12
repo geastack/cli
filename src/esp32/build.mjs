@@ -10,6 +10,7 @@ import { resolveAppCapabilities } from './capabilities.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
 import { writePartitionTable } from './partitions-from-manifest.mjs'
+import { listAppSources } from './source-set.mjs'
 import { generateWifiConfig } from './wifi-config.mjs'
 
 // The ESP-IDF build. Everything the old bash board script decided about a
@@ -277,7 +278,8 @@ function preparePartitions(app, config, buildDir) {
   }).save()
 
   const defaultsArg = [defaultsFile, appSdkconfigFile].filter(Boolean).join(';')
-  return { buildDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, images: buildImages(buildDir) }
+  const sourceSet = app ? listAppSources(app.root) : []
+  return { buildDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, sourceSet, images: buildImages(buildDir) }
 }
 
 function commandExists(name, env) {
@@ -317,7 +319,7 @@ function runInTarget(command, args, { cwd, env, dryRun, stdout, failureCode = Ex
 // system's responsibility. This retains Ninja's sub-second no-op.
 export function ensureConfigured({ idf, prepared, env, dryRun = false, stdout }) {
   const signatureFile = path.join(prepared.buildDir, '.gea-configure-args')
-  const signature = [`-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs].join('\n') + '\n'
+  const signature = [`-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs, ...(prepared.sourceSet || [])].join('\n') + '\n'
   if (existsSync(path.join(prepared.buildDir, 'CMakeCache.txt')) && existsSync(signatureFile) && readFileSync(signatureFile, 'utf8') === signature) {
     return false
   }

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { flag, option, optionList, parseArgs } from './args.mjs'
 import { createContext } from './context.mjs'
@@ -17,7 +18,11 @@ import {
 
 const cliPackage = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const cliVersion = cliPackage.version
-const coreVersion = String(cliPackage.dependencies?.['@geastack/core'] || '').replace(/^[^0-9]*/, '')
+// Versions the scaffold pins for packages the CLI itself does not depend on.
+const starterDependencies = cliPackage.starterDependencies || {}
+const coreDependencyDefault = starterDependencies['@geastack/core'] || 'latest'
+const targetsDependencyDefault = starterDependencies['@geastack/targets'] || 'latest'
+const starterFontPath = fileURLToPath(new URL('../starters/fonts/Inter-Regular.ttf', import.meta.url))
 
 export async function runCreateGeastack(argv, io = {}) {
   const parsed = parseArgs(argv)
@@ -42,10 +47,10 @@ export async function runCreateGeastack(argv, io = {}) {
 
   const ctx = createContext(parsed, env, cwd)
   const displayName = option(parsed, 'name', titleFromId(appId))
-  const coreDependency = option(parsed, 'core-dependency') || `^${coreVersion}`
+  const coreDependency = option(parsed, 'core-dependency') || coreDependencyDefault
   const cliDependency = option(parsed, 'cli-dependency') || `^${cliVersion}`
   const starter = await resolveStarter(ctx, parsed, io)
-  const entry = projectRelativePath(starter.starter?.entry || starter.example?.entry || 'index.tsx', 'entry')
+  const entry = projectRelativePath(starter.starter?.entry || starter.example?.entry || 'src/index.tsx', 'entry')
 
   fs.mkdirSync(targetDir, { recursive: true })
   if (starter.kind === 'empty') {
@@ -53,6 +58,7 @@ export async function runCreateGeastack(argv, io = {}) {
     fs.mkdirSync(path.dirname(entryPath), { recursive: true })
     fs.writeFileSync(entryPath, indexTsx(displayName))
     fs.writeFileSync(path.join(path.dirname(entryPath), 'styles.css'), stylesCss())
+    copyStarterFont(path.join(targetDir, 'assets', 'fonts'))
   } else if (starter.kind === 'bundled') {
     copyStarterFiles(starter.starter.root, targetDir)
   } else if (starter.kind === 'example') {
@@ -89,7 +95,8 @@ export async function runCreateGeastack(argv, io = {}) {
   if (targets.web) ensureFile(path.join(targetDir, 'index.html'), () => indexHtml(displayName, entry))
   fs.mkdirSync(path.join(targetDir, '.gea'), { recursive: true })
   writeJson(path.join(targetDir, '.gea', 'boards.json'), {})
-  ensureJson(path.join(targetDir, 'tsconfig.json'), tsconfigJson)
+  ensureJson(path.join(targetDir, 'tsconfig.json'), () => tsconfigJson(targets))
+  ensureFile(path.join(targetDir, '.gitignore'), gitignore)
   if (targets.web) ensureFile(path.join(targetDir, 'vite.config.ts'), viteConfigTs)
   fs.writeFileSync(path.join(targetDir, 'README.md'), readme({ appId, displayName, starter, targets }))
 
@@ -154,19 +161,24 @@ async function resolveStarter(ctx, parsed, io) {
     if (mode !== 'example') {
       fail(`Unknown starter '${mode}'. Expected counter, blank, or example.`, ExitCode.usage)
     }
-    if (examples.length === 0) {
-      fail('No GitHub examples are available. Use --starter counter or --starter blank.', ExitCode.usage)
-    }
+
+    // The gallery is every complete app the CLI can copy: bundled starters
+    // first, then the GitHub examples.
+    const gallery = [
+      ...bundled.map((starter) => ({ kind: 'bundled', starter, id: starter.id, entry: starter })),
+      ...examples.map((example) => ({ kind: 'example', example, id: example.id, entry: example }))
+    ]
+    if (gallery.length === 0) fail('No example applications are available. Use --starter blank.', ExitCode.usage)
 
     const requestedExample = option(parsed, 'example') || option(parsed, 'from-example') || ''
-    const example = requestedExample
-      ? examples.find((candidate) => candidate.id === requestedExample)
-      : await chooseExample({ interactive, prompt, examples })
-    if (!example) {
-      const available = examples.map((candidate) => candidate.id).join(', ')
+    const picked = requestedExample
+      ? gallery.find((candidate) => candidate.id === requestedExample)
+      : await chooseExample({ interactive, prompt, gallery })
+    if (!picked) {
+      const available = gallery.map((candidate) => candidate.id).join(', ')
       fail(`Unknown starter example '${requestedExample}'. Available examples: ${available}`, ExitCode.usage)
     }
-    return { kind: 'example', example }
+    return picked.kind === 'bundled' ? { kind: 'bundled', starter: picked.starter } : { kind: 'example', example: picked.example }
   } finally {
     if (prompt) await prompt.close()
   }
@@ -177,36 +189,31 @@ async function chooseStarterMode({ interactive, prompt, bundled, examples }) {
   return choose(prompt, {
     message: 'What do you want to build?',
     choices: [
-      ...(bundled.length > 0 ? [{
-        value: 'counter',
-        label: 'Embedded component counter',
-        description: 'Touchscreen +/− counter with local state and BLE updates, ready for ESP32.'
-      }] : []),
       {
         value: 'empty',
         label: 'Blank application',
         description: 'A minimal screen for building your own Gea application.'
       },
-      ...(examples.length > 0 ? [{
+      ...(bundled.length > 0 || examples.length > 0 ? [{
         value: 'example',
         label: 'Example application',
         description: 'Choose a complete application from the GeaStack example gallery.'
       }] : [])
     ],
-    defaultValue: bundled.length > 0 ? 'counter' : 'empty'
+    defaultValue: 'empty'
   })
 }
 
-async function chooseExample({ interactive, prompt, examples }) {
+async function chooseExample({ interactive, prompt, gallery }) {
   if (!interactive) {
     fail('Choosing --starter example in a non-interactive shell also requires --example <id>.', ExitCode.usage)
   }
   const id = await choose(prompt, {
     message: 'Example to copy',
-    choices: examples.map((example) => ({ value: example.id, label: formatStarterChoice(example) })),
-    defaultValue: examples[0].id
+    choices: gallery.map((candidate) => ({ value: candidate.id, label: formatStarterChoice(candidate.entry) })),
+    defaultValue: gallery[0].id
   })
-  return examples.find((example) => example.id === id) || null
+  return gallery.find((candidate) => candidate.id === id) || null
 }
 
 async function chooseBlankTarget(prompt) {
@@ -311,7 +318,8 @@ function packageJson({ appId, displayName, targets, entry, coreDependency, cliDe
       ...(sourcePackage.dependencies || {}),
       '@geajs/core': sourcePackage.dependencies?.['@geajs/core'] || '^1.3.0',
       '@geastack/core': coreDependency,
-      '@geastack/cli': cliDependency
+      '@geastack/cli': cliDependency,
+      ...(needsTargetsPackage(targets) ? { '@geastack/targets': sourcePackage.dependencies?.['@geastack/targets'] || targetsDependencyDefault } : {})
     },
     devDependencies: {
       ...(sourcePackage.devDependencies || {}),
@@ -321,6 +329,12 @@ function packageJson({ appId, displayName, targets, entry, coreDependency, cliDe
     gea: geaManifest,
     license: 'MIT'
   }
+}
+
+// Board firmware builds read the target project and board catalog from
+// @geastack/targets; web and desktop apps do not need it.
+function needsTargetsPackage(targets) {
+  return targets.esp32 || targets.rp2350
 }
 
 function indexTsx(displayName) {
@@ -343,8 +357,20 @@ mount(App)
 `
 }
 
+// Embedded targets bake text from a TTF the app ships; without an @font-face
+// the firmware falls back to a small bitmap font with a limited glyph set.
+function copyStarterFont(fontsDir) {
+  fs.mkdirSync(fontsDir, { recursive: true })
+  fs.copyFileSync(starterFontPath, path.join(fontsDir, 'Inter-Regular.ttf'))
+}
+
 function stylesCss() {
-  return `.app {
+  return `@font-face {
+  font-family: 'Inter';
+  src: url('../assets/fonts/Inter-Regular.ttf');
+}
+
+.app {
   width: 100vw;
   height: 100vh;
   margin: 0;
@@ -353,7 +379,7 @@ function stylesCss() {
   justify-content: center;
   background: #101418;
   color: #f8fafc;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: 'Inter';
 }
 
 .panel {
@@ -398,23 +424,33 @@ function indexHtml(displayName, entry = 'index.tsx') {
 `
 }
 
-function tsconfigJson() {
+// No jsxImportSource: @geastack/core declares the JSX namespace itself, and
+// naming @geajs/core here makes the firmware compiler type-check its minified
+// runtime and refuse the build.
+function tsconfigJson(targets) {
   return {
     compilerOptions: {
       target: 'ES2022',
       module: 'ESNext',
       moduleResolution: 'Bundler',
-      lib: ['ES2022', 'DOM'],
+      lib: targets.web ? ['ES2022', 'DOM'] : ['ES2022'],
       strict: true,
       noEmit: true,
       skipLibCheck: true,
       jsx: 'preserve',
-      jsxImportSource: '@geajs/core',
-      allowImportingTsExtensions: true
+      types: []
     },
-    include: ['**/*.tsx', '**/*.ts', '**/*.d.ts'],
-    exclude: ['vite.config.ts', 'dist']
+    include: ['**/*.ts', '**/*.tsx', '**/*.d.ts'],
+    exclude: ['node_modules', 'dist', '.gea', 'vite.config.ts']
   }
+}
+
+function gitignore() {
+  return `node_modules/
+dist/
+.gea/build/
+.env
+`
 }
 
 function viteConfigTs() {

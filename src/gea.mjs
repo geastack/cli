@@ -121,14 +121,14 @@ Usage:
   gea setup [--board <alias>]                    guided board setup, or configure a board's build
   gea doctor [--json] [--strict]                 check packages and toolchains
 
-Build and deploy (every device command takes --board <alias>, see gea boards list):
+Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):
   gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)
   gea flash --board <alias> [--app <id>]         build + flash over USB   [--monitor] [--manual-boot] [--no-reset] [--flash-baud N]
       --slot ota_N [--image file]                stage an app image into an OTA slot only
       --slot-image ota_N=file ...                provision several prebuilt images
       --erase-slot ota_N | --restore-boot        slot maintenance
   gea run --board <alias> [--app <id>]           build + flash + serial monitor
-  gea ota --board <alias> [--app <id>]           build + WiFi OTA (transports.ota.host)  [--monitor]
+  gea ota --board <alias> [--app <id>]           build + OTA: BLE when the app enables it, else WiFi (transports.ota.host)  [--monitor]
       --transport ble [--device name]            BLE OTA (macOS)
       --slot ota_N [--boot] [--reboot] | --erase-slot ota_N
   gea clean --board <alias> [--app <id>]         remove build artifacts

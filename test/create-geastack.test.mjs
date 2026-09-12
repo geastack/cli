@@ -11,7 +11,8 @@ import { cliRoot, createFixture, readJson, scriptedPrompt } from './helpers/fixt
 
 const cliPackage = readJson(path.join(cliRoot, 'package.json'))
 const expectedCliDependency = `^${cliPackage.version}`
-const expectedCoreDependency = `^${String(cliPackage.dependencies['@geastack/core']).replace(/^[^0-9]*/, '')}`
+const expectedCoreDependency = cliPackage.starterDependencies['@geastack/core']
+const expectedTargetsDependency = cliPackage.starterDependencies['@geastack/targets']
 
 test('create-geastack scaffolds a valid app manifest', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-'))
@@ -33,9 +34,11 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal('runtime' in packageJson.gea, false)
   assert.equal(packageJson.dependencies['@geastack/core'], expectedCoreDependency)
   assert.equal(packageJson.dependencies['@geastack/cli'], expectedCliDependency)
+  assert.equal('@geastack/targets' in packageJson.dependencies, false, 'web and desktop apps do not need the targets package')
   assert.equal(fs.existsSync(path.join(tmp, 'src/index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'src/App.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
+  assert.match(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8'), /^\.env$/m)
   assert.deepEqual(readJson(path.join(tmp, '.gea/boards.json')), {})
   assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /bundled starter: `Component Counter`/)
   assert.match(out.join('\n'), /Created Hello Panel/)
@@ -59,15 +62,19 @@ test('the default starter derives its embedded entry and BLE OTA configuration',
   assert.equal(fs.existsSync(path.join(tmp, 'src/index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'src/App.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'src/styles.css')), true)
+  assert.equal(fs.existsSync(path.join(tmp, 'assets/fonts/Inter-Regular.ttf')), true, 'the counter starter ships its font')
   assert.equal(fs.existsSync(path.join(tmp, 'index.html')), false)
   assert.equal(fs.existsSync(path.join(tmp, 'vite.config.ts')), false)
   assert.equal(packageJson.scripts.build, undefined)
+  assert.equal(packageJson.dependencies['@geastack/core'], expectedCoreDependency)
+  assert.equal(packageJson.dependencies['@geastack/targets'], expectedTargetsDependency)
+  assert.match(packageJson.dependencies['@geastack/core'], /^\^\d/, 'a real version, never a bare caret')
 })
 
 test('the guided blank application asks for its target and ESP32 update method', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-blank-'))
   const prompt = scriptedPrompt([
-    '2',
+    '1',
     '2',
     ''
   ])
@@ -79,12 +86,21 @@ test('the guided blank application asks for its target and ESP32 update method',
   ], { cwd: tmp, stdout: () => {}, prompt })
 
   const packageJson = readJson(path.join(tmp, 'package.json'))
-  assert.equal(packageJson.gea.entry, 'index.tsx')
+  assert.equal(packageJson.gea.entry, 'src/index.tsx')
   assert.equal(packageJson.gea.targets.esp32, true)
   assert.equal(packageJson.gea.targets.web, false)
   assert.deepEqual(packageJson.gea.ota, { ble: true })
+  assert.equal(packageJson.dependencies['@geastack/targets'], expectedTargetsDependency)
+  assert.equal(fs.existsSync(path.join(tmp, 'src/index.tsx')), true)
+  assert.equal(fs.existsSync(path.join(tmp, 'src/styles.css')), true)
+  assert.equal(fs.existsSync(path.join(tmp, 'assets/fonts/Inter-Regular.ttf')), true, 'blank apps ship the font their css declares')
+  assert.match(fs.readFileSync(path.join(tmp, 'src/styles.css'), 'utf8'), /@font-face/)
   assert.equal(fs.existsSync(path.join(tmp, 'index.html')), false)
   assert.equal(fs.existsSync(path.join(tmp, 'vite.config.ts')), false)
+  const tsconfig = readJson(path.join(tmp, 'tsconfig.json'))
+  assert.equal('jsxImportSource' in tsconfig.compilerOptions, false, 'the firmware compiler rejects @geajs/core as JSX source')
+  assert.deepEqual(tsconfig.compilerOptions.lib, ['ES2022'])
+  assert.match(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8'), /^\.gea\/build\/$/m)
   assert.match(prompt.questions.join('\n'), /Where should this application run\?/)
   assert.match(prompt.questions.join('\n'), /Enable wireless firmware updates over Bluetooth\?/)
 })
@@ -114,7 +130,7 @@ test('create-geastack uses explicit id, display name, and core dependency', asyn
   assert.equal(packageJson.gea.name, 'Factory Control')
   assert.equal(packageJson.dependencies['@geastack/core'], 'workspace:*')
   assert.equal(packageJson.dependencies['@geastack/cli'], 'workspace:*')
-  assert.match(fs.readFileSync(path.join(tmp, 'index.tsx'), 'utf8'), /Factory Control/)
+  assert.match(fs.readFileSync(path.join(tmp, 'src/index.tsx'), 'utf8'), /Factory Control/)
 })
 
 test('create-geastack always defaults to registry dependencies', async (t) => {
@@ -139,7 +155,7 @@ test('create-geastack can interactively fetch a rich GitHub example', async () =
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-example-'))
   const out = []
   const prompt = scriptedPrompt([
-    '3',
+    '2',
     'watch'
   ])
 
@@ -168,13 +184,15 @@ test('create-geastack can interactively fetch a rich GitHub example', async () =
   assert.match(prompt.questions.join('\n'), /What do you want to build\?/)
   assert.match(prompt.questions.join('\n'), /Example application/)
   assert.match(prompt.questions.join('\n'), /Example to copy/)
+  assert.match(prompt.questions.join('\n'), /Component Counter/, 'the bundled counter is part of the gallery')
+  assert.doesNotMatch(prompt.questions.join('\n'), /Embedded component counter/, 'the top menu offers blank or example only')
   assert.match(out.join('\n'), /Example: fetched Watch/)
 })
 
 test('create-geastack installs dependencies by default in interactive terminals', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-install-'))
   const out = []
-  const prompt = scriptedPrompt(['1'])
+  const prompt = scriptedPrompt(['2', 'counter'])
 
   await runCreateGeastack(['Panel', '--dir', tmp, '--dry-run'], {
     cwd: tmp,
