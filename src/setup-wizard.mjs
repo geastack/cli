@@ -89,8 +89,7 @@ export async function runSetupWizard(ctx, parsed, io) {
     await maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup)
     if (boardSetup?.flashReady) {
       const appFlag = boardSetup.app && boardSetup.app.root !== findCurrentApp(ctx.cwd)?.root ? ` --app ${boardSetup.app.id}` : ''
-      const boardFlag = Object.keys(loadBoardConfig(ctx)).length > 1 ? ` --board ${boardSetup.alias}` : ''
-      ui(io).outro(`Ready: gea flash${boardFlag}${appFlag} --monitor`)
+      ui(io).outro(`Ready: gea flash${boardFlag(ctx, boardSetup.alias)}${appFlag} --monitor`)
     } else {
       ui(io).outro('Profile saved. Add or select a target backend before flashing this board.')
     }
@@ -276,7 +275,7 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
   ui(io).success(`Wrote custom target to ${definitionPath}`)
   ui(io).success(`Wrote board alias '${alias}' to ${configPath}`)
   if (missingRoles.length) {
-    ui(io).message(`Add the remaining roles with: npx gea chips add <chip> --board ${alias}`)
+    ui(io).message(`Add the remaining roles with: gea chips add <chip>${boardFlag(ctx, alias)}`)
   }
   return { alias, flashReady: missingRoles.length === 0 }
 }
@@ -384,11 +383,11 @@ async function maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force = fa
 async function maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup) {
   if (!boardSetup?.alias || !boardSetup.flashReady) return 0
   if (option(parsed, 'initialize') === false) {
-    ui(io).warn(`Board initialization skipped. Later: npx gea setup --board ${boardSetup.alias} --app <id>`)
+    ui(io).warn(`Board initialization skipped. Later: gea setup${boardFlag(ctx, boardSetup.alias)} --app <id>`)
     return 0
   }
   if (!ctx.targetsRoot) {
-    ui(io).warn(`@geastack/targets is not installed. Later: npx gea setup --board ${boardSetup.alias} --app <id>`)
+    ui(io).warn(`@geastack/targets is not installed. Later: gea setup${boardFlag(ctx, boardSetup.alias)} --app <id>`)
     return 0
   }
   const app = await chooseAppForBoard(ctx, parsed, io, prompt, boardSetup.alias)
@@ -412,7 +411,7 @@ async function chooseAppForBoard(ctx, parsed, io, prompt, alias) {
   if (current && targetEnabledForApp(ctx, current, alias)) return current
   const candidates = discoverApps(ctx).filter((app) => targetEnabledForApp(ctx, app, alias))
   if (candidates.length === 0) {
-    ui(io).warn(`No app in ${ctx.projectRoot} targets '${alias}' yet; skipping board initialization. Later: npx gea setup --board ${alias} --app <id>`)
+    ui(io).warn(`No app in ${ctx.projectRoot} targets '${alias}' yet; skipping board initialization. Later: gea setup${boardFlag(ctx, alias)} --app <id>`)
     return null
   }
   if (candidates.length === 1) return candidates[0]
@@ -574,6 +573,12 @@ function readBoardConfig(filePath) {
 function writeJsonEnsured(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   writeJson(filePath, value)
+}
+
+// Commands pick the only registered board on their own, so a hint names the
+// alias only when the reader has several to choose from.
+function boardFlag(ctx, alias) {
+  return Object.keys(loadBoardConfig(ctx)).length > 1 ? ` --board ${alias}` : ''
 }
 
 function validateOtaHost(value) {

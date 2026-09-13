@@ -367,7 +367,7 @@ export async function screenshotCommand(ctx, parsed, rest, options) {
 
 // ---- devctl -------------------------------------------------------------------------
 
-const devctlUsage = `gea devctl <verb> [args] --board <alias> [--transport auto|usb|wifi]
+const devctlUsage = `gea devctl <verb> [args] [--board <alias>] [--transport auto|usb|wifi]
 
 Verbs (USB, GEADEV protocol):
   ping | app | state | mem | summary | i2cscan | reboot

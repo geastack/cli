@@ -176,7 +176,7 @@ export async function displayControl({ host, knob, query = '', timeoutMs = 10000
   const response = await httpRequest(url, { method: 'POST', timeoutMs })
   if (response.status === 501) throw new Error(`This board has no ${knob === 'hbm' ? 'high-brightness mode' : knob} control.`)
   if (response.status === 404) {
-    throw new Error(`This board's firmware has no /display/${knob} endpoint; reflash it (gea ota --board <alias> --app <id>) or use --transport usb.`)
+    throw new Error(`This board's firmware has no /display/${knob} endpoint; reflash it with gea ota or use --transport usb.`)
   }
   if (response.status !== 200) throw new Error(`${url} returned HTTP ${response.status}`)
   return JSON.parse(response.body.toString('utf8'))

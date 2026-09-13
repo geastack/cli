@@ -499,8 +499,8 @@ npx gea dev
 npx gea build --target web`
     : targets.esp32
       ? `npx gea setup
-npx gea build --board <alias>
-npx gea flash --board <alias> --monitor`
+npx gea build
+npx gea flash --monitor`
       : `npx gea setup
 npx gea build`
   return `# ${displayName}
