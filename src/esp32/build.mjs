@@ -5,14 +5,14 @@ import path from 'node:path'
 import { loadChipCatalogFromDir, writeCustomTarget } from '../boards/custom-target.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { appCmakeMeta, appCmakeDefines, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
-import { formatCommand, runQuiet } from '../run.mjs'
+import { quietSteps, runQuiet } from '../run.mjs'
 import { resolveAppCapabilities } from './capabilities.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
 import { writePartitionTable } from './partitions-from-manifest.mjs'
 import { listAppSources } from './source-set.mjs'
 import { generateWifiConfig } from './wifi-config.mjs'
-import { warn } from '../report.mjs'
+import { hint, warn } from '../report.mjs'
 
 // The ESP-IDF build. Everything the old bash board script decided about a
 // build lives here: where the build directory is, what the app-local
@@ -384,19 +384,25 @@ export function acquireHeavyBuildLock({ ctx, env, label, stderr }) {
 }
 
 export async function buildEsp32Firmware({ ctx, selection, app = null, env = ctx.env || process.env, bleOta = false, dryRun = false, verbose = false, stdout = console.log, stderr = console.error, configureOnly = false }) {
-  const idf = requireEspIdf(env, stdout)
-  const prepared = prepareEsp32Build({ ctx, selection, app, env: idf.env, log: stdout, bleOta, dryRun })
+  // On a terminal the toolchain, target and capability lines fold into one
+  // dim line; the spinner labels name each phase.
+  const quiet = quietSteps(env, verbose)
+  const detail = quiet ? () => {} : stdout
+  const idf = requireEspIdf(env, detail)
+  const prepared = prepareEsp32Build({ ctx, selection, app, env: idf.env, log: detail, bleOta, dryRun })
   prepared.targetDir = selection.targetDir
+  if (quiet) hint(stdout, buildSummaryLine(idf, selection, prepared.capabilities))
+
   const buildEnv = { ...prepared.childEnv }
   const release = acquireHeavyBuildLock({ ctx, env: buildEnv, label: app ? `${selection.target} app=${app.id}` : selection.target, stderr })
   try {
     if (configureOnly) {
-      stdout(`Configuring target ${selection.idfTarget || 'esp32s3'}...`)
+      detail(`Configuring target ${selection.idfTarget || 'esp32s3'}...`)
       await ensureConfigured({ idf, prepared, env: buildEnv, dryRun, verbose, stdout, stderr })
       return prepared
     }
 
-    stdout(app ? `Building firmware for app '${app.id}' in ${prepared.buildDir}...` : 'Building firmware...')
+    detail(app ? `Building firmware for app '${app.id}' in ${prepared.buildDir}...` : 'Building firmware...')
     await ensureConfigured({ idf, prepared, env: buildEnv, dryRun, verbose, stdout, stderr })
     await runInTarget('cmake', ['--build', prepared.buildDir, '--parallel', buildJobs(buildEnv)], {
       cwd: selection.targetDir,
@@ -413,6 +419,11 @@ export async function buildEsp32Firmware({ ctx, selection, app = null, env = ctx
   }
 
   return prepared
+}
+
+function buildSummaryLine(idf, selection, capabilities) {
+  const flags = ['network', 'ble', 'audio'].map((name) => `${name}=${capabilities[name] ? 1 : 0}`).join(' ')
+  return `ESP-IDF ${idf.version?.full || 'unknown'} · ${selection.target} · ${flags}`
 }
 
 export function fullCleanEsp32({ ctx, selection, app = null, env = ctx.env || process.env, stdout = console.log }) {

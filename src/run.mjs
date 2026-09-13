@@ -44,6 +44,12 @@ function shellQuote(value) {
 // spinner and its output goes to `logFile`; the tail of that log comes back
 // on failure. `--verbose` (or GEA_VERBOSE=1) and any non-terminal run keep
 // the raw passthrough.
+// True when steps collapse to spinners: a terminal, and nobody asked for the
+// raw stream. Callers use it to drop preamble the spinner labels already say.
+export function quietSteps(env = process.env, verbose = false) {
+  return !verbose && env.GEA_VERBOSE !== '1' && Boolean(process.stdout.isTTY)
+}
+
 export async function runQuiet(command, args, options = {}) {
   const { failureCode = ExitCode.generic } = options
   const { status } = await runStep(command, args, options)

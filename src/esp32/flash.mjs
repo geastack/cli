@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { waitForSerialPort } from '../boards/usb.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
-import { runStep } from '../run.mjs'
+import { quietSteps, runStep } from '../run.mjs'
 import { esptoolCommand } from './idf-env.mjs'
 import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from './partitions.mjs'
 import { success, warn } from '../report.mjs'
@@ -144,7 +144,7 @@ export async function flashFirmware({ idf, selection, images, appImage = images.
     flashOffsetForBuildImage(buildDir, images.partitionTable, '0x8000'), images.partitionTable,
     otadata.offset, images.otaData
   ]
-  stdout(`Flashing '${appLabel}' to ota_0 (${app.offset}) over USB with bootloader, partition table and OTA boot metadata.`)
+  if (!quietSteps(env, verbose)) stdout(`Flashing '${appLabel}' to ota_0 (${app.offset}) over USB with bootloader, partition table and OTA boot metadata.`)
   await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs), port, env, dryRun, verbose, logDir: buildDir, stdout, stderr })
   success(stdout, `Flashed '${appLabel}' in ota_0 and reset OTA boot metadata to ota_0.`)
 }
