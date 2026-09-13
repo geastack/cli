@@ -164,7 +164,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   const idf = requireEspIdf(env, base.stdout)
   const flashEnv = idf.env
   const opts = flashOptions(flashEnv, { manualBoot: flag(parsed, 'manual-boot'), noReset: option(parsed, 'reset') === false, baud: option(parsed, 'flash-baud', '') })
-  const common = { idf, selection, options: opts, port: selection.port, env: flashEnv, dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr }
+  const common = { idf, selection, options: opts, port: selection.port, env: flashEnv, dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr }
   const slotImages = optionList(parsed, 'slot-image')
   const eraseSlotName = option(parsed, 'erase-slot', '')
   const slot = option(parsed, 'slot', '')

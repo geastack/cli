@@ -1,9 +1,10 @@
-import { spawnSync } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 import { waitForSerialPort } from '../boards/usb.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
-import { formatCommand } from '../run.mjs'
+import { runStep } from '../run.mjs'
 import { esptoolCommand } from './idf-env.mjs'
 import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from './partitions.mjs'
 import { success, warn } from '../report.mjs'
@@ -16,8 +17,8 @@ export function flashOptions(env, { manualBoot = false, noReset = false, baud = 
   const flashBaud = String(baud || env.GEA_ESP32_FLASH_BAUD || '921600')
   if (!/^[1-9]\d*$/.test(flashBaud)) fail(`--flash-baud must be a positive integer (got '${flashBaud}').`, ExitCode.usage)
   return {
-    before: manualBoot ? 'no_reset' : 'default_reset',
-    after: noReset ? 'no_reset' : 'hard_reset',
+    before: manualBoot ? 'no-reset' : 'default-reset',
+    after: noReset ? 'no-reset' : 'hard-reset',
     baud: flashBaud,
     retrySeconds: Number(env.GEA_ESP32_FLASH_RETRY_SECONDS ?? 300),
     manualBootGraceSeconds: Number(env.GEA_ESP32_MANUAL_BOOT_GRACE_SECONDS ?? 4)
@@ -29,10 +30,10 @@ function esptoolPrefix(selection, options) {
 }
 
 function writeFlashArgs(selection, options, pairs) {
-  return [...esptoolPrefix(selection, options), 'write_flash', '--flash_mode', 'dio', '--flash_freq', '80m', '--flash_size', selection.flashSize, ...pairs]
+  return [...esptoolPrefix(selection, options), 'write-flash', '--flash-mode', 'dio', '--flash-freq', '80m', '--flash-size', selection.flashSize, ...pairs]
 }
 
-export async function runEsptoolOverUsb({ idf, selection, options, args, port = '', env, dryRun = false, stdout = console.log, stderr = console.error }) {
+export async function runEsptoolOverUsb({ idf, selection, options, args, port = '', env, dryRun = false, verbose = false, logDir = os.tmpdir(), stdout = console.log, stderr = console.error }) {
   const startedAt = Date.now()
   let attempt = 1
   let status = 1
@@ -47,7 +48,7 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
     const flashPort = dryRun
       ? port || `<usb serial ${selection.usbSerial}>`
       : await waitForSerialPort({ port, serial: selection.usbSerial, timeoutSeconds: remaining, label: 'ESP32 USB flash port', log: stderr })
-    if (options.before === 'no_reset') {
+    if (options.before === 'no-reset') {
       stdout('Manual boot mode: hold BOOT/IO0, reset or power-cycle the board, then keep BOOT held until esptool connects.')
       stdout('Manual boot mode: esptool will not toggle reset before connecting.')
       if (options.manualBootGraceSeconds > 0 && !dryRun) {
@@ -55,16 +56,27 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
         await new Promise((resolve) => setTimeout(resolve, options.manualBootGraceSeconds * 1000))
       }
     }
-    stdout(`USB flash attempt ${attempt} on ${flashPort}...`)
     const { command, args: fullArgs } = esptoolCommand(idf, ['-p', flashPort, ...args])
-    if (dryRun) {
-      stdout(formatCommand([command, ...fullArgs]))
+    // Retries append to one log; the summary reads the last attempt only.
+    const logFile = path.join(logDir, 'gea-flash.log')
+    const step = await runStep(command, fullArgs, {
+      cwd: selection.targetDir,
+      env,
+      dryRun,
+      verbose,
+      label: attempt === 1 ? `Flashing over USB on ${flashPort}` : `USB flash attempt ${attempt} on ${flashPort}`,
+      logFile,
+      appendLog: attempt > 1,
+      stdout,
+      stderr
+    })
+    if (dryRun) return 0
+
+    status = step.status
+    if (status === 0) {
+      if (step.quiet) stdout(flashSummary(logFile))
       return 0
     }
-    const result = spawnSync(command, fullArgs, { cwd: selection.targetDir, env, stdio: 'inherit' })
-    if (result.error) throw result.error
-    status = result.status ?? 1
-    if (status === 0) return 0
     if (status === 130 || status === 143) throw new CliError('ERROR: USB flash interrupted.', ExitCode.deployFailed)
     if (options.retrySeconds > 0 && (Date.now() - startedAt) / 1000 >= options.retrySeconds) {
       throw new CliError(`ERROR: USB flash failed after ${attempt} attempt(s).`, ExitCode.deployFailed)
@@ -73,6 +85,27 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
     attempt += 1
     await new Promise((resolve) => setTimeout(resolve, 1000))
   }
+}
+
+// esptool prints one "Wrote N bytes ... at 0x... in T seconds" line per
+// image; those, plus the chip line, are the parts worth keeping.
+function flashSummary(logFile) {
+  // esptool redraws progress with carriage returns and cursor escapes, so
+  // split on both line endings and drop the escapes before matching.
+  const attempts = readFileSync(logFile, 'utf8').split(/^(?=esptool v)/m)
+  const lines = attempts[attempts.length - 1].split(/\r?\n|\r/).map((line) => line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ''))
+  const chip = lines.map((line) => line.match(/^Chip type:\s+(.+)$/)?.[1]).find(Boolean)
+  const writes = lines.map((line) => line.match(/^Wrote (\d+) bytes .* at (0x[0-9a-f]+) in ([\d.]+) seconds/)).filter(Boolean)
+  const total = writes.reduce((sum, match) => sum + Number(match[1]), 0)
+  const seconds = writes.reduce((sum, match) => sum + Number(match[3]), 0)
+  const parts = writes.map((match) => `${formatBytes(Number(match[1]))} at ${match[2]}`)
+  return [chip ? `Connected to ${chip}` : '', `Wrote ${parts.join(', ')} (${formatBytes(total)} in ${seconds.toFixed(1)}s)`].filter(Boolean).join('\n')
+}
+
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
 }
 
 function requireImage(file, what) {
@@ -95,7 +128,7 @@ export function slotGeometry(selection, slot) {
 
 // Bootloader + partition table + otadata + app in ota_0: a full provisioning
 // of the board from one build directory.
-export async function flashFirmware({ idf, selection, images, appImage = images.app, appLabel = 'prebuilt image', options, port, env, dryRun, stdout, stderr }) {
+export async function flashFirmware({ idf, selection, images, appImage = images.app, appLabel = 'prebuilt image', options, port, env, dryRun, verbose = false, stdout, stderr }) {
   const image = requireImage(appImage, 'App image')
   for (const required of [images.bootloader, images.partitionTable, images.otaData]) {
     if (!existsSync(required)) fail(`${required} was not found. Build the launcher once first.`, ExitCode.deployFailed)
@@ -111,9 +144,8 @@ export async function flashFirmware({ idf, selection, images, appImage = images.
     flashOffsetForBuildImage(buildDir, images.partitionTable, '0x8000'), images.partitionTable,
     otadata.offset, images.otaData
   ]
-  stdout(`Flashing '${appLabel}' from ${image} to ota_0 (${app.offset}) over USB...`)
-  stdout('Writing bootloader, partition table, default OTA boot metadata, and app image.')
-  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs), port, env, dryRun, stdout, stderr })
+  stdout(`Flashing '${appLabel}' to ota_0 (${app.offset}) over USB with bootloader, partition table and OTA boot metadata.`)
+  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs), port, env, dryRun, verbose, logDir: buildDir, stdout, stderr })
   success(stdout, `Flashed '${appLabel}' in ota_0 and reset OTA boot metadata to ota_0.`)
 }
 
@@ -140,7 +172,7 @@ export async function flashImageSet({ idf, selection, images, slotImages, option
   stdout(`Flashing ${slotImages.length} prebuilt app image(s) over USB...`)
   stdout('Writing bootloader, partition table, default OTA boot metadata, and app images.')
   await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs), port, env, dryRun, stdout, stderr })
-  success(stdout, options.after === 'no_reset' ? 'Flashed app images. Device was not reset after flashing.' : 'Flashed app images. Device was reset after flashing.')
+  success(stdout, options.after === 'no-reset' ? 'Flashed app images. Device was not reset after flashing.' : 'Flashed app images. Device was reset after flashing.')
 }
 
 // App image only, into a chosen OTA slot; boot selection is untouched.
@@ -165,7 +197,7 @@ export async function restoreBootMetadata({ idf, selection, images, options, por
 export async function eraseSlot({ idf, selection, slot, options, port, env, dryRun, stdout, stderr }) {
   const geometry = slotGeometry(selection, slot)
   stdout(`Erasing ${geometry.name} (${geometry.offset}, ${geometry.size} bytes) over USB...`)
-  await runEsptoolOverUsb({ idf, selection, options, args: [...esptoolPrefix(selection, options), 'erase_region', geometry.offset, String(geometry.size)], port, env, dryRun, stdout, stderr })
+  await runEsptoolOverUsb({ idf, selection, options, args: [...esptoolPrefix(selection, options), 'erase-region', geometry.offset, String(geometry.size)], port, env, dryRun, stdout, stderr })
   success(stdout, `Erased ${geometry.name}.`)
 }
 

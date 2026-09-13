@@ -241,16 +241,16 @@ test('flash writes bootloader, app, partition table and otadata over USB and the
 
   const dry = await gea(['flash', '--board', 'amoled', '--dry-run'], fixture)
   assert.equal(dry.code, 0, dry.err)
-  assert.match(dry.out, /USB flash attempt 1 on <usb serial USB123>/)
+  assert.match(dry.out, /Flashing over USB on <usb serial USB123>/)
   const esptool = dry.out.split('\n').find((line) => line.includes('-m esptool'))
   assert.ok(esptool, dry.out)
-  assert.match(esptool, /-m esptool -p '<usb serial USB123>' --chip esp32s3 --before default_reset --after hard_reset -b 921600 write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB/)
+  assert.match(esptool, /-m esptool -p '<usb serial USB123>' --chip esp32s3 --before default-reset --after hard-reset -b 921600 write-flash --flash-mode dio --flash-freq 80m --flash-size 16MB/)
   assert.match(esptool, new RegExp(`0x0 ${escapeRegex(buildDir)}/bootloader/bootloader.bin 0x10000 ${escapeRegex(buildDir)}/gea_embedded.bin 0x8000 ${escapeRegex(buildDir)}/partition_table/partition-table.bin 0xd000 ${escapeRegex(buildDir)}/ota_data_initial.bin`))
 
   const options = await gea(['flash', '--board', 'amoled', '--port', fixture.fakePort, '--manual-boot', '--no-reset', '--flash-baud', '460800', '--dry-run'], fixture)
   assert.equal(options.code, 0, options.err)
   assert.match(options.out, /Manual boot mode: hold BOOT/)
-  assert.match(options.out, new RegExp(`-p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before no_reset --after no_reset -b 460800 write_flash`))
+  assert.match(options.out, new RegExp(`-p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before no-reset --after no-reset -b 460800 write-flash`))
 
   const manual = await gea(['flash', '--board', 'amoled-manual', '--dry-run'], fixture)
   assert.match(manual.err, /power-cycle/i)
@@ -259,7 +259,7 @@ test('flash writes bootloader, app, partition table and otadata over USB and the
   assert.equal(real.code, 0, real.err)
   const call = fixture.calls().find((line) => line.includes('-m esptool'))
   assert.ok(call, fixture.calls().join('\n'))
-  assert.match(call, new RegExp(`^python -m esptool -p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before default_reset --after hard_reset -b 921600 write_flash`))
+  assert.match(call, new RegExp(`^python -m esptool -p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before default-reset --after hard-reset -b 921600 write-flash`))
 
   const monitor = await gea(['run', '--board', 'amoled', '--dry-run'], fixture)
   assert.equal(monitor.code, 0, monitor.err)
@@ -274,17 +274,17 @@ test('flash slot management: erase, stage into a slot, and restore boot metadata
 
   const erase = await gea(['flash', '--board', 'amoled', '--erase-slot', 'ota_1', '--dry-run'], fixture)
   assert.equal(erase.code, 0, erase.err)
-  assert.match(erase.out, /erase_region 0x210000 2097152/)
+  assert.match(erase.out, /erase-region 0x210000 2097152/)
 
   const stage = await gea(['flash', '--board', 'amoled', '--image', image, '--slot', '1', '--dry-run'], fixture)
   assert.equal(stage.code, 0, stage.err)
-  assert.match(stage.out, new RegExp(`write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB 0x210000 ${escapeRegex(image)}`))
+  assert.match(stage.out, new RegExp(`write-flash --flash-mode dio --flash-freq 80m --flash-size 16MB 0x210000 ${escapeRegex(image)}`))
 
   const built = await gea(['build', '--board', 'amoled'], fixture)
   assert.equal(built.code, 0, built.err)
   const restore = await gea(['flash', '--board', 'amoled', '--restore-boot', '--dry-run'], fixture)
   assert.equal(restore.code, 0, restore.err)
-  assert.match(restore.out, /write_flash .* 0xd000 .*ota_data_initial\.bin$/m)
+  assert.match(restore.out, /write-flash .* 0xd000 .*ota_data_initial\.bin$/m)
   assert.doesNotMatch(restore.out, /gea_embedded\.bin/)
 })
 

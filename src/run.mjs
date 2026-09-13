@@ -45,6 +45,14 @@ function shellQuote(value) {
 // on failure. `--verbose` (or GEA_VERBOSE=1) and any non-terminal run keep
 // the raw passthrough.
 export async function runQuiet(command, args, options = {}) {
+  const { failureCode = ExitCode.generic } = options
+  const { status } = await runStep(command, args, options)
+  if (status !== 0) throw new CliError(`ERROR: Command failed (${status}): ${formatCommand([command, ...args])}`, failureCode)
+}
+
+// Same step handling for callers that retry on their own: returns the exit
+// status and whether the output went to the log rather than the terminal.
+export async function runStep(command, args, options = {}) {
   const {
     cwd = process.cwd(),
     env = process.env,
@@ -52,40 +60,38 @@ export async function runQuiet(command, args, options = {}) {
     verbose = false,
     label = command,
     logFile = null,
-    failureCode = ExitCode.generic,
+    appendLog = false,
     stdout = console.log,
     stderr = console.error
   } = options
   if (dryRun) {
     stdout(`${label}...`)
     stdout(formatCommand([command, ...args]))
-    return
+    return { status: 0, quiet: false }
   }
 
   const passthrough = verbose || env.GEA_VERBOSE === '1' || !process.stdout.isTTY || !logFile
   if (passthrough) {
     stdout(`${label}...`)
     const status = await spawnAndWait(command, args, { cwd, env, stdio: 'inherit' })
-    if (status !== 0) throw new CliError(`ERROR: Command failed (${status}): ${formatCommand([command, ...args])}`, failureCode)
-
-    return
+    return { status, quiet: false }
   }
 
   fs.mkdirSync(path.dirname(logFile), { recursive: true })
-  const log = fs.openSync(logFile, 'w')
+  const log = fs.openSync(logFile, appendLog ? 'a' : 'w')
   const progress = spinner()
   progress.start(label)
   const status = await spawnAndWait(command, args, { cwd, env, stdio: ['ignore', log, log] })
   fs.closeSync(log)
   if (status === 0) {
     progress.stop(`${label} ${pc.dim(`(log: ${logFile})`)}`)
-    return
+    return { status, quiet: true }
   }
 
   progress.stop(pc.red(`${label} failed`), 1)
   stderr(failureExcerpt(logFile))
   stderr(pc.dim(`Full log: ${logFile}`))
-  throw new CliError(`ERROR: Command failed (${status}): ${formatCommand([command, ...args])}`, failureCode)
+  return { status, quiet: true }
 }
 
 function spawnAndWait(command, args, options) {
