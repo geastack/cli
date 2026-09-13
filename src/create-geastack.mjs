@@ -397,8 +397,8 @@ function stylesCss() {
   display: flex;
   width: 100vw;
   height: 100vh;
+  padding: 20px;
   align-items: center;
-  justify-content: center;
   background-color: #101418;
   color: #f8fafc;
   font-family: 'Inter';
@@ -407,8 +407,8 @@ function stylesCss() {
 .panel {
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 10px;
-  width: 320px;
   padding: 24px;
   border-width: 1px;
   border-color: #2dd4bf;
