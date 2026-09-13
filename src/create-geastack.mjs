@@ -6,7 +6,7 @@ import { flag, option, optionList, parseArgs } from './args.mjs'
 import { createContext } from './context.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
-import { canPrompt, choose, confirm, createPrompt, ui } from './prompts.mjs'
+import { BACK, canPrompt, choose, confirm, createPrompt, ui } from './prompts.mjs'
 import { runExternal } from './run.mjs'
 import {
   copyStarterFiles,
@@ -131,60 +131,72 @@ async function resolveStarter(ctx, parsed, io) {
   const requested = normalizeStarter(option(parsed, 'starter') || option(parsed, 'template') || '')
   const prompt = interactive ? createPrompt(io) : null
   try {
-    const mode = requested || await chooseStarterMode({ interactive, prompt, bundled, examples })
-
-    if (mode === 'empty') {
-      const requestedTargets = optionList(parsed, 'targets')
-      if (!interactive || requestedTargets.length > 0) return { kind: 'empty' }
-
-      const target = await chooseBlankTarget(prompt)
-      const enableBleOta = target === 'esp32'
-        ? await confirm(prompt, {
-            message: 'Enable wireless firmware updates over Bluetooth?',
-            defaultValue: true
-          })
-        : false
-      return {
-        kind: 'empty',
-        targets: [target],
-        manifest: enableBleOta ? { ota: { ble: true } } : {}
-      }
+    // Each nested question offers Back, which returns to the top menu.
+    while (true) {
+      const starter = await resolveStarterOnce({ ctx, parsed, io, interactive, bundled, examples, requested, prompt })
+      if (starter !== BACK) return starter
     }
-    if (mode === 'bundled' || mode === 'counter') {
-      const requestedBundled = mode === 'counter' ? 'counter' : option(parsed, 'bundled') || option(parsed, 'starter-id') || ''
-      const starter = requestedBundled
-        ? bundled.find((candidate) => candidate.id === requestedBundled)
-        : bundled[0]
-      if (!starter) {
-        const available = bundled.map((candidate) => candidate.id).join(', ')
-        fail(`Unknown bundled starter '${requestedBundled}'. Available starters: ${available}`, ExitCode.usage)
-      }
-      return { kind: 'bundled', starter }
-    }
-    if (mode !== 'example') {
-      fail(`Unknown starter '${mode}'. Expected counter, blank, or example.`, ExitCode.usage)
-    }
-
-    // The gallery is every complete app the CLI can copy: bundled starters
-    // first, then the GitHub examples.
-    const gallery = [
-      ...bundled.map((starter) => ({ kind: 'bundled', starter, id: starter.id, entry: starter })),
-      ...examples.map((example) => ({ kind: 'example', example, id: example.id, entry: example }))
-    ]
-    if (gallery.length === 0) fail('No example applications are available. Use --starter blank.', ExitCode.usage)
-
-    const requestedExample = option(parsed, 'example') || option(parsed, 'from-example') || ''
-    const picked = requestedExample
-      ? gallery.find((candidate) => candidate.id === requestedExample)
-      : await chooseExample({ interactive, prompt, gallery })
-    if (!picked) {
-      const available = gallery.map((candidate) => candidate.id).join(', ')
-      fail(`Unknown starter example '${requestedExample}'. Available examples: ${available}`, ExitCode.usage)
-    }
-    return picked.kind === 'bundled' ? { kind: 'bundled', starter: picked.starter } : { kind: 'example', example: picked.example }
   } finally {
     if (prompt) await prompt.close()
   }
+}
+
+async function resolveStarterOnce({ parsed, interactive, bundled, examples, requested, prompt }) {
+  const mode = requested || await chooseStarterMode({ interactive, prompt, bundled, examples })
+
+  if (mode === 'empty') {
+    const requestedTargets = optionList(parsed, 'targets')
+    if (!interactive || requestedTargets.length > 0) return { kind: 'empty' }
+
+    const target = await chooseBlankTarget(prompt, { back: !requested })
+    if (target === BACK) return BACK
+
+    const enableBleOta = target === 'esp32'
+      ? await confirm(prompt, {
+          message: 'Enable wireless firmware updates over Bluetooth?',
+          defaultValue: true
+        })
+      : false
+    return {
+      kind: 'empty',
+      targets: [target],
+      manifest: enableBleOta ? { ota: { ble: true } } : {}
+    }
+  }
+  if (mode === 'bundled' || mode === 'counter') {
+    const requestedBundled = mode === 'counter' ? 'counter' : option(parsed, 'bundled') || option(parsed, 'starter-id') || ''
+    const starter = requestedBundled
+      ? bundled.find((candidate) => candidate.id === requestedBundled)
+      : bundled[0]
+    if (!starter) {
+      const available = bundled.map((candidate) => candidate.id).join(', ')
+      fail(`Unknown bundled starter '${requestedBundled}'. Available starters: ${available}`, ExitCode.usage)
+    }
+    return { kind: 'bundled', starter }
+  }
+  if (mode !== 'example') {
+    fail(`Unknown starter '${mode}'. Expected counter, blank, or example.`, ExitCode.usage)
+  }
+
+  // The gallery is every complete app the CLI can copy: bundled starters
+  // first, then the GitHub examples.
+  const gallery = [
+    ...bundled.map((starter) => ({ kind: 'bundled', starter, id: starter.id, entry: starter })),
+    ...examples.map((example) => ({ kind: 'example', example, id: example.id, entry: example }))
+  ]
+  if (gallery.length === 0) fail('No example applications are available. Use --starter blank.', ExitCode.usage)
+
+  const requestedExample = option(parsed, 'example') || option(parsed, 'from-example') || ''
+  const picked = requestedExample
+    ? gallery.find((candidate) => candidate.id === requestedExample)
+    : await chooseExample({ interactive, prompt, gallery, back: !requested })
+  if (picked === BACK) return BACK
+  if (!picked) {
+    const available = gallery.map((candidate) => candidate.id).join(', ')
+    fail(`Unknown starter example '${requestedExample}'. Available examples: ${available}`, ExitCode.usage)
+  }
+
+  return picked.kind === 'bundled' ? { kind: 'bundled', starter: picked.starter } : { kind: 'example', example: picked.example }
 }
 
 async function chooseStarterMode({ interactive, prompt, bundled, examples }) {
@@ -207,20 +219,24 @@ async function chooseStarterMode({ interactive, prompt, bundled, examples }) {
   })
 }
 
-async function chooseExample({ interactive, prompt, gallery }) {
+async function chooseExample({ interactive, prompt, gallery, back }) {
   if (!interactive) {
     fail('Choosing --starter example in a non-interactive shell also requires --example <id>.', ExitCode.usage)
   }
   const id = await choose(prompt, {
     message: 'Example to copy',
     choices: gallery.map((candidate) => ({ value: candidate.id, label: formatStarterChoice(candidate.entry) })),
-    defaultValue: gallery[0].id
+    defaultValue: gallery[0].id,
+    back
   })
+  if (id === BACK) return BACK
+
   return gallery.find((candidate) => candidate.id === id) || null
 }
 
-async function chooseBlankTarget(prompt) {
+async function chooseBlankTarget(prompt, { back }) {
   return choose(prompt, {
+    back,
     message: 'Where should this application run?',
     choices: [
       {

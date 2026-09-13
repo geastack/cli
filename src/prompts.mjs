@@ -5,6 +5,10 @@ import pc from 'picocolors'
 
 import { CliError, ExitCode } from './errors.mjs'
 
+// Returned by `choose` when the caller offered `back: true` and the user took it.
+export const BACK = Symbol('back')
+const backChoice = { value: BACK, label: 'Back', description: 'Return to the previous question.' }
+
 // Three prompt backends share one interface: clack on a real terminal, plain
 // readline on a piped stdin, and whatever the caller injects as `io.prompt`
 // (the tests script answers that way). The helpers below pick by capability,
@@ -43,7 +47,8 @@ export async function ask(prompt, { message, defaultValue = '', validate = () =>
   }
 }
 
-export async function choose(prompt, { message, choices, defaultValue }) {
+export async function choose(prompt, { message, choices: offered, defaultValue, back = false }) {
+  const choices = back ? [...offered, backChoice] : offered
   if (prompt.select) return prompt.select({ message, choices, defaultValue })
 
   const labels = choices.map((choice, index) => formatChoice(choice, index)).join('\n')
@@ -56,6 +61,7 @@ export async function choose(prompt, { message, choices, defaultValue }) {
 
     const byValue = choices.find((choice) => choice.value === value || choice.label === value)
     if (byValue) return byValue.value
+    if (back && ['b', 'back'].includes(value.toLowerCase())) return BACK
 
     write(prompt, `Invalid choice: ${value}`)
   }
@@ -108,6 +114,14 @@ export function ui(io = {}) {
 
       clack.log.message(lines.join('\n'))
     },
+    message(line) {
+      if (!styled) {
+        stdout(line)
+        return
+      }
+
+      clack.log.message(line)
+    },
     success(line) {
       if (!styled) {
         stdout(line)
@@ -115,6 +129,14 @@ export function ui(io = {}) {
       }
 
       clack.log.success(line)
+    },
+    warn(line) {
+      if (!styled) {
+        stdout(line)
+        return
+      }
+
+      clack.log.warn(line)
     },
     outro(line) {
       if (!styled) {

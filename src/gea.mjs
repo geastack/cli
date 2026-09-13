@@ -10,6 +10,7 @@ import { createContext } from './context.mjs'
 import { runCreateGeastack } from './create-geastack.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { knownPlatforms } from './manifest.mjs'
+import { heading } from './report.mjs'
 import { runSetupWizard } from './setup-wizard.mjs'
 
 const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
@@ -116,12 +117,12 @@ function legacyList(ctx, parsed, rest, options) {
 function usage() {
   return `gea ${version}
 
-Usage:
+${heading('Usage:')}
   gea create <name>                              scaffold a new Gea project
   gea setup [--board <alias>]                    guided board setup, or configure a board's build
   gea doctor [--json] [--strict]                 check packages and toolchains
 
-Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):
+${heading('Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):')}
   gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)
   gea flash --board <alias> [--app <id>]         build + flash over USB   [--monitor] [--manual-boot] [--no-reset] [--flash-baud N]
       --slot ota_N [--image file]                stage an app image into an OTA slot only
@@ -133,13 +134,13 @@ Build and deploy (device commands take --board <alias>, see gea boards list; wit
       --slot ota_N [--boot] [--reboot] | --erase-slot ota_N
   gea clean --board <alias> [--app <id>]         remove build artifacts
 
-Device access:
+${heading('Device access:')}
   gea logs --board <alias> [--follow]            log stream (WiFi when the board has an IP, else USB)  [--transport auto|usb|wifi]
   gea monitor --board <alias>                    raw USB serial monitor  [--timestamps] [--log-file f]
   gea screenshot [file.png] --board <alias>      grab the screen  [--transport auto|usb|wifi]
   gea devctl <verb> ... --board <alias>          GEADEV device control (gea devctl help)
 
-Catalogs:
+${heading('Catalogs:')}
   gea apps list|inspect|pack|index|launcher|icons|icon-sheet|apple-icons
   gea boards list|show|add|set|remove|rename|discover  (gea boards help)
   gea targets list|show <id>

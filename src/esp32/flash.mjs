@@ -6,6 +6,7 @@ import { CliError, ExitCode, fail } from '../errors.mjs'
 import { formatCommand } from '../run.mjs'
 import { esptoolCommand } from './idf-env.mjs'
 import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from './partitions.mjs'
+import { success, warn } from '../report.mjs'
 
 // USB flashing through esptool, with the board addressed by its USB serial:
 // a board re-enumerates after every reset, so the port is resolved again on
@@ -68,7 +69,7 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
     if (options.retrySeconds > 0 && (Date.now() - startedAt) / 1000 >= options.retrySeconds) {
       throw new CliError(`ERROR: USB flash failed after ${attempt} attempt(s).`, ExitCode.deployFailed)
     }
-    stderr(`USB flash attempt ${attempt} failed with status ${status}; waiting for board and retrying...`)
+    warn(stderr, `USB flash attempt ${attempt} failed with status ${status}; waiting for board and retrying...`)
     attempt += 1
     await new Promise((resolve) => setTimeout(resolve, 1000))
   }
@@ -113,7 +114,7 @@ export async function flashFirmware({ idf, selection, images, appImage = images.
   stdout(`Flashing '${appLabel}' from ${image} to ota_0 (${app.offset}) over USB...`)
   stdout('Writing bootloader, partition table, default OTA boot metadata, and app image.')
   await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs), port, env, dryRun, stdout, stderr })
-  stdout(`Flashed '${appLabel}' in ota_0 and reset OTA boot metadata to ota_0.`)
+  success(stdout, `Flashed '${appLabel}' in ota_0 and reset OTA boot metadata to ota_0.`)
 }
 
 export async function flashImageSet({ idf, selection, images, slotImages, options, port, env, dryRun, stdout, stderr }) {
@@ -139,7 +140,7 @@ export async function flashImageSet({ idf, selection, images, slotImages, option
   stdout(`Flashing ${slotImages.length} prebuilt app image(s) over USB...`)
   stdout('Writing bootloader, partition table, default OTA boot metadata, and app images.')
   await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs), port, env, dryRun, stdout, stderr })
-  stdout(options.after === 'no_reset' ? 'Flashed app images. Device was not reset after flashing.' : 'Flashed app images. Device was reset after flashing.')
+  success(stdout, options.after === 'no_reset' ? 'Flashed app images. Device was not reset after flashing.' : 'Flashed app images. Device was reset after flashing.')
 }
 
 // App image only, into a chosen OTA slot; boot selection is untouched.
@@ -150,7 +151,7 @@ export async function stageImage({ idf, selection, image, slot, appLabel = 'preb
   stdout(`Staging '${appLabel}' from ${image} to ${geometry.name} (${geometry.offset}) over USB...`)
   stdout('Writing app image only; bootloader, partition table, and otadata are unchanged.')
   await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, [geometry.offset, image]), port, env, dryRun, stdout, stderr })
-  stdout(`Staged '${appLabel}' in ${geometry.name}. Boot selection was not changed.`)
+  success(stdout, `Staged '${appLabel}' in ${geometry.name}. Boot selection was not changed.`)
 }
 
 export async function restoreBootMetadata({ idf, selection, images, options, port, env, dryRun, stdout, stderr }) {
@@ -158,14 +159,14 @@ export async function restoreBootMetadata({ idf, selection, images, options, por
   const otadata = partitionByName(loadPartitions(selection.targetDir), 'otadata')
   stdout(`Restoring OTA boot metadata at ${otadata.offset}...`)
   await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, [otadata.offset, images.otaData]), port, env, dryRun, stdout, stderr })
-  stdout('Launcher OTA boot metadata restored.')
+  success(stdout, 'Launcher OTA boot metadata restored.')
 }
 
 export async function eraseSlot({ idf, selection, slot, options, port, env, dryRun, stdout, stderr }) {
   const geometry = slotGeometry(selection, slot)
   stdout(`Erasing ${geometry.name} (${geometry.offset}, ${geometry.size} bytes) over USB...`)
   await runEsptoolOverUsb({ idf, selection, options, args: [...esptoolPrefix(selection, options), 'erase_region', geometry.offset, String(geometry.size)], port, env, dryRun, stdout, stderr })
-  stdout(`Erased ${geometry.name}.`)
+  success(stdout, `Erased ${geometry.name}.`)
 }
 
 export function postFlashRestartNote(selection, stderr) {

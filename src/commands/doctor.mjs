@@ -8,6 +8,7 @@ import { findEspIdf, findIdfPythonEnv } from '../esp32/idf-env.mjs'
 import { exists } from '../fs-utils.mjs'
 import { discoverApps, resolveRequestedApp, validateApp } from '../manifest.mjs'
 import { commandVersion, nodeAtLeast } from '../toolchain.mjs'
+import pc from 'picocolors'
 
 function packageExists(dir) {
   return Boolean(dir) && exists(path.join(dir, 'package.json'))
@@ -80,7 +81,7 @@ export async function doctorCommand(ctx, parsed, rest, options) {
     options.stdout(JSON.stringify({ ok: failedRequired.length === 0, checks }, null, 2))
   } else {
     for (const check of checks) {
-      const marker = check.ok ? '[ok]' : check.required ? '[fail]' : '[warn]'
+      const marker = check.ok ? pc.green('[ok]') : check.required ? pc.red('[fail]') : pc.yellow('[warn]')
       options.stdout(`${marker} ${check.name}: ${check.detail}`)
     }
     if (failedRequired.length > 0 || failedOptional.length > 0) options.stdout('Setup guide: cli/docs/SETUP.md')

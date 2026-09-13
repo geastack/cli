@@ -12,6 +12,7 @@ import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
 import { writePartitionTable } from './partitions-from-manifest.mjs'
 import { listAppSources } from './source-set.mjs'
 import { generateWifiConfig } from './wifi-config.mjs'
+import { warn } from '../report.mjs'
 
 // The ESP-IDF build. Everything the old bash board script decided about a
 // build lives here: where the build directory is, what the app-local
@@ -364,7 +365,7 @@ export function acquireHeavyBuildLock({ ctx, env, label, stderr }) {
         live = false
       }
       if (live) {
-        stderr(`Another heavyweight build is already using this workspace:\n${owner.trim()}\n(lock: ${lockPath})`)
+        warn(stderr, `Another heavyweight build is already using this workspace:\n${owner.trim()}\n(lock: ${lockPath})`)
         fail('Heavy-build lock is held; retry when that build finishes or unset GEA_SERIALIZE_HEAVY_BUILDS.', ExitCode.buildFailed)
       }
       unlinkSync(lockPath)

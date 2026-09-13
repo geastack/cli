@@ -16,6 +16,7 @@ import { runGeaos } from '../geaos/adapter.mjs'
 import { assertTargetEnabled, assertValidApp, discoverApps, resolveRequestedApp, targetEnabledForApp } from '../manifest.mjs'
 import { buildRp2350, flashRp2350, rp2350BuildDir } from '../rp2350/adapter.mjs'
 import { runXbox } from '../xbox/adapter.mjs'
+import { success } from '../report.mjs'
 
 // Every board-facing command: resolve the alias, pick the adapter, run.
 
@@ -360,7 +361,7 @@ export async function screenshotCommand(ctx, parsed, rest, options) {
   return withDevice(ctx, parsed, options, usbSelection, transport, async (device, base) => {
     const timeoutMs = Number(option(parsed, 'timeout', transport === 'wifi' ? 30 : 12)) * 1000
     const shot = await saveScreenshot(device, file, { timeoutMs, legacy: flag(parsed, 'legacy') })
-    base.stdout(`Saved ${shot.width}x${shot.height} screenshot${shot.app ? ` of ${shot.app}` : ''} from ${device.description} to ${file}`)
+    success(base.stdout, `Saved ${shot.width}x${shot.height} screenshot${shot.app ? ` of ${shot.app}` : ''} from ${device.description} to ${file}`)
   })
 }
 
