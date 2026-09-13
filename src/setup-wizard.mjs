@@ -13,7 +13,7 @@ import { espIdfVersion as readInstalledEspIdfVersion, findEspIdf } from './esp32
 import { extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { BACK, ask, choose, confirm, createPrompt, ui } from './prompts.mjs'
-import { runExternal } from './run.mjs'
+import { runExternal, runQuiet } from './run.mjs'
 import { detectSerialDevices } from './serial-devices.mjs'
 import { commandVersion } from './toolchain.mjs'
 
@@ -89,7 +89,8 @@ export async function runSetupWizard(ctx, parsed, io) {
     await maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup)
     if (boardSetup?.flashReady) {
       const appFlag = boardSetup.app && boardSetup.app.root !== findCurrentApp(ctx.cwd)?.root ? ` --app ${boardSetup.app.id}` : ''
-      ui(io).outro(`Ready: npx gea flash --board ${boardSetup.alias}${appFlag} --monitor`)
+      const boardFlag = Object.keys(loadBoardConfig(ctx)).length > 1 ? ` --board ${boardSetup.alias}` : ''
+      ui(io).outro(`Ready: gea flash${boardFlag}${appFlag} --monitor`)
     } else {
       ui(io).outro('Profile saved. Add or select a target backend before flashing this board.')
     }
@@ -365,10 +366,13 @@ async function maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force = fa
     ui(io).warn(`No package.json in ${ctx.cwd}; skipping npm install.`)
     return
   }
-  runExternal('npm', ['install'], {
+  await runQuiet('npm', ['install'], {
     cwd: ctx.cwd,
     env: io.env || process.env,
     dryRun: option(parsed, 'dry-run') === true,
+    verbose: flag(parsed, 'verbose'),
+    label: 'Installing npm dependencies',
+    logFile: path.join(ctx.cwd, '.gea', 'npm-install.log'),
     stdout: io.stdout
   })
 }

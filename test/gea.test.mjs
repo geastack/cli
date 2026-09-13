@@ -377,7 +377,7 @@ test('setup builds a known target in configure-only mode and can write a local b
   assert.equal(boards['desk-amoled'].target, 'esp32-s3-touch-amoled-2.06')
   assert.equal(boards['desk-amoled'].transports.usbSerial.serial, 'USB123')
   assert.equal(boards.amoled.target, 'esp32-s3-touch-amoled-2.06', 'existing home aliases survive')
-  assert.match(out.out.join('\n'), /Ready: npx gea flash --board desk-amoled --monitor/)
+  assert.match(out.out.join('\n'), /Ready: gea flash --board desk-amoled --monitor/)
 })
 
 test('custom setup composes a flash-ready target from the chip catalog', async (t) => {
@@ -421,7 +421,7 @@ test('custom setup composes a flash-ready target from the chip catalog', async (
   assert.deepEqual(definition.buses.i2c, { sda: 15, scl: 14 })
   assert.deepEqual(definition.storage.microSD.pins, { clk: 2, cmd: 1, data0: 3 })
   assert.equal(definition.controls.launcherButton.pin, 0)
-  assert.match(out.out.join('\n'), /Ready: npx gea flash --board from-scratch --monitor/)
+  assert.match(out.out.join('\n'), /Ready: gea flash --board from-scratch --monitor/)
 
   // The custom target is materialized into the build directory and handed to CMake.
   const built = await gea(['build', '--board', 'from-scratch', '--dry-run'], fixture)
@@ -572,7 +572,7 @@ test('an ESP32 board cannot be configured without an app, and the wizard picks o
   assert.doesNotMatch(prompt.questions.join('\n'), /USB serial number/)
   assert.match(text, /Initializing board target 'root-amoled' for app 'watch'/)
   assert.match(text, /-DGEA_EMBEDDED_APP=watch/)
-  assert.match(text, /Ready: npx gea flash --board root-amoled --app watch --monitor/)
+  assert.match(text, /Ready: gea flash --board root-amoled --app watch --monitor/)
 
   // flash from the root, with no app to infer, names the candidates too.
   const flash = capture()

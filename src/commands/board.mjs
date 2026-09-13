@@ -124,7 +124,7 @@ export async function buildCommand(ctx, parsed, rest, options) {
     case 'xbox-uwp':
       return runXbox({ app, action: 'build', env, dryRun: base.dryRun, stdout: base.stdout })
     case 'esp32-idf': {
-      buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr, configureOnly: flag(parsed, 'configure-only') })
+      await buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr, configureOnly: flag(parsed, 'configure-only') })
       return 0
     }
     case 'rp2350-pico':
@@ -190,7 +190,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
 
   let image = explicitImage ? path.resolve(ctx.cwd, explicitImage) : images.app
   if (!explicitImage && !flag(parsed, 'no-build')) {
-    buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr })
+    await buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr })
   }
   const appLabel = app?.id || 'prebuilt image'
   if (slot) {
@@ -267,7 +267,7 @@ export async function otaCommand(ctx, parsed, rest, options) {
   if (!explicitImage) {
     const prepared = flag(parsed, 'no-build')
       ? { images: buildImages(esp32BuildDir(ctx, selection, app.id, env)) }
-      : buildEsp32Firmware({ ctx, selection, app, env, bleOta: transport === 'ble' || bleOtaRequested(parsed, app, env), dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr })
+      : await buildEsp32Firmware({ ctx, selection, app, env, bleOta: transport === 'ble' || bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr })
     image = prepared.images.app
   }
 

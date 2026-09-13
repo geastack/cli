@@ -123,7 +123,7 @@ ${heading('Usage:')}
   gea doctor [--json] [--strict]                 check packages and toolchains
 
 ${heading('Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):')}
-  gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)
+  gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)  [--verbose]
   gea flash --board <alias> [--app <id>]         build + flash over USB   [--monitor] [--manual-boot] [--no-reset] [--flash-baud N]
       --slot ota_N [--image file]                stage an app image into an OTA slot only
       --slot-image ota_N=file ...                provision several prebuilt images
@@ -147,6 +147,6 @@ ${heading('Catalogs:')}
   gea chips ...                                  custom board composition from the chip catalog
   gea heap-report [logs...] [--out file] [--map elf.map]
 
-Global options: --project <dir>  --boards-config <file>  --global|--local (boards writes)  --dry-run  --json
+Global options: --project <dir>  --boards-config <file>  --global|--local (boards writes)  --dry-run  --json  --verbose (or GEA_VERBOSE=1: stream build logs)
 Board aliases: ~/.geastack/boards.json (this machine) + <project>/.gea/boards.json (overrides)`
 }

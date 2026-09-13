@@ -7,7 +7,7 @@ import { createContext } from './context.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { BACK, canPrompt, choose, confirm, createPrompt, ui } from './prompts.mjs'
-import { runExternal } from './run.mjs'
+import { runQuiet } from './run.mjs'
 import {
   copyStarterFiles,
   discoverBundledStarters,
@@ -102,11 +102,13 @@ export async function runCreateGeastack(argv, io = {}) {
 
   const installDependencies = shouldInstallDependencies(parsed, io)
   if (installDependencies) {
-    stdout('Installing npm dependencies...')
-    runExternal('npm', ['install'], {
+    await runQuiet('npm', ['install'], {
       cwd: targetDir,
       env,
       dryRun: flag(parsed, 'dry-run'),
+      verbose: flag(parsed, 'verbose'),
+      label: 'Installing npm dependencies',
+      logFile: path.join(targetDir, '.gea', 'npm-install.log'),
       failureCode: ExitCode.missingDependency,
       stdout
     })
