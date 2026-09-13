@@ -83,7 +83,7 @@ export async function runQuiet(command, args, options = {}) {
   }
 
   progress.stop(pc.red(`${label} failed`), 1)
-  stderr(logTail(logFile))
+  stderr(failureExcerpt(logFile))
   stderr(pc.dim(`Full log: ${logFile}`))
   throw new CliError(`ERROR: Command failed (${status}): ${formatCommand([command, ...args])}`, failureCode)
 }
@@ -96,7 +96,17 @@ function spawnAndWait(command, args, options) {
   })
 }
 
-function logTail(logFile) {
+// Parallel make keeps printing after the failing job, so the tail of the log
+// is usually other targets finishing. Show the lines around the first
+// error instead, and fall back to the tail when nothing looks like one.
+const errorPattern = /(^|\s)(error|fatal error|ERROR)\b|:\d+:\d+: |no certificate|command failed|\*\*\* \[/
+const noiseNamePattern = /\.(c|cpp|o|obj|a)\b/
+
+function failureExcerpt(logFile) {
   const lines = fs.readFileSync(logFile, 'utf8').trimEnd().split('\n')
-  return lines.slice(-failureTailLines).join('\n')
+  const first = lines.findIndex((line) => errorPattern.test(line) && !noiseNamePattern.test(line))
+  if (first < 0) return lines.slice(-failureTailLines).join('\n')
+
+  const start = Math.max(0, first - 5)
+  return lines.slice(start, start + failureTailLines).join('\n')
 }
