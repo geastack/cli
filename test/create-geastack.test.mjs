@@ -95,6 +95,7 @@ test('the guided blank application asks for its target and ESP32 update method',
   assert.equal(fs.existsSync(path.join(tmp, 'src/styles.css')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'assets/fonts/Inter-Regular.ttf')), true, 'blank apps ship the font their css declares')
   assert.match(fs.readFileSync(path.join(tmp, 'src/styles.css'), 'utf8'), /@font-face/)
+  assert.match(fs.readFileSync(path.join(tmp, 'src/index.tsx'), 'utf8'), /class App extends ReactiveComponent/, 'mount takes a component class, and the elements must be Gea intrinsics')
   assert.equal(fs.existsSync(path.join(tmp, 'index.html')), false)
   assert.equal(fs.existsSync(path.join(tmp, 'vite.config.ts')), false)
   const tsconfig = readJson(path.join(tmp, 'tsconfig.json'))

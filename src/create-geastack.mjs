@@ -359,19 +359,21 @@ function needsTargetsPackage(targets) {
 }
 
 function indexTsx(displayName) {
-  return `import { mount } from '@geastack/core'
+  return `import { ReactiveComponent, mount } from '@geastack/core'
 import './styles.css'
 
-function App() {
-  return (
-    <body class="app">
-      <main class="panel">
-        <p class="eyebrow">GeaStack</p>
-        <h1>${escapeText(displayName)}</h1>
-        <p class="copy">One TypeScript app, ready for simulator and native targets.</p>
-      </main>
-    </body>
-  )
+export class App extends ReactiveComponent {
+  template() {
+    return (
+      <div class="app">
+        <div class="panel">
+          <span class="eyebrow">GEASTACK</span>
+          <span class="title">${escapeText(displayName)}</span>
+          <span class="copy">One TypeScript app, ready for simulator and native targets.</span>
+        </div>
+      </div>
+    )
+  }
 }
 
 mount(App)
@@ -392,40 +394,30 @@ function stylesCss() {
 }
 
 .app {
+  display: flex;
   width: 100vw;
   height: 100vh;
-  margin: 0;
-  display: flex;
   align-items: center;
   justify-content: center;
-  background: #101418;
+  background-color: #101418;
   color: #f8fafc;
   font-family: 'Inter';
 }
 
 .panel {
-  width: min(320px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 320px;
   padding: 24px;
-  border: 1px solid #2dd4bf;
-  background: #182026;
+  border-width: 1px;
+  border-color: #2dd4bf;
+  background-color: #182026;
 }
 
-.eyebrow {
-  margin: 0 0 8px;
-  color: #2dd4bf;
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 0;
-  font-size: 28px;
-}
-
-.copy {
-  margin: 12px 0 0;
-  color: #cbd5e1;
-}
+.eyebrow { color: #2dd4bf; font-size: 12px; }
+.title { font-size: 28px; }
+.copy { color: #cbd5e1; font-size: 15px; }
 `
 }
 
