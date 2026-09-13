@@ -6,7 +6,7 @@ import { flag, option, optionList, parseArgs } from './args.mjs'
 import { createContext } from './context.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
-import { canPrompt, choose, confirm, createPrompt } from './prompts.mjs'
+import { canPrompt, choose, confirm, createPrompt, ui } from './prompts.mjs'
 import { runExternal } from './run.mjs'
 import {
   copyStarterFiles,
@@ -112,12 +112,15 @@ export async function runCreateGeastack(argv, io = {}) {
     })
   }
 
-  stdout(`Created ${displayName} at ${targetDir}`)
-  if (starter.kind === 'bundled') stdout(`Starter: ${starter.starter.name}`)
-  else if (starter.kind === 'example') stdout(`Example: fetched ${starter.example.name}`)
-  else stdout('Starter: blank application')
-  if (installDependencies) stdout(`Next: cd ${targetDir} && npx gea setup`)
-  else stdout(`Next: cd ${targetDir} && npm install && npx gea setup`)
+  const done = ui(io)
+  done.step(`Created ${displayName} at ${targetDir}`, [
+    starter.kind === 'bundled'
+      ? `Starter: ${starter.starter.name}`
+      : starter.kind === 'example'
+        ? `Example: fetched ${starter.example.name}`
+        : 'Starter: blank application'
+  ])
+  done.outro(installDependencies ? `Next: cd ${targetDir} && npx gea setup` : `Next: cd ${targetDir} && npm install && npx gea setup`)
   return 0
 }
 

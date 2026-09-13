@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { runCreateGeastack } from '../src/create-geastack.mjs'
+import pc from 'picocolors'
+
 import { CliError } from '../src/errors.mjs'
 
 try {
@@ -7,7 +9,7 @@ try {
   if (exitCode) process.exit(exitCode)
 } catch (error) {
   if (error instanceof CliError) {
-    console.error(error.message)
+    console.error(pc.red(error.message))
     process.exit(error.exitCode)
   }
   console.error(error && error.stack ? error.stack : String(error))

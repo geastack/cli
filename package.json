@@ -27,6 +27,8 @@
     "create-geastack": "bin/create-geastack.mjs"
   },
   "dependencies": {
+    "@clack/prompts": "^1.8.0",
+    "picocolors": "^1.1.1",
     "serialport": "^13.0.0"
   },
   "starterDependencies": {

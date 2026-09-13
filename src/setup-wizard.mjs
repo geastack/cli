@@ -12,7 +12,7 @@ import { ExitCode, fail } from './errors.mjs'
 import { espIdfVersion as readInstalledEspIdfVersion, findEspIdf } from './esp32/idf-env.mjs'
 import { extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
-import { ask, choose, confirm, createPrompt } from './prompts.mjs'
+import { ask, choose, confirm, createPrompt, ui } from './prompts.mjs'
 import { runExternal } from './run.mjs'
 import { detectSerialDevices } from './serial-devices.mjs'
 import { commandVersion } from './toolchain.mjs'
@@ -88,9 +88,9 @@ export async function runSetupWizard(ctx, parsed, io) {
     await maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup)
     if (boardSetup?.flashReady) {
       const appFlag = boardSetup.app && boardSetup.app.root !== findCurrentApp(ctx.cwd)?.root ? ` --app ${boardSetup.app.id}` : ''
-      stdout(`Ready: npx gea flash --board ${boardSetup.alias}${appFlag} --monitor`)
+      ui(io).outro(`Ready: npx gea flash --board ${boardSetup.alias}${appFlag} --monitor`)
     } else {
-      stdout('Profile saved. Add or select a target backend before flashing this board.')
+      ui(io).outro('Profile saved. Add or select a target backend before flashing this board.')
     }
     return 0
   } finally {
@@ -144,7 +144,7 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
   const config = readBoardConfig(configPath)
   config[alias] = entry
   writeJsonEnsured(configPath, config)
-  io.stdout(`Wrote board alias '${alias}' to ${configPath}`)
+  ui(io).success(`Wrote board alias '${alias}' to ${configPath}`)
   io.stdout(`Target: ${board.target}`)
   return { alias, flashReady: true }
 }
@@ -265,8 +265,8 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
   const config = readBoardConfig(configPath)
   config[alias] = entry
   writeJsonEnsured(configPath, config)
-  io.stdout(`Wrote custom target to ${definitionPath}`)
-  io.stdout(`Wrote board alias '${alias}' to ${configPath}`)
+  ui(io).success(`Wrote custom target to ${definitionPath}`)
+  ui(io).success(`Wrote board alias '${alias}' to ${configPath}`)
   if (missingRoles.length) {
     io.stdout(`Add the remaining roles with: npx gea chips add <chip> --board ${alias}`)
   }
@@ -274,16 +274,11 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
 }
 
 function renderHeader(io, title, lines = []) {
-  io.stdout('')
-  io.stdout(title)
-  io.stdout('-'.repeat(title.length))
-  for (const line of lines.filter(Boolean)) io.stdout(line)
+  ui(io).intro(title, lines.filter(Boolean))
 }
 
 function renderStep(io, title, lines = []) {
-  io.stdout('')
-  io.stdout(`[ ${title} ]`)
-  for (const line of lines.filter(Boolean)) io.stdout(line)
+  ui(io).step(title, lines)
 }
 
 function renderKnownBoardReview(io, { alias, board, configPath, entry }) {
@@ -328,10 +323,7 @@ async function shouldSaveSetup(parsed, prompt, message) {
 }
 
 function writeRows(io, rows) {
-  const width = rows.reduce((max, [label]) => Math.max(max, label.length), 0)
-  for (const [label, value] of rows) {
-    io.stdout(`${label.padEnd(width)} : ${value || 'not set'}`)
-  }
+  ui(io).rows(rows)
 }
 
 function boardDescription(board) {
