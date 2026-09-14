@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url'
 const SCOPE = '@geastack/'
 const ORG_PACKAGES_URL = 'https://www.npmjs.com/settings/geastack/packages'
 const DEFAULT_REGISTRY = 'https://registry.npmjs.org/'
-const DEFAULT_REPOS = ['core', 'compiler', 'apple', 'simulator', 'cli']
+// `targets` ships the native board sources and is a restricted published
+// package like the rest; it was missing here, so a release had to be pushed by
+// hand and could drift from the CLI version that expects it.
+const DEFAULT_REPOS = ['core', 'compiler', 'apple', 'simulator', 'targets', 'cli']
 const SKIP_DIRS = new Set([
   '.git',
   '.next',
