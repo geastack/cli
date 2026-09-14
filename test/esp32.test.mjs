@@ -148,13 +148,14 @@ test('build directories are per target and per app, with an optional variant', (
   assert.throws(() => esp32BuildDir(ctx, selection, 'watch', { GEA_IDF_BUILD_VARIANT: 'bad variant' }), /GEA_IDF_BUILD_VARIANT/)
 })
 
-function policy(t, { boardName = 'amoled', idfTarget = 'esp32s3', defaults = '', existing = '', app = { id: 'watch' }, capabilities = {}, bleOta = false }) {
+function policy(t, { boardName = 'amoled', idfTarget = 'esp32s3', defaults = '', appDefaults = '', existing = '', app = { id: 'watch' }, capabilities = {}, bleOta = false }) {
   const fixture = createFixture(t)
   const dir = path.join(fixture.root, 'policy')
   mkdirSync(dir, { recursive: true })
   writeFileSync(path.join(dir, 'sdkconfig.defaults'), defaults)
+  writeFileSync(path.join(dir, 'app.sdkconfig.defaults'), appDefaults)
   writeFileSync(path.join(dir, 'sdkconfig'), existing)
-  const sdkconfig = new Sdkconfig(path.join(dir, 'sdkconfig'), path.join(dir, 'sdkconfig.defaults'))
+  const sdkconfig = new Sdkconfig(path.join(dir, 'sdkconfig'), path.join(dir, 'sdkconfig.defaults'), path.join(dir, 'app.sdkconfig.defaults'))
   applySdkconfigPolicy(sdkconfig, {
     selection: { boardName, idfTarget, mainTaskStackSize: '', ipcTaskStackSize: '' },
     app,
@@ -180,6 +181,23 @@ test('the sdkconfig policy sets development logging, stacks and the S3 instructi
   assert.match(text, /^CONFIG_BOOTLOADER_LOG_LEVEL_INFO=y$/m)
   assert.doesNotMatch(text, /CONFIG_BT_ENABLED/, 'a no-BLE build only rewrites CONFIG_BT_ENABLED when the bt component exposes it')
   assert.doesNotMatch(policy(t, { idfTarget: 'esp32p4' }), /INSTRUCTION_CACHE/)
+})
+
+test('an app that runs its own Bluetooth stack keeps the controller the Gea BLE API never asked for', (t) => {
+  const appDefaults = 'CONFIG_BT_ENABLED=y\nCONFIG_BT_NIMBLE_ENABLED=y\n'
+  // Sticky state from a build configured before the app asked for Bluetooth:
+  // the generated sdkconfig outranks any defaults file, so the policy has to
+  // undo its own earlier line rather than leave the app's request unheard.
+  const text = policy(t, { appDefaults, existing: '# CONFIG_BT_ENABLED is not set\n' })
+  assert.match(text, /^CONFIG_BT_ENABLED=y$/m)
+  // The board asking is not the app asking: a board default alone is still a
+  // no-BLE build, and the whole bt component stays out of it.
+  const boardOnly = policy(t, { defaults: 'CONFIG_BT_ENABLED=y\n', existing: 'CONFIG_BT_ENABLED=y\n' })
+  assert.match(boardOnly, /^# CONFIG_BT_ENABLED is not set$/m)
+  // The app's defaults answer questions about the app; the board still answers
+  // its own.
+  const layered = policy(t, { defaults: 'CONFIG_BT_NIMBLE_MAX_CONNECTIONS=4\n', appDefaults, capabilities: { ble: true, bleApi: true } })
+  assert.match(layered, /^CONFIG_BT_NIMBLE_MAX_CONNECTIONS=4$/m)
 })
 
 test('assertions follow the board: sticks3 disables, silent defaults stay silent', (t) => {

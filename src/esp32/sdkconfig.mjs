@@ -66,12 +66,21 @@ export function withSdkconfigUnset(text, key) {
   return `${out.join('\n')}\n`
 }
 
+function matchSdkconfigValue(text, key) {
+  return text.match(new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=(.*)$`, 'm'))?.[1] ?? ''
+}
+
 export class Sdkconfig {
-  constructor(file, defaultsFile) {
+  // `appDefaultsFile` is gea.targets.esp32.sdkconfig -- the app's own defaults,
+  // layered over the board's. It is kept separate from the board text because
+  // the policy has to be able to ask which of the two asked for a setting.
+  constructor(file, defaultsFile, appDefaultsFile = '') {
     this.file = file
     this.defaultsFile = defaultsFile
+    this.appDefaultsFile = appDefaultsFile
     this.text = existsSync(file) ? readFileSync(file, 'utf8') : ''
     this.defaults = existsSync(defaultsFile) ? readFileSync(defaultsFile, 'utf8') : ''
+    this.appDefaults = appDefaultsFile && existsSync(appDefaultsFile) ? readFileSync(appDefaultsFile, 'utf8') : ''
   }
 
   set(key, value) {
@@ -89,11 +98,20 @@ export class Sdkconfig {
   }
 
   defaultValue(key) {
-    return this.defaults.match(new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=(.*)$`, 'm'))?.[1] ?? ''
+    return this.appDefaultValue(key) || matchSdkconfigValue(this.defaults, key)
   }
 
   defaultIsSet(key) {
     return this.defaultValue(key) === 'y'
+  }
+
+  // Only what the app's own defaults file asked for, ignoring the board's.
+  appDefaultValue(key) {
+    return matchSdkconfigValue(this.appDefaults, key)
+  }
+
+  appDefaultIsSet(key) {
+    return this.appDefaultValue(key) === 'y'
   }
 
   save() {

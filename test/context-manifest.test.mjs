@@ -135,6 +135,7 @@ test('a target entry both enables the target and configures its native build', (
       id: 'pedal',
       entry: 'index.tsx',
       defines: { GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS: 4, GEA_RUNTIME_COMPACT_ALLOCATION: true, GEA_UNUSED: false },
+      compilerPlugins: ['scripts/host-functions.mjs'],
       targets: {
         web: true,
         esp32: {
@@ -162,6 +163,7 @@ test('a target entry both enables the target and configures its native build', (
   assert.equal(esp32.partitions.models.size, '6M')
   assert.equal(esp32.partitions.models.data, 'build/models.bin')
   assert.equal(esp32.prebuild, 'node scripts/pack.mjs')
+  assert.deepEqual(app.compilerPlugins, ['scripts/host-functions.mjs'])
   assert.deepEqual(app.defines, ['GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS=4', 'GEA_RUNTIME_COMPACT_ALLOCATION'])
   assert.equal(appCmakeDefines(app), 'GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS=4;GEA_RUNTIME_COMPACT_ALLOCATION')
   assert.equal(appCmakeLdFragments(app), path.join(root, 'memory.lf'))
@@ -174,6 +176,7 @@ test('a target entry both enables the target and configures its native build', (
   // A component name is an identifier, never a path or a phrase.
   assert.ok(errors.includes('gea.targets.esp32.componentRequires is not a component name: not a name'))
   assert.ok(errors.includes('gea.targets.esp32.sdkconfig does not exist: native/sdkconfig.defaults'))
+  assert.ok(errors.includes('gea.compilerPlugins entry does not exist: scripts/host-functions.mjs'))
 })
 
 test('a target disabled with enabled:false carries no configuration', (t) => {

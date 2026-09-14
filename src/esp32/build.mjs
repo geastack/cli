@@ -139,6 +139,15 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
       if (sdkconfig.defaultIsSet('CONFIG_BT_NIMBLE_ROLE_CENTRAL')) set('CONFIG_BT_NIMBLE_ROLE_CENTRAL', 'y')
       if (sdkconfig.defaultIsSet('CONFIG_BT_NIMBLE_ROLE_OBSERVER')) set('CONFIG_BT_NIMBLE_ROLE_OBSERVER', 'y')
     }
+  } else if (sdkconfig.appDefaultIsSet('CONFIG_BT_ENABLED')) {
+    // The app does not use the Gea BLE API but turns the controller on in its
+    // own sdkconfig: it drives a Bluetooth stack from its own native sources.
+    // Written positively, not left to the defaults file, because the generated
+    // sdkconfig is sticky -- a build directory configured before the app asked
+    // for Bluetooth still carries the "is not set" line, which outranks any
+    // defaults file. The rest of the stack (host, roles, link count) comes from
+    // the app's defaults, which Kconfig applies once the symbols exist.
+    set('CONFIG_BT_ENABLED', 'y')
   } else if (sdkconfig.has(/^(CONFIG_BT_ENABLED=|# CONFIG_BT_ENABLED is not set)/m)) {
     // A minimal no-BLE build excludes the whole bt component, so its Kconfig
     // symbols do not exist; re-adding an "is not set" line there makes
@@ -200,6 +209,7 @@ function preparePartitions(app, config, buildDir) {
 }
 
   let appPartitionCsv = ''
+  let appSdkconfigFile = ''
   let capabilities = { network: false, ble: false, bleApi: false, audio: false, bindings: [], features: [] }
   if (app) {
     capabilities = resolveAppCapabilities(ctx, app, { env })
@@ -207,6 +217,10 @@ function preparePartitions(app, config, buildDir) {
     const meta = appCmakeMeta(ctx, app)
     const appDefines = appCmakeDefines(app)
     const esp32Config = appTargetConfig(app, 'esp32')
+    // gea.targets.esp32.sdkconfig: the app's own Kconfig defaults, layered over
+    // the board's. IDF reads a ';'-separated SDKCONFIG_DEFAULTS list in order,
+    // so the app's file is last and wins wherever the two disagree.
+    if (esp32Config.sdkconfig) appSdkconfigFile = path.join(app.root, esp32Config.sdkconfig)
     // Runs before the partition table is read and before configure, because it
     // is what produces the files embedFiles and a partition's data refer to.
     runAppPrebuild(app, esp32Config, { dryRun, log })
@@ -227,7 +241,10 @@ function preparePartitions(app, config, buildDir) {
       GEA_EMBEDDED_APP_EMBED_FILES: Object.entries(esp32Config.embedFiles)
         .map(([symbol, file]) => `${symbol}=${path.join(app.root, file)}`)
         .join(';'),
-      GEA_EMBEDDED_APP_PARTITION_DATA: partitionPayloads
+      GEA_EMBEDDED_APP_PARTITION_DATA: partitionPayloads,
+      // gea.compilerPlugins: the app's own geatsc plugins, e.g. one declaring
+      // the native host functions its TSX calls.
+      GEA_EMBEDDED_APP_GEATSC_PLUGINS: app.compilerPlugins.map((plugin) => path.join(app.root, plugin)).join(';')
     }
     idfArgs.push(`-DGEA_EMBEDDED_APP=${app.id}`, `-DGEA_EMBEDDED_APP_META=${meta}`)
     for (const [name, value] of Object.entries(appNative)) if (value) idfArgs.push(`-D${name}=${value}`)
@@ -250,7 +267,7 @@ function preparePartitions(app, config, buildDir) {
     generateWifiConfig(app.root, path.join(buildDir, 'apps', app.id, 'wifi_config.h'))
   }
 
-  applySdkconfigPolicy(new Sdkconfig(sdkconfigFile, defaultsFile), {
+  applySdkconfigPolicy(new Sdkconfig(sdkconfigFile, defaultsFile, appSdkconfigFile), {
     selection,
     app,
     capabilities,
@@ -258,7 +275,8 @@ function preparePartitions(app, config, buildDir) {
     partitionCsv: appPartitionCsv
   }).save()
 
-  return { buildDir, sdkconfigFile, defaultsFile, idfArgs, childEnv, capabilities, images: buildImages(buildDir) }
+  const defaultsArg = [defaultsFile, appSdkconfigFile].filter(Boolean).join(';')
+  return { buildDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, images: buildImages(buildDir) }
 }
 
 function commandExists(name, env) {
@@ -279,7 +297,7 @@ export function configureArguments(prepared, env) {
     }
     args.push('-G', generator)
   }
-  args.push('-B', prepared.buildDir, `-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsFile}`)
+  args.push('-B', prepared.buildDir, `-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`)
   return args
 }
 
@@ -298,7 +316,7 @@ function runInTarget(command, args, { cwd, env, dryRun, stdout, failureCode = Ex
 // system's responsibility. This retains Ninja's sub-second no-op.
 export function ensureConfigured({ idf, prepared, env, dryRun = false, stdout }) {
   const signatureFile = path.join(prepared.buildDir, '.gea-configure-args')
-  const signature = [`-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsFile}`, ...prepared.idfArgs].join('\n') + '\n'
+  const signature = [`-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs].join('\n') + '\n'
   if (existsSync(path.join(prepared.buildDir, 'CMakeCache.txt')) && existsSync(signatureFile) && readFileSync(signatureFile, 'utf8') === signature) {
     return false
   }

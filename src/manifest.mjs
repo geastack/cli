@@ -80,6 +80,9 @@ export function validateApp(app) {
   for (const source of app.nativeSources) {
     if (!exists(path.join(app.root, source))) errors.push(`gea.nativeSources entry does not exist: ${source}`)
   }
+  for (const plugin of app.compilerPlugins) {
+    if (!exists(path.join(app.root, plugin))) errors.push(`gea.compilerPlugins entry does not exist: ${plugin}`)
+  }
   for (const [target, config] of Object.entries(app.targetConfig)) {
     const where = (field) => `gea.targets.${target}.${field}`
     for (const fragment of config.ldFragments) {
@@ -202,6 +205,7 @@ export function appSummary(ctx, app) {
     targets: app.targets,
     icons: app.icons,
     nativeSources: app.nativeSources,
+    compilerPlugins: app.compilerPlugins,
     defines: app.defines,
     targetConfig: app.targetConfig,
     launcher: app.launcher
@@ -405,6 +409,7 @@ export function normalizeApp(root, packageJson) {
     targets: normalizeTargets(gea.targets),
     icons: normalizeIcons(gea.icons),
     nativeSources: normalizeNativeSources(gea.nativeSources),
+    compilerPlugins: normalizeStringList(gea.compilerPlugins).map(normalizeManifestRelativePath),
     defines: normalizeDefines(gea.defines),
     targetConfig: normalizeTargetConfig(gea.targets),
     launcher: normalizeLauncher(gea.launcher),

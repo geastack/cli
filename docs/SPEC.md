@@ -261,6 +261,7 @@ same thing for any native target.
 {
   "gea": {
     "nativeSources": ["native/engine.cpp"],
+    "compilerPlugins": ["scripts/host-functions.mjs"],
     "defines": { "GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS": 4 },
     "targets": {
       "web": true,
@@ -285,6 +286,9 @@ same thing for any native target.
 
 - `nativeSources` — C/C++/ObjC sources compiled into the board's main component.
   Their directories become include paths.
+- `compilerPlugins` — the app's own geatsc plugins, e.g. one declaring the native
+  host functions its TSX calls. They are passed to the compiler for every native
+  target, because the boundary they describe is the app's, not a board's.
 - `defines` — preprocessor macros, as an object or as `NAME=value` strings; a
   value of `true` emits a bare define and `false` drops the entry. These apply
   to the **whole** native build: a macro that sizes a framework type changes
@@ -310,7 +314,11 @@ same thing for any native target.
   name a partition that does not exist. `embedFiles` and `data` are different
   things; an app may want both, e.g. to repair a stale data partition at boot
   from the copy carried in the image.
-- `sdkconfig` — the app's own `sdkconfig.defaults`, replacing the board's.
+- `sdkconfig` — the app's own `sdkconfig.defaults`, layered over the board's:
+  ESP-IDF reads both files in order, so the app only has to state what it
+  changes. Turning `CONFIG_BT_ENABLED` on here is how an app that drives a
+  Bluetooth stack from its own native sources, rather than through the Gea BLE
+  API, keeps the controller in the build.
 - `prebuild` — a command run before the build, for generating the files the
   fields above refer to.
 
