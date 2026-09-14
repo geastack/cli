@@ -33,7 +33,7 @@
   },
   "starterDependencies": {
     "@geastack/core": "^0.1.12",
-    "@geastack/targets": "^0.1.57"
+    "@geastack/targets": "^0.1.60"
   },
   "scripts": {
     "check": "node --check bin/gea.mjs && node --check bin/create-geastack.mjs && find src test packages -name '*.mjs' -print0 | xargs -0 -n1 node --check",
