@@ -26,7 +26,9 @@ const usbSerialJtagChips = new Set(['esp32s3', 'esp32c3', 'esp32c5', 'esp32c6', 
 
 function postFlashReset(idf, selection) {
   if (!usbSerialJtagChips.has(esptoolChip(selection))) return 'hard-reset'
-  return Number(idf?.version?.major || 0) >= 6 ? 'watchdog_reset' : 'hard-reset'
+  // Hyphenated: this branch only runs on esptool 5, where the underscore
+  // spellings are deprecated.
+  return Number(idf?.version?.major || 0) >= 6 ? 'watchdog-reset' : 'hard-reset'
 }
 
 export function flashOptions(env, { idf = null, selection = null, manualBoot = false, noReset = false, baud = '' } = {}) {

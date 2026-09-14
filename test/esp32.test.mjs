@@ -328,7 +328,7 @@ test('a USB-Serial-JTAG board is restarted by its watchdog, not by the reset pin
   // download mode, and the chip can stay there instead of booting the app it
   // just verified -- a dark panel that looks like a bad image.
   const jtag = flashOptions({}, { idf: { version: { major: 6 } }, selection: { idfTarget: 'esp32s3' } })
-  assert.equal(jtag.after, 'watchdog_reset')
+  assert.equal(jtag.after, 'watchdog-reset')
 
   // A chip without the peripheral is flashed through a UART bridge, where the
   // reset pin is the only thing that can restart it.
