@@ -84,10 +84,21 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
   // The S3's default 16 KB instruction cache is too small for a frame's code
   // working set; 32 KB cut a whole frame ~35% for 16 KB of internal SRAM.
   // Cache config lives in the generated (sticky) sdkconfig, so defaults alone
-  // would never reach an existing build directory.
+  // would never reach an existing build directory -- which is exactly why an
+  // app that asks for the 16 KB cache in its own defaults has to be honoured
+  // here rather than silently overruled. The 32 KB cache claims SRAM0's
+  // IRAM-only region, so the whole of .iram0.text moves into DIRAM and is
+  // mirrored there as .dram0.dummy: 16 KB off the internal heap. An app whose
+  // own arenas need that SRAM more than it needs frame time has no other way
+  // to buy it back.
   if ((selection.idfTarget || 'esp32s3') === 'esp32s3') {
-    unset('CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB')
-    set('CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB', 'y')
+    if (sdkconfig.appDefaultIsSet('CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB')) {
+      unset('CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB')
+      set('CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB', 'y')
+    } else {
+      unset('CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB')
+      set('CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB', 'y')
+    }
   }
 
   unset('CONFIG_GEA_EMBEDDED_PRODUCTION_LOCKDOWN')

@@ -181,6 +181,15 @@ test('the sdkconfig policy sets development logging, stacks and the S3 instructi
   assert.match(text, /^CONFIG_BOOTLOADER_LOG_LEVEL_INFO=y$/m)
   assert.doesNotMatch(text, /CONFIG_BT_ENABLED/, 'a no-BLE build only rewrites CONFIG_BT_ENABLED when the bt component exposes it')
   assert.doesNotMatch(policy(t, { idfTarget: 'esp32p4' }), /INSTRUCTION_CACHE/)
+
+  // An app that needs SRAM0's IRAM-only region more than it needs frame time
+  // says so in its own defaults, and the policy stops overruling it. A board
+  // default is not the app asking -- boards already get 32 KB by policy.
+  const small = policy(t, { appDefaults: 'CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y\n', existing: 'CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y\n' })
+  assert.match(small, /^CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y$/m)
+  assert.match(small, /^# CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB is not set$/m)
+  const boardCache = policy(t, { defaults: 'CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y\n' })
+  assert.match(boardCache, /^CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y$/m)
 })
 
 test('an app that runs its own Bluetooth stack keeps the controller the Gea BLE API never asked for', (t) => {
