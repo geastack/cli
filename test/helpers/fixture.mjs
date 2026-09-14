@@ -194,6 +194,7 @@ if [ "$1" = "--build" ]; then
   printf 'bootloader' > "$2/bootloader/bootloader.bin"
   printf 'partitions' > "$2/partition_table/partition-table.bin"
   printf 'otadata' > "$2/ota_data_initial.bin"
+  printf '{ "flash_settings": { "flash_mode": "dio", "flash_freq": "80m", "flash_size": "16MB" } }' > "$2/flasher_args.json"
 fi
 exit 0
 `)

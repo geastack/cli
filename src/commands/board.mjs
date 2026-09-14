@@ -175,7 +175,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   const images = { ...buildImages(buildDir), buildDir }
 
   if (eraseSlotName) {
-    await eraseSlot({ ...common, slot: eraseSlotName })
+    await eraseSlot({ ...common, slot: eraseSlotName, buildDir })
     return 0
   }
   if (flag(parsed, 'restore-boot')) {
@@ -194,7 +194,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   }
   const appLabel = app?.id || 'prebuilt image'
   if (slot) {
-    await stageImage({ ...common, image, slot, appLabel })
+    await stageImage({ ...common, image, slot, buildDir, appLabel })
     return 0
   }
   await flashFirmware({ ...common, images, appImage: image, appLabel })
@@ -257,16 +257,18 @@ export async function otaCommand(ctx, parsed, rest, options) {
   const eraseSlotName = option(parsed, 'erase-slot', '')
   const explicitImage = option(parsed, 'image', '')
 
+  const app = explicitImage && !option(parsed, 'app') && !rest[0] ? null : optionalApp(ctx, parsed, rest, selection, { required: !explicitImage && !eraseSlotName })
+  const buildDir = esp32BuildDir(ctx, selection, app?.id, env)
+
   if (eraseSlotName) {
-    await otaEraseSlot({ selection, host: selection.host, slot: eraseSlotName, dryRun: base.dryRun, stdout: base.stdout })
+    await otaEraseSlot({ selection, host: selection.host, slot: eraseSlotName, buildDir, dryRun: base.dryRun, stdout: base.stdout })
     return 0
   }
 
-  const app = explicitImage && !option(parsed, 'app') && !rest[0] ? null : optionalApp(ctx, parsed, rest, selection, { required: !explicitImage })
   let image = explicitImage ? path.resolve(ctx.cwd, explicitImage) : ''
   if (!explicitImage) {
     const prepared = flag(parsed, 'no-build')
-      ? { images: buildImages(esp32BuildDir(ctx, selection, app.id, env)) }
+      ? { images: buildImages(buildDir) }
       : await buildEsp32Firmware({ ctx, selection, app, env, bleOta: transport === 'ble' || bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr })
     image = prepared.images.app
   }
@@ -276,7 +278,7 @@ export async function otaCommand(ctx, parsed, rest, options) {
     return 0
   }
   if (slot) {
-    await otaStage({ selection, host: selection.host, image, slot, boot: flag(parsed, 'boot'), reboot: flag(parsed, 'reboot'), appLabel: app?.id || 'prebuilt image', dryRun: base.dryRun, stdout: base.stdout })
+    await otaStage({ selection, host: selection.host, image, slot, buildDir, boot: flag(parsed, 'boot'), reboot: flag(parsed, 'reboot'), appLabel: app?.id || 'prebuilt image', dryRun: base.dryRun, stdout: base.stdout })
     return 0
   }
   await otaFlash({ host: selection.host, image, dryRun: base.dryRun, stdout: base.stdout })

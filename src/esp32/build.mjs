@@ -11,6 +11,7 @@ import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
 import { writePartitionTable } from './partitions-from-manifest.mjs'
 import { listAppSources } from './source-set.mjs'
+import { writeFlashPlan } from './partitions.mjs'
 import { generateWifiConfig } from './wifi-config.mjs'
 import { hint, warn } from '../report.mjs'
 
@@ -205,15 +206,24 @@ function runAppPrebuild(app, config, { dryRun, log }) {
 // which is generated into the build directory. The CSV path and the payload
 // pairs stay in separate variables -- a single ';'-joined value could not say
 // where the path ends and the payloads begin.
+//
+// The plan written alongside is for `gea flash`, which drives esptool itself
+// instead of IDF's flash target: without it the flash would read the board's
+// static table and skip every payload, leaving a board with an app and no
+// factory data.
 function preparePartitions(app, config, buildDir) {
-  if (!config.partitions) return { csv: '', payloads: '' }
-  if (typeof config.partitions === 'string') return { csv: path.join(app.root, config.partitions), payloads: '' }
+  const plan = ({ csv = '', payloads = [] }) => {
+    writeFlashPlan(buildDir, { csv, payloads })
+    return { csv, payloads: payloads.map((payload) => `${payload.name}=${payload.file}`).join(';') }
+  }
+  if (!config.partitions) return plan({})
+  if (typeof config.partitions === 'string') return plan({ csv: path.join(app.root, config.partitions) })
   const { file, payloads } = writePartitionTable({
     table: config.partitions,
     appRoot: app.root,
     outDir: path.join(buildDir, 'gea-partitions')
   })
-  return { csv: file, payloads: payloads.join(';') }
+  return plan({ csv: file, payloads })
 }
 
   let appPartitionCsv = ''

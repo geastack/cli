@@ -267,6 +267,60 @@ test('flash writes bootloader, app, partition table and otadata over USB and the
   assert.match(monitor.out, /\[dry-run\] usb device: usb serial USB123/)
 })
 
+test('a manifest partition table, not the board\'s, is what the flash writes -- payloads included', async (t) => {
+  const fixture = createFixture(t)
+  const buildDir = fixture.buildDir('esp32-s3-touch-amoled-2.06', 'watch')
+  const manifestPath = path.join(fixture.appDir, 'package.json')
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  manifest.gea.targets.esp32 = {
+    partitions: {
+      nvs: { type: 'data', subtype: 'nvs', size: '24K', offset: '0x9000' },
+      otadata: { type: 'data', subtype: 'ota', size: '0x2000', offset: '0xf000' },
+      ota_0: { type: 'app', subtype: 'ota_0', size: '4M', offset: '0x20000' },
+      ota_1: { type: 'app', subtype: 'ota_1', size: '4M', offset: '0x420000' },
+      models: { type: 'data', subtype: '0x40', size: '256K', offset: '0x820000', data: 'build/models.bin' }
+    }
+  }
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+  const library = path.join(fixture.appDir, 'build', 'models.bin')
+  fs.mkdirSync(path.dirname(library), { recursive: true })
+  fs.writeFileSync(library, 'profile library')
+
+  assert.equal((await gea(['build', '--board', 'amoled'], fixture)).code, 0)
+  assert.match(fs.readFileSync(path.join(buildDir, 'gea-partitions/partitions.csv'), 'utf8'), /^models, data, 0x40, 0x820000, 256K, $/m)
+
+  const flash = await gea(['flash', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(flash.code, 0, flash.err)
+  assert.match(flash.out, /Writing 1 data partition payload\(s\): models\./)
+  const esptool = flash.out.split('\n').find((line) => line.includes('-m esptool'))
+  assert.ok(esptool, flash.out)
+  // The app's offsets: ota_0 at 0x20000 where the board's static table says
+  // 0x10000, otadata at 0xf000 where it says 0xd000.
+  assert.match(esptool, new RegExp(`0x20000 ${escapeRegex(buildDir)}/gea_embedded\\.bin`))
+  assert.match(esptool, new RegExp(`0xf000 ${escapeRegex(buildDir)}/ota_data_initial\\.bin`))
+  assert.match(esptool, new RegExp(`0x820000 ${escapeRegex(library)}`))
+
+  // Slot geometry reads the same table.
+  const erase = await gea(['flash', '--board', 'amoled', '--erase-slot', 'ota_1', '--dry-run'], fixture)
+  assert.equal(erase.code, 0, erase.err)
+  assert.match(erase.out, /erase_region 0x420000 4194304/)
+
+  // Mode, frequency and size come from the build too, not from the board
+  // catalog: an app whose sdkconfig declares a 32MB chip writes past the
+  // catalog's 16MB, and esptool refuses that unless it is told.
+  fs.writeFileSync(path.join(buildDir, 'flasher_args.json'), JSON.stringify({ flash_settings: { flash_mode: 'qio', flash_freq: '120m', flash_size: '32MB' } }))
+  const configured = await gea(['flash', '--board', 'amoled', '--no-build', '--dry-run'], fixture)
+  assert.equal(configured.code, 0, configured.err)
+  assert.match(configured.out, /write_flash --flash_mode qio --flash_freq 120m --flash_size 32MB/)
+
+  // A payload the app never produced is named before esptool runs.
+  fs.rmSync(library)
+  await assert.rejects(
+    gea(['flash', '--board', 'amoled', '--dry-run'], fixture),
+    (error) => error instanceof CliError && /Payload for partition 'models' not found/.test(error.message)
+  )
+})
+
 test('flash slot management: erase, stage into a slot, and restore boot metadata', async (t) => {
   const fixture = createFixture(t)
   const image = path.join(fixture.root, 'other.bin')

@@ -20,7 +20,7 @@ export function parseSize(value, where) {
 }
 
 // Writes the CSV into the build directory and returns its path plus the
-// `partition=payload` pairs the build hands to esptool_py_flash_to_partition.
+// `{ name, file }` payloads that belong in the table's data partitions.
 export function writePartitionTable({ table, appRoot, outDir }) {
   const rows = []
   const payloads = []
@@ -29,7 +29,7 @@ export function writePartitionTable({ table, appRoot, outDir }) {
     parseSize(partition.size, `gea.targets.esp32.partitions.${name}.size`)
     if (partition.offset) parseSize(partition.offset, `gea.targets.esp32.partitions.${name}.offset`)
     rows.push([name, partition.type, partition.subtype, partition.offset, partition.size, partition.flags].join(', '))
-    if (partition.data) payloads.push(`${name}=${path.join(appRoot, partition.data)}`)
+    if (partition.data) payloads.push({ name, file: path.join(appRoot, partition.data) })
   }
   mkdirSync(outDir, { recursive: true })
   const file = path.join(outDir, 'partitions.csv')

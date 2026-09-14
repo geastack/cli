@@ -311,7 +311,9 @@ same thing for any native target.
 - `partitions` — a path to an existing partition CSV, or the table itself. The
   object form generates the CSV, and a partition's `data` file is flashed into
   it: keeping the payload on the same line as the size means a payload cannot
-  name a partition that does not exist. `embedFiles` and `data` are different
+  name a partition that does not exist. Either form replaces the board's static
+  table for this app -- for the build and for `gea flash`, which writes the
+  payloads alongside the app and reads slot offsets from the app's table. `embedFiles` and `data` are different
   things; an app may want both, e.g. to repair a stale data partition at boot
   from the copy carried in the image.
 - `sdkconfig` — the app's own `sdkconfig.defaults`, layered over the board's:

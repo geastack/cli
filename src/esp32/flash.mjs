@@ -6,7 +6,7 @@ import { waitForSerialPort } from '../boards/usb.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { quietSteps, runStep } from '../run.mjs'
 import { esptoolCommand } from './idf-env.mjs'
-import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from './partitions.mjs'
+import { buildFlashSettings, flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, readFlashPlan, sizeToBytes } from './partitions.mjs'
 import { success, warn } from '../report.mjs'
 
 // USB flashing through esptool, with the board addressed by its USB serial:
@@ -29,8 +29,9 @@ function esptoolPrefix(selection, options) {
   return ['--chip', selection.esptoolChip || selection.idfTarget || 'esp32s3', '--before', options.before, '--after', options.after, '-b', options.baud]
 }
 
-function writeFlashArgs(selection, options, pairs) {
-  return [...esptoolPrefix(selection, options), 'write-flash', '--flash-mode', 'dio', '--flash-freq', '80m', '--flash-size', selection.flashSize, ...pairs]
+function writeFlashArgs(selection, options, pairs, buildDir = '') {
+  const flash = buildFlashSettings(buildDir, selection.flashSize)
+  return [...esptoolPrefix(selection, options), 'write-flash', '--flash-mode', flash.mode, '--flash-freq', flash.freq, '--flash-size', flash.size, ...pairs]
 }
 
 export async function runEsptoolOverUsb({ idf, selection, options, args, port = '', env, dryRun = false, verbose = false, logDir = os.tmpdir(), stdout = console.log, stderr = console.error }) {
@@ -113,17 +114,32 @@ function requireImage(file, what) {
   return file
 }
 
-function assertFits(image, slot, slotSize) {
+function assertFits(image, slot, slotSize, what = 'App image') {
   const imageSize = statSync(image).size
   if (imageSize > slotSize) {
-    fail(`App image is ${imageSize} bytes but ${slot} only has ${slotSize} bytes.\nRegenerate a partition plan with fewer apps or larger slots.`, ExitCode.deployFailed)
+    fail(`${what} is ${imageSize} bytes but ${slot} only has ${slotSize} bytes.\nRegenerate a partition plan with fewer apps or larger slots.`, ExitCode.deployFailed)
   }
 }
 
-export function slotGeometry(selection, slot) {
+export function slotGeometry(selection, slot, buildDir = '') {
   const name = normalizeOtaSlot(slot)
-  const partition = partitionByName(loadPartitions(selection.targetDir), name)
+  const partition = partitionByName(loadPartitions(selection.targetDir, buildDir), name)
   return { name, offset: partition.offset, size: sizeToBytes(partition.size) }
+}
+
+// The files the app declared for its data partitions -- a profile library, a
+// preset image. IDF's own flash target writes these; esptool has to be told.
+function payloadPairs(partitions, buildDir, stdout) {
+  const payloads = readFlashPlan(buildDir).payloads
+  const pairs = []
+  for (const payload of payloads) {
+    const partition = partitionByName(partitions, payload.name)
+    const file = requireImage(payload.file, `Payload for partition '${payload.name}'`)
+    assertFits(file, payload.name, sizeToBytes(partition.size), `Payload for '${payload.name}'`)
+    pairs.push(partition.offset, file)
+  }
+  if (pairs.length) stdout(`Writing ${payloads.length} data partition payload(s): ${payloads.map((payload) => payload.name).join(', ')}.`)
+  return pairs
 }
 
 // Bootloader + partition table + otadata + app in ota_0: a full provisioning
@@ -133,19 +149,22 @@ export async function flashFirmware({ idf, selection, images, appImage = images.
   for (const required of [images.bootloader, images.partitionTable, images.otaData]) {
     if (!existsSync(required)) fail(`${required} was not found. Build the launcher once first.`, ExitCode.deployFailed)
   }
-  const partitions = loadPartitions(selection.targetDir)
+  const buildDir = images.buildDir
+  const partitions = loadPartitions(selection.targetDir, buildDir)
   const app = partitionByName(partitions, 'ota_0')
   const otadata = partitionByName(partitions, 'otadata')
   assertFits(image, 'ota_0', sizeToBytes(app.size))
-  const buildDir = images.buildDir
+  stdout(`Flashing '${appLabel}' from ${image} to ota_0 (${app.offset}) over USB...`)
+  stdout('Writing bootloader, partition table, default OTA boot metadata, and app image.')
   const pairs = [
     flashOffsetForBuildImage(buildDir, images.bootloader, '0x0'), images.bootloader,
     app.offset, image,
     flashOffsetForBuildImage(buildDir, images.partitionTable, '0x8000'), images.partitionTable,
-    otadata.offset, images.otaData
+    otadata.offset, images.otaData,
+    ...payloadPairs(partitions, buildDir, stdout)
   ]
   if (!quietSteps(env, verbose)) stdout(`Flashing '${appLabel}' to ota_0 (${app.offset}) over USB with bootloader, partition table and OTA boot metadata.`)
-  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs), port, env, dryRun, verbose, logDir: buildDir, stdout, stderr })
+  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs, buildDir), port, env, dryRun, verbose, logDir: buildDir, stdout, stderr })
   success(stdout, `Flashed '${appLabel}' in ota_0 and reset OTA boot metadata to ota_0.`)
 }
 
@@ -153,49 +172,52 @@ export async function flashImageSet({ idf, selection, images, slotImages, option
   for (const required of [images.bootloader, images.partitionTable, images.otaData]) {
     if (!existsSync(required)) fail(`${required} was not found. Build the launcher once first.`, ExitCode.deployFailed)
   }
-  const partitions = loadPartitions(selection.targetDir)
-  const otadata = partitionByName(partitions, 'otadata')
   const buildDir = images.buildDir
+  const partitions = loadPartitions(selection.targetDir, buildDir)
+  const otadata = partitionByName(partitions, 'otadata')
+  stdout(`Flashing ${slotImages.length} prebuilt app image(s) over USB...`)
+  stdout('Writing bootloader, partition table, default OTA boot metadata, and app images.')
   const pairs = [
     flashOffsetForBuildImage(buildDir, images.bootloader, '0x0'), images.bootloader,
     flashOffsetForBuildImage(buildDir, images.partitionTable, '0x8000'), images.partitionTable,
-    otadata.offset, images.otaData
+    otadata.offset, images.otaData,
+    ...payloadPairs(partitions, buildDir, stdout)
   ]
   for (const entry of slotImages) {
     const eq = entry.indexOf('=')
     if (eq <= 0 || eq === entry.length - 1) fail(`Invalid --slot-image value '${entry}'. Use --slot-image=ota_<n>=<bin>.`, ExitCode.usage)
-    const slot = slotGeometry(selection, entry.slice(0, eq))
+    const slot = slotGeometry(selection, entry.slice(0, eq), buildDir)
     const image = requireImage(entry.slice(eq + 1), `App image for ${slot.name}`)
     assertFits(image, slot.name, slot.size)
     pairs.push(slot.offset, image)
   }
   stdout(`Flashing ${slotImages.length} prebuilt app image(s) over USB...`)
   stdout('Writing bootloader, partition table, default OTA boot metadata, and app images.')
-  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs), port, env, dryRun, stdout, stderr })
+  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, pairs, buildDir), port, env, dryRun, stdout, stderr })
   success(stdout, options.after === 'no-reset' ? 'Flashed app images. Device was not reset after flashing.' : 'Flashed app images. Device was reset after flashing.')
 }
 
 // App image only, into a chosen OTA slot; boot selection is untouched.
-export async function stageImage({ idf, selection, image, slot, appLabel = 'prebuilt image', options, port, env, dryRun, stdout, stderr }) {
-  const geometry = slotGeometry(selection, slot)
+export async function stageImage({ idf, selection, image, slot, buildDir = '', appLabel = 'prebuilt image', options, port, env, dryRun, stdout, stderr }) {
+  const geometry = slotGeometry(selection, slot, buildDir)
   requireImage(image, 'App image')
   assertFits(image, geometry.name, geometry.size)
   stdout(`Staging '${appLabel}' from ${image} to ${geometry.name} (${geometry.offset}) over USB...`)
   stdout('Writing app image only; bootloader, partition table, and otadata are unchanged.')
-  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, [geometry.offset, image]), port, env, dryRun, stdout, stderr })
+  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, [geometry.offset, image], buildDir), port, env, dryRun, stdout, stderr })
   success(stdout, `Staged '${appLabel}' in ${geometry.name}. Boot selection was not changed.`)
 }
 
 export async function restoreBootMetadata({ idf, selection, images, options, port, env, dryRun, stdout, stderr }) {
   if (!existsSync(images.otaData)) fail(`${images.otaData} was not found. Flash the launcher once first.`, ExitCode.deployFailed)
-  const otadata = partitionByName(loadPartitions(selection.targetDir), 'otadata')
+  const otadata = partitionByName(loadPartitions(selection.targetDir, images.buildDir), 'otadata')
   stdout(`Restoring OTA boot metadata at ${otadata.offset}...`)
-  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, [otadata.offset, images.otaData]), port, env, dryRun, stdout, stderr })
+  await runEsptoolOverUsb({ idf, selection, options, args: writeFlashArgs(selection, options, [otadata.offset, images.otaData], images.buildDir), port, env, dryRun, stdout, stderr })
   success(stdout, 'Launcher OTA boot metadata restored.')
 }
 
-export async function eraseSlot({ idf, selection, slot, options, port, env, dryRun, stdout, stderr }) {
-  const geometry = slotGeometry(selection, slot)
+export async function eraseSlot({ idf, selection, slot, buildDir = '', options, port, env, dryRun, stdout, stderr }) {
+  const geometry = slotGeometry(selection, slot, buildDir)
   stdout(`Erasing ${geometry.name} (${geometry.offset}, ${geometry.size} bytes) over USB...`)
   await runEsptoolOverUsb({ idf, selection, options, args: [...esptoolPrefix(selection, options), 'erase-region', geometry.offset, String(geometry.size)], port, env, dryRun, stdout, stderr })
   success(stdout, `Erased ${geometry.name}.`)

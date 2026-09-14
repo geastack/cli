@@ -27,8 +27,8 @@ export async function otaFlash({ host, image, dryRun = false, stdout = console.l
   success(stdout, 'OTA complete. Board is rebooting.')
 }
 
-export async function otaStage({ selection, host, image, slot, boot = false, reboot = false, appLabel = 'prebuilt image', dryRun = false, stdout = console.log }) {
-  const geometry = slotGeometry(selection, slot)
+export async function otaStage({ selection, host, image, slot, buildDir = '', boot = false, reboot = false, appLabel = 'prebuilt image', dryRun = false, stdout = console.log }) {
+  const geometry = slotGeometry(selection, slot, buildDir)
   requireImage(image)
   const size = statSync(image).size
   if (size > geometry.size) {
@@ -43,8 +43,8 @@ export async function otaStage({ selection, host, image, slot, boot = false, reb
   success(stdout, `Staged '${appLabel}' in ${geometry.name} over OTA. Boot selection was not changed.`)
 }
 
-export async function otaEraseSlot({ selection, host, slot, dryRun = false, stdout = console.log }) {
-  const geometry = slotGeometry(selection, slot)
+export async function otaEraseSlot({ selection, host, slot, buildDir = '', dryRun = false, stdout = console.log }) {
+  const geometry = slotGeometry(selection, slot, buildDir)
   stdout(`Erasing ${geometry.name} over WiFi OTA...`)
   if (dryRun) {
     stdout(`POST http://${host}:8080/ota/erase?slot=${geometry.name}`)
