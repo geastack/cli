@@ -9,6 +9,7 @@ import {
   appCmakeMeta,
   appCmakeDefines,
   appCmakeLdFragments,
+  appTargetConfig,
   appPlatformForTarget,
   appPlatformsForTarget,
   discoverApps,
@@ -125,7 +126,7 @@ test('manifest helpers validate current app and installed target metadata', (t) 
   assert.deepEqual(validateApp(bad), ['gea.entry does not exist: missing.tsx'])
 })
 
-test('an app declares compile defines and linker fragments for the native build', (t) => {
+test('a target entry both enables the target and configures its native build', (t) => {
   const fixture = createFixture(t)
   const root = path.join(fixture.root, 'apps', 'pedal')
   writeJson(path.join(root, 'package.json'), {
@@ -133,20 +134,54 @@ test('an app declares compile defines and linker fragments for the native build'
     gea: {
       id: 'pedal',
       entry: 'index.tsx',
-      targets: { esp32: true },
       defines: { GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS: 4, GEA_RUNTIME_COMPACT_ALLOCATION: true, GEA_UNUSED: false },
-      ldFragments: 'memory.lf'
+      targets: {
+        web: true,
+        esp32: {
+          ldFragments: 'memory.lf',
+          componentDirs: ['native/audio'],
+          linkOptions: ['-Wl,--wrap=tlsf_memalign_offs'],
+          embedFiles: { model: 'assets/model.namb' },
+          partitions: { models: { type: 'data', subtype: '0x40', size: '6M', data: 'build/models.bin' } },
+          sdkconfig: 'native/sdkconfig.defaults',
+          prebuild: 'node scripts/pack.mjs'
+        }
+      }
     }
   })
   const app = findCurrentApp(root)
+  // The boolean map stays the single answer to "is this target enabled".
+  assert.deepEqual(app.targets, { web: true, esp32: true })
+  const esp32 = appTargetConfig(app, 'esp32')
+  assert.deepEqual(esp32.ldFragments, ['memory.lf'])
+  assert.deepEqual(esp32.componentDirs, ['native/audio'])
+  assert.deepEqual(esp32.linkOptions, ['-Wl,--wrap=tlsf_memalign_offs'])
+  assert.deepEqual(esp32.embedFiles, { model: 'assets/model.namb' })
+  assert.equal(esp32.partitions.models.size, '6M')
+  assert.equal(esp32.partitions.models.data, 'build/models.bin')
+  assert.equal(esp32.prebuild, 'node scripts/pack.mjs')
   assert.deepEqual(app.defines, ['GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS=4', 'GEA_RUNTIME_COMPACT_ALLOCATION'])
-  assert.deepEqual(app.ldFragments, ['memory.lf'])
   assert.equal(appCmakeDefines(app), 'GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS=4;GEA_RUNTIME_COMPACT_ALLOCATION')
   assert.equal(appCmakeLdFragments(app), path.join(root, 'memory.lf'))
-  // The meta line stays positional: defines and fragments must not leak into it.
+  // The meta line stays positional: nothing new may leak into it.
   const ctx = createContext(parseArgs([]), {}, fixture.root)
   assert.equal(appCmakeMeta(ctx, app).includes('memory.lf'), false)
-  assert.ok(validateApp(app).includes('gea.ldFragments entry does not exist: memory.lf'))
+  const errors = validateApp(app)
+  assert.ok(errors.includes('gea.targets.esp32.ldFragments entry does not exist: memory.lf'))
+  assert.ok(errors.includes('gea.targets.esp32.componentDirs entry does not exist: native/audio'))
+  assert.ok(errors.includes('gea.targets.esp32.sdkconfig does not exist: native/sdkconfig.defaults'))
+})
+
+test('a target disabled with enabled:false carries no configuration', (t) => {
+  const fixture = createFixture(t)
+  const root = path.join(fixture.root, 'apps', 'off')
+  writeJson(path.join(root, 'package.json'), {
+    name: 'off',
+    gea: { id: 'off', entry: 'index.tsx', targets: { esp32: { enabled: false, linkOptions: ['-Wl,--gc-sections'] } } }
+  })
+  const app = findCurrentApp(root)
+  assert.deepEqual(app.targets, { esp32: false })
+  assert.deepEqual(appTargetConfig(app, 'esp32').linkOptions, [])
 })
 
 test('an array of defines is accepted and invalid macros are reported', (t) => {
@@ -167,7 +202,7 @@ test('an app without the new fields keeps empty lists', (t) => {
   writeJson(path.join(root, 'package.json'), { name: 'plain', gea: { id: 'plain', entry: 'index.tsx', targets: { esp32: true } } })
   const app = findCurrentApp(root)
   assert.deepEqual(app.defines, [])
-  assert.deepEqual(app.ldFragments, [])
+  assert.deepEqual(app.targetConfig, {})
   assert.equal(appCmakeDefines(app), '')
   assert.equal(appCmakeLdFragments(app), '')
 })

@@ -189,7 +189,6 @@ test('assertions follow the board: sticks3 disables, silent defaults stay silent
   const silent = policy(t, { defaults: 'CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y\n' })
   assert.match(silent, /^CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y$/m)
   assert.match(silent, /^CONFIG_COMPILER_OPTIMIZATION_ASSERTION_LEVEL=1$/m)
-  assert.match(policy(t, { app: { id: 'taurus-display' } }), /^CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-taurus-display\.csv"$/m)
 })
 
 test('BLE apps inherit the board NimBLE policy; BLE-OTA-only builds use one link', (t) => {

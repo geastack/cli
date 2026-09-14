@@ -4,11 +4,12 @@ import path from 'node:path'
 
 import { loadChipCatalogFromDir, writeCustomTarget } from '../boards/custom-target.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
-import { appCmakeMeta, appCmakeDefines, appCmakeLdFragments } from '../manifest.mjs'
+import { appCmakeMeta, appCmakeDefines, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
 import { formatCommand } from '../run.mjs'
 import { resolveAppCapabilities } from './capabilities.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
+import { writePartitionTable } from './partitions-from-manifest.mjs'
 import { generateWifiConfig } from './wifi-config.mjs'
 
 // The ESP-IDF build. Everything the old bash board script decided about a
@@ -57,9 +58,20 @@ export function requireEspIdf(env, log) {
 
 // The per-app sdkconfig policy: development logging, the board's stack
 // sizes, the S3 instruction cache and the BLE host exactly as the app needs.
-export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta }) {
+export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta, partitionCsv }) {
   const set = (key, value) => sdkconfig.set(key, value)
   const unset = (key) => sdkconfig.unset(key)
+
+  // An app that declares its own partitions replaces the board's table. The
+  // path is absolute because a generated table lives in the build directory,
+  // not beside the target's own CMakeLists.
+  if (partitionCsv) {
+    unset('CONFIG_PARTITION_TABLE_SINGLE_APP')
+    unset('CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE')
+    unset('CONFIG_PARTITION_TABLE_TWO_OTA')
+    set('CONFIG_PARTITION_TABLE_CUSTOM', 'y')
+    set('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME', `"${partitionCsv}"`)
+  }
 
   set('CONFIG_ESP_MAIN_TASK_STACK_SIZE', String(selection.mainTaskStackSize || 32768))
   set('CONFIG_ESP_IPC_TASK_STACK_SIZE', String(selection.ipcTaskStackSize || 16384))
@@ -108,12 +120,6 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
   set('CONFIG_BOOTLOADER_LOG_LEVEL_INFO', 'y')
   set('CONFIG_BOOTLOADER_LOG_LEVEL', '3')
 
-  // taurus-display OTAs into hardware provisioned with taurus-pedal's legacy
-  // partition table; its image must stay byte-compatible with the field.
-  if (app?.id === 'taurus-display') {
-    set('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME', '"partitions-taurus-display.csv"')
-  }
-
   if (!app) return sdkconfig
   if (capabilities.ble) {
     set('CONFIG_BT_ENABLED', 'y')
@@ -144,7 +150,7 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
 
 // Resolves every input of an ESP32 build without running it: build dir,
 // sdkconfig, generated headers, cache arguments and the child environment.
-export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env || process.env, log = () => {}, bleOta = false }) {
+export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env || process.env, log = () => {}, bleOta = false, dryRun = false }) {
   if (!selection.targetDir || !existsSync(path.join(selection.targetDir, 'CMakeLists.txt'))) {
     fail(`ESP32 target '${selection.target}' has no project directory (${selection.targetDir || 'unset'}). Is @geastack/targets installed?`, ExitCode.missingDependency)
   }
@@ -167,16 +173,59 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     log(`Generated custom board files in ${outDir} (${path.basename(generated.headerPath)}, ${path.basename(generated.cmakePath)})`)
   }
 
+function runAppPrebuild(app, config, { dryRun, log }) {
+  if (!config.prebuild) return
+  log(`App prebuild: ${config.prebuild}`)
+  if (dryRun) return
+  const result = spawnSync(config.prebuild, { cwd: app.root, shell: true, stdio: 'inherit' })
+  if (result.error) throw new CliError(`App prebuild failed to start: ${result.error.message}`, ExitCode.buildFailed)
+  if (result.status !== 0) {
+    fail(`App prebuild exited ${result.status}: ${config.prebuild}`, ExitCode.buildFailed)
+  }
+}
+
+// A string is an existing CSV the app maintains; an object is the table itself,
+// which is generated into the build directory. The CSV path and the payload
+// pairs stay in separate variables -- a single ';'-joined value could not say
+// where the path ends and the payloads begin.
+function preparePartitions(app, config, buildDir) {
+  if (!config.partitions) return { csv: '', payloads: '' }
+  if (typeof config.partitions === 'string') return { csv: path.join(app.root, config.partitions), payloads: '' }
+  const { file, payloads } = writePartitionTable({
+    table: config.partitions,
+    appRoot: app.root,
+    outDir: path.join(buildDir, 'gea-partitions')
+  })
+  return { csv: file, payloads: payloads.join(';') }
+}
+
+  let appPartitionCsv = ''
   let capabilities = { network: false, ble: false, bleApi: false, audio: false, bindings: [], features: [] }
   if (app) {
     capabilities = resolveAppCapabilities(ctx, app, { env })
     if (bleOta) capabilities.ble = true
     const meta = appCmakeMeta(ctx, app)
     const appDefines = appCmakeDefines(app)
-    const appLdFragments = appCmakeLdFragments(app)
+    const esp32Config = appTargetConfig(app, 'esp32')
+    // Runs before the partition table is read and before configure, because it
+    // is what produces the files embedFiles and a partition's data refer to.
+    runAppPrebuild(app, esp32Config, { dryRun, log })
+    const partitions = preparePartitions(app, esp32Config, buildDir)
+    appPartitionCsv = partitions.csv
+    const partitionPayloads = partitions.payloads
+    const appNative = {
+      GEA_EMBEDDED_APP_DEFINES: appDefines,
+      GEA_EMBEDDED_APP_LDFRAGMENTS: appCmakeLdFragments(app),
+      GEA_EMBEDDED_APP_COMPONENT_DIRS: appTargetPaths(app, 'esp32', 'componentDirs').join(';'),
+      GEA_EMBEDDED_APP_LINK_OPTIONS: esp32Config.linkOptions.join(';'),
+      // `symbol=file` pairs; CMake splits each on the first '='.
+      GEA_EMBEDDED_APP_EMBED_FILES: Object.entries(esp32Config.embedFiles)
+        .map(([symbol, file]) => `${symbol}=${path.join(app.root, file)}`)
+        .join(';'),
+      GEA_EMBEDDED_APP_PARTITION_DATA: partitionPayloads
+    }
     idfArgs.push(`-DGEA_EMBEDDED_APP=${app.id}`, `-DGEA_EMBEDDED_APP_META=${meta}`)
-    if (appDefines) idfArgs.push(`-DGEA_EMBEDDED_APP_DEFINES=${appDefines}`)
-    if (appLdFragments) idfArgs.push(`-DGEA_EMBEDDED_APP_LDFRAGMENTS=${appLdFragments}`)
+    for (const [name, value] of Object.entries(appNative)) if (value) idfArgs.push(`-D${name}=${value}`)
     idfArgs.push(
       `-DGEA_EMBEDDED_CAPABILITY_NETWORK=${capabilities.network ? 1 : 0}`,
       `-DGEA_EMBEDDED_CAPABILITY_BLE=${capabilities.ble ? 1 : 0}`,
@@ -187,8 +236,7 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     // conditional components such as bt enter the dependency graph.
     childEnv.GEA_EMBEDDED_APP = app.id
     childEnv.GEA_EMBEDDED_APP_META = meta
-    if (appDefines) childEnv.GEA_EMBEDDED_APP_DEFINES = appDefines
-    if (appLdFragments) childEnv.GEA_EMBEDDED_APP_LDFRAGMENTS = appLdFragments
+    for (const [name, value] of Object.entries(appNative)) if (value) childEnv[name] = value
     childEnv.GEA_EMBEDDED_CAPABILITY_NETWORK = capabilities.network ? '1' : '0'
     childEnv.GEA_EMBEDDED_CAPABILITY_BLE = capabilities.ble ? '1' : '0'
     childEnv.GEA_EMBEDDED_CAPABILITY_AUDIO = capabilities.audio ? '1' : '0'
@@ -197,7 +245,13 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     generateWifiConfig(app.root, path.join(buildDir, 'apps', app.id, 'wifi_config.h'))
   }
 
-  applySdkconfigPolicy(new Sdkconfig(sdkconfigFile, defaultsFile), { selection, app, capabilities, bleOta }).save()
+  applySdkconfigPolicy(new Sdkconfig(sdkconfigFile, defaultsFile), {
+    selection,
+    app,
+    capabilities,
+    bleOta,
+    partitionCsv: appPartitionCsv
+  }).save()
 
   return { buildDir, sdkconfigFile, defaultsFile, idfArgs, childEnv, capabilities, images: buildImages(buildDir) }
 }
@@ -301,7 +355,7 @@ export function acquireHeavyBuildLock({ ctx, env, label, stderr }) {
 
 export function buildEsp32Firmware({ ctx, selection, app = null, env = ctx.env || process.env, bleOta = false, dryRun = false, stdout = console.log, stderr = console.error, configureOnly = false }) {
   const idf = requireEspIdf(env, stdout)
-  const prepared = prepareEsp32Build({ ctx, selection, app, env: idf.env, log: stdout, bleOta })
+  const prepared = prepareEsp32Build({ ctx, selection, app, env: idf.env, log: stdout, bleOta, dryRun })
   prepared.targetDir = selection.targetDir
   const buildEnv = { ...prepared.childEnv }
   const release = acquireHeavyBuildLock({ ctx, env: buildEnv, label: app ? `${selection.target} app=${app.id}` : selection.target, stderr })

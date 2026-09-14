@@ -80,8 +80,26 @@ export function validateApp(app) {
   for (const source of app.nativeSources) {
     if (!exists(path.join(app.root, source))) errors.push(`gea.nativeSources entry does not exist: ${source}`)
   }
-  for (const fragment of app.ldFragments) {
-    if (!exists(path.join(app.root, fragment))) errors.push(`gea.ldFragments entry does not exist: ${fragment}`)
+  for (const [target, config] of Object.entries(app.targetConfig)) {
+    const where = (field) => `gea.targets.${target}.${field}`
+    for (const fragment of config.ldFragments) {
+      if (!exists(path.join(app.root, fragment))) errors.push(`${where('ldFragments')} entry does not exist: ${fragment}`)
+    }
+    for (const dir of config.componentDirs) {
+      if (!exists(path.join(app.root, dir))) errors.push(`${where('componentDirs')} entry does not exist: ${dir}`)
+    }
+    if (config.sdkconfig && !exists(path.join(app.root, config.sdkconfig))) {
+      errors.push(`${where('sdkconfig')} does not exist: ${config.sdkconfig}`)
+    }
+    if (typeof config.partitions === 'string' && !exists(path.join(app.root, config.partitions))) {
+      errors.push(`${where('partitions')} does not exist: ${config.partitions}`)
+    }
+    if (config.partitions && typeof config.partitions === 'object') {
+      for (const [name, partition] of Object.entries(config.partitions)) {
+        if (!partition.type) errors.push(`${where('partitions')}.${name} needs a type`)
+        if (!partition.size) errors.push(`${where('partitions')}.${name} needs a size`)
+      }
+    }
   }
   for (const define of app.defines) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*(?:=.*)?$/.test(define)) errors.push(`gea.defines entry is not a valid macro: ${define}`)
@@ -98,7 +116,7 @@ export function assertValidApp(app) {
 
 export function targetEnabledForApp(ctx, app, targetOrPlatform) {
   if (!targetOrPlatform) return true
-  return appPlatformsForTarget(ctx, targetOrPlatform).some((platform) => app.targets?.[platform] === true)
+  return appPlatformsForTarget(ctx, targetOrPlatform).some((platform) => Boolean(app.targets?.[platform]))
 }
 
 export function assertTargetEnabled(ctx, app, targetOrPlatform) {
@@ -155,8 +173,18 @@ export function appCmakeDefines(app) {
   return app.defines.join(';')
 }
 
-export function appCmakeLdFragments(app) {
-  return app.ldFragments.map((fragment) => path.join(app.root, fragment)).join(';')
+export function appTargetConfig(app, target) {
+  return app.targetConfig[target] || emptyTargetConfig()
+}
+
+// Paths a target's config names are relative to the app; absolute them once
+// here so no build backend has to know where the app lives.
+export function appTargetPaths(app, target, field) {
+  return appTargetConfig(app, target)[field].map((entry) => path.join(app.root, entry))
+}
+
+export function appCmakeLdFragments(app, target = 'esp32') {
+  return appTargetPaths(app, target, 'ldFragments').join(';')
 }
 
 export function appSummary(ctx, app) {
@@ -172,7 +200,7 @@ export function appSummary(ctx, app) {
     icons: app.icons,
     nativeSources: app.nativeSources,
     defines: app.defines,
-    ldFragments: app.ldFragments,
+    targetConfig: app.targetConfig,
     launcher: app.launcher
   }
 }
@@ -293,14 +321,70 @@ export function normalizeDefines(raw) {
   return [...new Set(entries.filter(Boolean))]
 }
 
-// ESP-IDF linker fragment files (.lf) the app contributes to the link. This is
-// how an app places its own -- or the framework's -- sections in a particular
-// memory, e.g. moving Gea's zero-initialised statics to PSRAM to leave the
-// scarce internal SRAM to a realtime audio path.
-export function normalizeLdFragments(raw) {
+
+function emptyTargetConfig() {
+  return { ldFragments: [], componentDirs: [], linkOptions: [], embedFiles: {}, partitions: null, sdkconfig: '', prebuild: '' }
+}
+
+function normalizeStringList(raw) {
   const list = typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw : []
-  const fragments = list.map(normalizeManifestRelativePath).filter((fragment) => fragment.endsWith('.lf'))
-  return [...new Set(fragments)]
+  return [...new Set(list.filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => entry.trim()))]
+}
+
+// `{ symbol: path }` -- the key is the name the firmware refers to the bytes by,
+// the value the file they come from. One field covers both of ESP-IDF's spellings
+// (EMBED_FILES, and target_add_binary_data with a RENAME_TO).
+function normalizeEmbedFiles(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const files = {}
+  for (const [symbol, file] of Object.entries(raw)) {
+    if (typeof file === 'string' && file.trim()) files[symbol] = normalizeManifestRelativePath(file)
+  }
+  return files
+}
+
+// Either a path to an existing ESP-IDF partition CSV, or the table itself. The
+// object form keeps a partition's payload on the same line as its size, so a
+// name cannot be misspelled into a silent no-op and the fit can be checked
+// before the flash rather than during it.
+function normalizePartitions(raw) {
+  if (typeof raw === 'string' && raw.trim()) return normalizeManifestRelativePath(raw)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const table = {}
+  for (const [name, entry] of Object.entries(raw)) {
+    if (!entry || typeof entry !== 'object') continue
+    table[name] = {
+      type: String(entry.type || ''),
+      subtype: String(entry.subtype ?? ''),
+      size: String(entry.size || ''),
+      offset: entry.offset === undefined ? '' : String(entry.offset),
+      flags: String(entry.flags || ''),
+      data: typeof entry.data === 'string' ? normalizeManifestRelativePath(entry.data) : ''
+    }
+  }
+  return Object.keys(table).length > 0 ? table : null
+}
+
+// A target entry is `true` for "enabled with defaults" or an object that both
+// enables the target and configures it. Keeping the two together makes the
+// contradictory state -- a disabled target carrying configuration -- impossible
+// to write.
+function normalizeTargetConfig(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const configs = {}
+  for (const [name, value] of Object.entries(raw)) {
+    if (!name || !value || typeof value !== 'object' || value.enabled === false) continue
+    configs[name] = {
+      ldFragments: normalizeStringList(value.ldFragments).filter((entry) => entry.endsWith('.lf')).map(normalizeManifestRelativePath),
+      componentDirs: normalizeStringList(value.componentDirs).map(normalizeManifestRelativePath),
+      linkOptions: normalizeStringList(value.linkOptions),
+      embedFiles: normalizeEmbedFiles(value.embedFiles),
+      partitions: normalizePartitions(value.partitions),
+      sdkconfig: typeof value.sdkconfig === 'string' && value.sdkconfig.trim() ? normalizeManifestRelativePath(value.sdkconfig) : '',
+      prebuild: typeof value.prebuild === 'string' ? value.prebuild.trim() : ''
+    }
+  }
+  return configs
 }
 
 export function normalizeApp(root, packageJson) {
@@ -318,7 +402,7 @@ export function normalizeApp(root, packageJson) {
     icons: normalizeIcons(gea.icons),
     nativeSources: normalizeNativeSources(gea.nativeSources),
     defines: normalizeDefines(gea.defines),
-    ldFragments: normalizeLdFragments(gea.ldFragments),
+    targetConfig: normalizeTargetConfig(gea.targets),
     launcher: normalizeLauncher(gea.launcher),
     manifest: gea,
     packageJson

@@ -19,8 +19,7 @@ const targets = {
   'rp2350-waveshare-touch-amoled-2.41': { adapter: 'rp2350-pico', targetDir: '/pkg/targets/rp2350-waveshare-touch-amoled-2.41', flashSize: '16MB', appPlatform: 'rp2350' },
   'rp2350-tufty-2350': { adapter: 'rp2350-pico', targetDir: '/pkg/targets/rp2350-tufty-2350', flashSize: '16MB', appPlatform: 'rp2350', compatibleAppPlatforms: ['esp32'] },
   geaos: { adapter: 'geaos-linux', targetDir: '/geaos/targets/geaos', appPlatform: 'geaos' },
-  'lokmat-applpmax': { adapter: 'geaos-arm64', targetDir: '/geaos/targets/geaos', appPlatform: 'geaos' },
-  'esp32-s3-headless': { adapter: 'taurus-s3', targetDir: '/pkg/targets/esp32-s3-headless', flashSize: '16MB', appPlatform: 'taurus-pedal', idfTarget: 'esp32s3', esptoolChip: 'esp32s3' }
+  'lokmat-applpmax': { adapter: 'geaos-arm64', targetDir: '/geaos/targets/geaos', appPlatform: 'geaos' }
 }
 
 const config = {
@@ -30,8 +29,7 @@ const config = {
   lokmat: { target: 'lokmat-applpmax', adapter: 'geaos-arm64', transports: { usbSerial: { serial: 'LOKMAT1' }, mtk: { workdir: '/w', bootSlot: 'boot_a', method: 'rbl', monitorGlob: '/dev/cu.usbmodem*' } } },
   tufty: { target: 'rp2350-tufty-2350', adapter: 'rp2350-pico', transports: { usbSerial: { serial: 'fa59949adbb4802f' } } },
   noUsb: { target: 'esp32-s3-touch-amoled-2.06', adapter: 'esp32-idf', transports: {} },
-  legacyPath: { target: 'esp32-s3-touch-amoled-2.06', adapter: 'esp32-idf', transports: { usbSerial: { path: '/dev/cu.usbmodem1' } } },
-  headless: { target: 'esp32-s3-headless', adapter: 'taurus-s3', transports: { usbSerial: { serial: 'HEADLESS' } } }
+  legacyPath: { target: 'esp32-s3-touch-amoled-2.06', adapter: 'esp32-idf', transports: { usbSerial: { path: '/dev/cu.usbmodem1' } } }
 }
 
 const neverTouchHardware = () => {
@@ -113,14 +111,6 @@ test('geaos boards carry their telnet and fastboot transports', () => {
   assert.equal(linux.telnetPort, '2323')
   assert.equal(linux.fastbootSerial, 'GEAOSFASTBOOT')
   assert.equal(linux.targetDir, '/geaos/targets/geaos')
-})
-
-test('the headless taurus target routes through its board.mjs hook', () => {
-  const build = resolveBoardSelection({ boardName: 'headless', targets, config, usbSerialResolver: neverTouchHardware })
-  assert.equal(build.adapter, 'taurus-s3')
-  assert.equal(build.flashSize, '16MB')
-  const flash = resolveBoardSelection({ boardName: 'headless', targets, config, needs: { usbPort: true }, usbSerialResolver: () => '/dev/selected-com' })
-  assert.equal(flash.port, '/dev/selected-com')
 })
 
 test('picotool selection prefers bus/address on macOS and the serial elsewhere', () => {

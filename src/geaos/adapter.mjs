@@ -85,7 +85,7 @@ export function runGeaos({ ctx, selection, action, app = null, positionals = [],
     // this route ahead of the legacy MediaTek scripts and their fallbacks.
     const ramAction = action === 'ota' ? 'deploy' : action === 'flash' || action === 'flash-monitor' ? 'boot' : action
     if (selection.host || selection.otaHost) childEnv.GEAOS_DEVICE_HOST = selection.host || selection.otaHost
-    return run(path.join(targetDir, 'board.py'), [ramAction, appId || 'taurus-pedal'],
+    return run(path.join(targetDir, 'board.py'), appId ? [ramAction, appId] : [ramAction],
       { cwd: targetDir, env: childEnv, dryRun, stdout,
         failureCode: action === 'build' ? ExitCode.buildFailed : ExitCode.deployFailed })
   }

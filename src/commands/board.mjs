@@ -14,7 +14,6 @@ import { manifestRequestsBleOta } from '../esp32/capabilities.mjs'
 import { runGeaos } from '../geaos/adapter.mjs'
 import { assertTargetEnabled, assertValidApp, discoverApps, resolveRequestedApp, targetEnabledForApp } from '../manifest.mjs'
 import { buildRp2350, flashRp2350, rp2350BuildDir } from '../rp2350/adapter.mjs'
-import { runTargetHook } from '../taurus/adapter.mjs'
 import { runXbox } from '../xbox/adapter.mjs'
 
 // Every board-facing command: resolve the alias, pick the adapter, run.
@@ -76,8 +75,8 @@ function io(parsed, options) {
 
 // Firmware is built per app and the ESP32/RP2350 CMake refuses to configure
 // without one (its script-mode pass would otherwise analyze a directory), so
-// those adapters need an app even for --configure-only; the geaos and taurus
-// adapters have app-less actions.
+// those adapters need an app even for --configure-only; the geaos adapter has
+// app-less actions.
 const appRequiredAdapters = new Set(['esp32-idf', 'rp2350-pico', 'xbox-uwp'])
 
 function requireAppForAdapter(ctx, parsed, selection, app) {
@@ -110,8 +109,6 @@ export async function buildCommand(ctx, parsed, rest, options) {
     case 'geaos-linux':
     case 'geaos-arm64':
       return runGeaos({ ctx, selection, action: 'build', app, positionals: rest, env, dryRun: base.dryRun, stdout: base.stdout })
-    case 'taurus-s3':
-      return runTargetHook({ ctx, selection, action: 'build', app, env, dryRun: base.dryRun, stdout: base.stdout })
     default:
       fail(`Unknown adapter '${selection.adapter}' for target '${selection.target}'.`, ExitCode.usage)
   }
@@ -206,10 +203,6 @@ export async function flashCommand(ctx, parsed, rest, options, { monitor = false
     case 'geaos-arm64': {
       const app = optionalApp(ctx, parsed, rest, selection)
       return runGeaos({ ctx, selection, action: monitor ? 'flash-monitor' : 'flash', app, positionals: rest, env, dryRun: base.dryRun, stdout: base.stdout })
-    }
-    case 'taurus-s3': {
-      const app = optionalApp(ctx, parsed, rest, selection)
-      return runTargetHook({ ctx, selection, action: 'flash', app, env, dryRun: base.dryRun, stdout: base.stdout })
     }
     default:
       fail(`Unknown adapter '${selection.adapter}' for target '${selection.target}'.`, ExitCode.usage)

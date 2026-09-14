@@ -251,35 +251,64 @@ Validation rules:
 
 ### Native build contributions
 
-An app targeting a native board may also carry three optional fields. All three
-are resolved against the app root and validated by `gea doctor`.
+A target entry is `true` for "enabled with defaults", or an object that both
+enables the target and configures it. Keeping the two together makes the
+contradictory state -- a disabled target carrying configuration -- impossible to
+write. `defines` and `nativeSources` stay at the top level because they mean the
+same thing for any native target.
 
 ```jsonc
 {
   "gea": {
-    "nativeSources": ["native/engine.cpp"],  // compiled into the board's main component
+    "nativeSources": ["native/engine.cpp"],
     "defines": { "GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS": 4 },
-    "ldFragments": "native/memory.lf"        // string or array
+    "targets": {
+      "web": true,
+      "esp32": {
+        "componentDirs": ["native/audio", "third_party/usb"],
+        "linkOptions": ["-Wl,--wrap=tlsf_memalign_offs"],
+        "embedFiles": { "factory_model": "assets/model.namb" },
+        "ldFragments": "native/memory.lf",
+        "sdkconfig": "native/sdkconfig.defaults",
+        "prebuild": "node scripts/pack-assets.mjs",
+        "partitions": {
+          "nvs":    { "type": "data", "subtype": "nvs",   "size": "24K", "offset": "0x9000" },
+          "ota_0":  { "type": "app",  "subtype": "ota_0", "size": "4M" },
+          "models": { "type": "data", "subtype": "0x40",  "size": "6M", "data": "build/models.bin" }
+        }
+      }
+    }
   }
 }
 ```
 
-- `nativeSources` — C/C++/ObjC sources. Their directories become include paths.
+- `nativeSources` — C/C++/ObjC sources compiled into the board's main component.
+  Their directories become include paths.
 - `defines` — preprocessor macros, as an object or as `NAME=value` strings; a
   value of `true` emits a bare define and `false` drops the entry. These apply
-  to the **whole** native build, not only the app's own sources: a macro that
-  sizes a framework type (a cache-slot count, say) changes that type's layout,
-  so the framework and the app must be compiled with the same value or they
-  disagree about a struct at link.
-- `ldFragments` — ESP-IDF linker fragment files (`.lf`). This is how an app
-  places sections in a particular memory — for example moving Gea's
-  zero-initialised statics to PSRAM so a realtime audio path keeps the scarce
-  internal SRAM. Each mapping names the archive it applies to, so a fragment can
-  target the framework as well as the app.
+  to the **whole** native build: a macro that sizes a framework type changes
+  that type's layout, so the framework and the app must agree on it.
+- `componentDirs` — extra ESP-IDF component directories. A component is not a
+  list of files: it carries its own compile options, `REQUIRES` and conditions,
+  which is why these cannot be folded into `nativeSources`.
+- `linkOptions` — linker flags, e.g. `-Wl,--wrap=<symbol>`.
+- `embedFiles` — `{ symbol: file }`. The bytes go into the application image and
+  the firmware reaches them by that symbol. Covers both `EMBED_FILES` and
+  `target_add_binary_data(... RENAME_TO)`.
+- `ldFragments` — ESP-IDF linker fragment files (`.lf`), for placing sections in
+  a particular memory. Each mapping names the archive it applies to, so a
+  fragment can target the framework as well as the app.
+- `partitions` — a path to an existing partition CSV, or the table itself. The
+  object form generates the CSV, and a partition's `data` file is flashed into
+  it: keeping the payload on the same line as the size means a payload cannot
+  name a partition that does not exist. `embedFiles` and `data` are different
+  things; an app may want both, e.g. to repair a stale data partition at boot
+  from the copy carried in the image.
+- `sdkconfig` — the app's own `sdkconfig.defaults`, replacing the board's.
+- `prebuild` — a command run before the build, for generating the files the
+  fields above refer to.
 
-Boards need no change to accept any of them: the esp32 backend passes them to
-CMake, `targets/esp32/gea_framework.cmake` applies the defines as a build
-property, and the shared `gea_framework` component registers the fragments.
+Boards need no per-board change to accept any of this.
 
 ## Backend Contract
 

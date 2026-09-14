@@ -14,7 +14,7 @@ test('RAM-only GeaOS deployment never selects the legacy flash script', () => {
     const lines = []
     runGeaos({ ctx: { projectRoot: '/apps' }, selection, action, env: {}, dryRun: true,
       stdout: line => lines.push(line) })
-    assert.deepEqual(lines, [`/geaos/boards/w87/board.py ${expected} taurus-pedal`])
+    assert.deepEqual(lines, [`/geaos/boards/w87/board.py ${expected}`])
   }
   assert.throws(() => runGeaos({ ctx: { projectRoot: '/apps' }, selection, action: 'flash-kernel',
     env: {}, dryRun: true, stdout() {} }), /not supported by this RAM-only target/)
