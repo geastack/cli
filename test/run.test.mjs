@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { CliError, ExitCode } from '../src/errors.mjs'
-import { formatCommand, runExternal } from '../src/run.mjs'
+import { formatCommand, runExternal, runQuiet } from '../src/run.mjs'
+
+// Exits 0 only when the argument survived the trip to the child intact, so a
+// shell that ate the quotes shows up as a failing status rather than a pass.
+const echoArgScript = 'process.exit(process.argv[1] === "two words" ? 0 : 3)'
 
 test('formatCommand shell-quotes spaces and apostrophes', () => {
   assert.equal(
@@ -29,4 +33,16 @@ test('runExternal maps failed child status to requested exit code', () => {
     }),
     (error) => error instanceof CliError && error.exitCode === ExitCode.buildFailed && /Command failed/.test(error.message)
   )
+})
+
+test('runExternal keeps arguments intact through the sync path', () => {
+  assert.equal(runExternal(process.execPath, ['-e', echoArgScript, 'two words']), 0)
+})
+
+test('runQuiet keeps arguments intact through the async path', async () => {
+  await runQuiet(process.execPath, ['-e', echoArgScript, 'two words'], { stdout: () => {} })
+})
+
+test('runExternal resolves commands that exist only as a PATH shim', { skip: process.platform !== 'win32' }, () => {
+  assert.equal(runExternal('npm', ['--version'], { stdout: () => {} }), 0)
 })
