@@ -1,6 +1,6 @@
 {
   "name": "@geastack/cli",
-  "version": "0.1.62",
+  "version": "0.1.63",
   "type": "module",
   "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
   "publishConfig": {
