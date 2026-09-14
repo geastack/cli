@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 // ESP-IDF's generated sdkconfig is mutable build state. It lives beside the
@@ -7,7 +8,7 @@ import path from 'node:path'
 // stale target-root sdkconfig old builds left behind. The file starts empty:
 // a partial sdkconfig is valid Kconfig input and IDF fills everything else
 // from sdkconfig.defaults on the first configure.
-export function prepareBuildLocalSdkconfig(targetDir, buildDir) {
+export function prepareBuildLocalSdkconfig(targetDir, buildDir, appDefaultsFile = '') {
   const normalized = path.normalize(buildDir)
   if (!buildDir || normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.split(path.sep).includes('..')) {
     throw new Error(`Invalid ESP32 build directory: ${buildDir}`)
@@ -16,8 +17,24 @@ export function prepareBuildLocalSdkconfig(targetDir, buildDir) {
   const defaultsFile = path.join(targetDir, 'sdkconfig.defaults')
   if (!existsSync(defaultsFile)) throw new Error(`ESP32 sdkconfig defaults not found: ${defaultsFile}`)
   mkdirSync(path.dirname(file), { recursive: true })
+  // The generated sdkconfig outranks every defaults file, so once a build
+  // directory exists it answers questions the defaults have since changed their
+  // mind about -- and DELETING a line from a defaults file could never take
+  // effect at all. It is derived state, not an answer anyone typed, so it is
+  // thrown away whenever the files it was derived from change and IDF builds it
+  // again. The stamp is what makes that a change and not a rebuild every time.
+  const stamp = `${file}.inputs`
+  const inputs = createHash('sha256')
+    .update(readFileSync(defaultsFile))
+    .update('\0')
+    .update(appDefaultsFile && existsSync(appDefaultsFile) ? readFileSync(appDefaultsFile) : Buffer.alloc(0))
+    .digest('hex')
+  const generated = existsSync(file) ? readFileSync(file, 'utf8') : ''
+  const stale = generated !== '' && (!existsSync(stamp) || readFileSync(stamp, 'utf8') !== inputs)
+  if (stale) rmSync(file, { force: true })
   if (!existsSync(file)) writeFileSync(file, '')
-  return { file, defaultsFile }
+  writeFileSync(stamp, inputs)
+  return { file, defaultsFile, regenerated: stale }
 }
 
 function splitLines(text) {

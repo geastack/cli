@@ -165,7 +165,13 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   }
   const idfTarget = selection.idfTarget || 'esp32s3'
   const buildDir = esp32BuildDir(ctx, selection, app?.id, env)
-  const { file: sdkconfigFile, defaultsFile } = prepareBuildLocalSdkconfig(selection.targetDir, buildDir)
+  // gea.targets.esp32.sdkconfig: the app's own Kconfig defaults, layered over
+  // the board's. IDF reads a ';'-separated SDKCONFIG_DEFAULTS list in order, so
+  // the app's file is last and wins wherever the two disagree.
+  const appEsp32Config = app ? appTargetConfig(app, 'esp32') : null
+  const appSdkconfigFile = appEsp32Config?.sdkconfig ? path.join(app.root, appEsp32Config.sdkconfig) : ''
+  const { file: sdkconfigFile, defaultsFile, regenerated } = prepareBuildLocalSdkconfig(selection.targetDir, buildDir, appSdkconfigFile)
+  if (regenerated) log('sdkconfig defaults changed; the generated sdkconfig was rebuilt from them')
   log(`Using ESP32 target '${selection.target}' at ${selection.targetDir} (idf=${idfTarget} chip=${selection.esptoolChip || idfTarget} flash=${selection.flashSize})`)
 
   const childEnv = { ...env }
@@ -209,18 +215,13 @@ function preparePartitions(app, config, buildDir) {
 }
 
   let appPartitionCsv = ''
-  let appSdkconfigFile = ''
   let capabilities = { network: false, ble: false, bleApi: false, audio: false, bindings: [], features: [] }
   if (app) {
     capabilities = resolveAppCapabilities(ctx, app, { env })
     if (bleOta) capabilities.ble = true
     const meta = appCmakeMeta(ctx, app)
     const appDefines = appCmakeDefines(app)
-    const esp32Config = appTargetConfig(app, 'esp32')
-    // gea.targets.esp32.sdkconfig: the app's own Kconfig defaults, layered over
-    // the board's. IDF reads a ';'-separated SDKCONFIG_DEFAULTS list in order,
-    // so the app's file is last and wins wherever the two disagree.
-    if (esp32Config.sdkconfig) appSdkconfigFile = path.join(app.root, esp32Config.sdkconfig)
+    const esp32Config = appEsp32Config
     // Runs before the partition table is read and before configure, because it
     // is what produces the files embedFiles and a partition's data refer to.
     runAppPrebuild(app, esp32Config, { dryRun, log })

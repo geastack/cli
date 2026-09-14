@@ -200,6 +200,30 @@ test('an app that runs its own Bluetooth stack keeps the controller the Gea BLE 
   assert.match(layered, /^CONFIG_BT_NIMBLE_MAX_CONNECTIONS=4$/m)
 })
 
+test('the generated sdkconfig is rebuilt when the defaults it came from change', (t) => {
+  const fixture = createFixture(t)
+  const board = path.join(fixture.root, 'board')
+  mkdirSync(board, { recursive: true })
+  writeFileSync(path.join(board, 'sdkconfig.defaults'), 'CONFIG_BOARD=y\n')
+  const appDefaults = path.join(fixture.root, 'app.sdkconfig.defaults')
+  writeFileSync(appDefaults, 'CONFIG_APP_ONE=y\n')
+  const first = prepareBuildLocalSdkconfig(board, 'build/app', appDefaults)
+  assert.equal(first.regenerated, false)
+  // Whatever IDF generated last time, including answers the defaults have since
+  // stopped asking for.
+  writeFileSync(first.file, 'CONFIG_APP_ONE=y\nCONFIG_APP_STALE=y\n')
+  assert.equal(prepareBuildLocalSdkconfig(board, 'build/app', appDefaults).regenerated, false, 'unchanged inputs keep the generated file')
+  assert.equal(readFileSync(first.file, 'utf8'), 'CONFIG_APP_ONE=y\nCONFIG_APP_STALE=y\n')
+  // Deleting a line from the defaults is a change like any other: the derived
+  // file goes, so the setting it used to carry cannot outlive it.
+  writeFileSync(appDefaults, '')
+  const after = prepareBuildLocalSdkconfig(board, 'build/app', appDefaults)
+  assert.equal(after.regenerated, true)
+  assert.equal(readFileSync(after.file, 'utf8'), '')
+  writeFileSync(path.join(board, 'sdkconfig.defaults'), 'CONFIG_BOARD=n\n')
+  assert.equal(prepareBuildLocalSdkconfig(board, 'build/app', appDefaults).regenerated, false, 'an empty generated file has nothing to throw away')
+})
+
 test('assertions follow the board: sticks3 disables, silent defaults stay silent', (t) => {
   const sticks = policy(t, { boardName: 'sticks3' })
   assert.match(sticks, /^CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y$/m)
