@@ -9,6 +9,7 @@ import { applySdkconfigPolicy, esp32BuildDir } from '../src/esp32/build.mjs'
 import { manifestRequestsBleOta, parseAnalysis, resolveAppCapabilities } from '../src/esp32/capabilities.mjs'
 import { activateEspIdf, esptoolCommand, findEspIdf, findIdfPythonEnv } from '../src/esp32/idf-env.mjs'
 import { DEFAULT_ESP_IDF_VERSION, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
+import { flashOptions } from '../src/esp32/flash.mjs'
 import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from '../src/esp32/partitions.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig, withSdkconfigUnset, withSdkconfigValue } from '../src/esp32/sdkconfig.mjs'
 import { quoteCString, wifiConfigContents } from '../src/esp32/wifi-config.mjs'
@@ -321,3 +322,25 @@ test('partition tables answer slot offsets, sizes and build image offsets', (t) 
   assert.equal(flashOffsetForBuildImage(buildDir, path.join(buildDir, 'bootloader/bootloader.bin'), '0x1000'), '0x0')
   assert.equal(flashOffsetForBuildImage(buildDir, path.join(buildDir, 'missing.bin'), '0x2000'), '0x2000')
 })
+
+test('a USB-Serial-JTAG board is restarted by its watchdog, not by the reset pin', () => {
+  // The pin sequence that ends esptool's hard reset is the one that enters ROM
+  // download mode, and the chip can stay there instead of booting the app it
+  // just verified -- a dark panel that looks like a bad image.
+  const jtag = flashOptions({}, { idf: { version: { major: 6 } }, selection: { idfTarget: 'esp32s3' } })
+  assert.equal(jtag.after, 'watchdog_reset')
+
+  // A chip without the peripheral is flashed through a UART bridge, where the
+  // reset pin is the only thing that can restart it.
+  const bridged = flashOptions({}, { idf: { version: { major: 6 } }, selection: { idfTarget: 'esp32' } })
+  assert.equal(bridged.after, 'hard_reset')
+
+  // esptool 4 (ESP-IDF 5) has no watchdog reset to ask for.
+  const old = flashOptions({}, { idf: { version: { major: 5 } }, selection: { idfTarget: 'esp32s3' } })
+  assert.equal(old.after, 'hard_reset')
+
+  // --no-reset means leave the chip where esptool left it, whatever the board.
+  const held = flashOptions({}, { idf: { version: { major: 6 } }, selection: { idfTarget: 'esp32s3' }, noReset: true })
+  assert.equal(held.after, 'no_reset')
+})
+

@@ -18,10 +18,10 @@ export function espIdfVersion(idfDir) {
     const major = text.match(/set\(IDF_VERSION_MAJOR\s+(\d+)\)/)?.[1]
     const minor = text.match(/set\(IDF_VERSION_MINOR\s+(\d+)\)/)?.[1]
     const patch = text.match(/set\(IDF_VERSION_PATCH\s+(\d+)\)/)?.[1]
-    if (major && minor) return { majorMinor: `${major}.${minor}`, full: `${major}.${minor}.${patch || 0}` }
+    if (major && minor) return { major: Number(major), majorMinor: `${major}.${minor}`, full: `${major}.${minor}.${patch || 0}` }
   }
   const named = path.basename(idfDir).match(/^esp-idf-v(\d+\.\d+)(?:\.(\d+))?/)
-  if (named) return { majorMinor: named[1], full: `${named[1]}.${named[2] || 0}` }
+  if (named) return { major: Number(named[1].split('.')[0]), majorMinor: named[1], full: `${named[1]}.${named[2] || 0}` }
   return null
 }
 

@@ -13,20 +13,40 @@ import { success, warn } from '../report.mjs'
 // a board re-enumerates after every reset, so the port is resolved again on
 // every attempt rather than cached.
 
-export function flashOptions(env, { manualBoot = false, noReset = false, baud = '' } = {}) {
+// esptool's RTS/DTR "hard reset" does not reliably launch the app on a board
+// flashed through the chip's own USB-Serial-JTAG. The pin sequence that ends
+// the reset is the same one that enters ROM download mode, so the chip can come
+// up in the ROM's UartConnCheck loop instead of the app -- a silent console and
+// a dark panel that look exactly like a bad image, on a board whose flash
+// verified byte for byte. Triggering the RTC watchdog from the flasher stub
+// resets the chip from the inside instead, where the strapping pins play no
+// part. Only esptool 5 (ESP-IDF 6) offers it, and only these chips have the
+// peripheral; everything else keeps the pin reset.
+const usbSerialJtagChips = new Set(['esp32s3', 'esp32c3', 'esp32c5', 'esp32c6', 'esp32c61', 'esp32h2', 'esp32p4'])
+
+function postFlashReset(idf, selection) {
+  if (!usbSerialJtagChips.has(esptoolChip(selection))) return 'hard-reset'
+  return Number(idf?.version?.major || 0) >= 6 ? 'watchdog_reset' : 'hard-reset'
+}
+
+export function flashOptions(env, { idf = null, selection = null, manualBoot = false, noReset = false, baud = '' } = {}) {
   const flashBaud = String(baud || env.GEA_ESP32_FLASH_BAUD || '921600')
   if (!/^[1-9]\d*$/.test(flashBaud)) fail(`--flash-baud must be a positive integer (got '${flashBaud}').`, ExitCode.usage)
   return {
     before: manualBoot ? 'no-reset' : 'default-reset',
-    after: noReset ? 'no-reset' : 'hard-reset',
+    after: noReset ? 'no-reset' : postFlashReset(idf, selection),
     baud: flashBaud,
     retrySeconds: Number(env.GEA_ESP32_FLASH_RETRY_SECONDS ?? 300),
     manualBootGraceSeconds: Number(env.GEA_ESP32_MANUAL_BOOT_GRACE_SECONDS ?? 4)
   }
 }
 
+function esptoolChip(selection) {
+  return selection?.esptoolChip || selection?.idfTarget || 'esp32s3'
+}
+
 function esptoolPrefix(selection, options) {
-  return ['--chip', selection.esptoolChip || selection.idfTarget || 'esp32s3', '--before', options.before, '--after', options.after, '-b', options.baud]
+  return ['--chip', esptoolChip(selection), '--before', options.before, '--after', options.after, '-b', options.baud]
 }
 
 function writeFlashArgs(selection, options, pairs, buildDir = '') {
