@@ -80,6 +80,12 @@ export function validateApp(app) {
   for (const source of app.nativeSources) {
     if (!exists(path.join(app.root, source))) errors.push(`gea.nativeSources entry does not exist: ${source}`)
   }
+  for (const fragment of app.ldFragments) {
+    if (!exists(path.join(app.root, fragment))) errors.push(`gea.ldFragments entry does not exist: ${fragment}`)
+  }
+  for (const define of app.defines) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*(?:=.*)?$/.test(define)) errors.push(`gea.defines entry is not a valid macro: ${define}`)
+  }
   return errors
 }
 
@@ -140,6 +146,19 @@ export function appCmakeMeta(ctx, app) {
   return [appRootFor(ctx, app), app.entry, app.runtime, ...app.nativeSources].join(';')
 }
 
+// Defines and linker fragments travel in their own variables rather than being
+// appended to the meta line: that line is positional and its tail is already
+// the native-source list, so a fourth kind of entry there could not be told
+// apart from a source. Both are ';'-joined for CMake's list syntax; fragment
+// paths are resolved against the app root so CMake needs no path logic.
+export function appCmakeDefines(app) {
+  return app.defines.join(';')
+}
+
+export function appCmakeLdFragments(app) {
+  return app.ldFragments.map((fragment) => path.join(app.root, fragment)).join(';')
+}
+
 export function appSummary(ctx, app) {
   return {
     id: app.id,
@@ -152,6 +171,8 @@ export function appSummary(ctx, app) {
     targets: app.targets,
     icons: app.icons,
     nativeSources: app.nativeSources,
+    defines: app.defines,
+    ldFragments: app.ldFragments,
     launcher: app.launcher
   }
 }
@@ -249,6 +270,39 @@ export function normalizeNativeSources(raw) {
   return [...new Set(sources)]
 }
 
+// Preprocessor macros the app needs applied to the WHOLE native build, not just
+// its own sources: a value such as a cache-slot count changes the layout of a
+// framework type, so the framework and the app must agree on it or the two
+// disagree about a struct's size at link. Accepts either an object
+// ({ GEA_X: 4, GEA_Y: 'text' }) or an array of ready-made `NAME=value` strings,
+// and normalizes both to the array form CMake consumes. A boolean true becomes
+// a bare define.
+export function normalizeDefines(raw) {
+  const entries = []
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (typeof item !== 'string') continue
+      entries.push(item.trim())
+    }
+  } else if (raw && typeof raw === 'object') {
+    for (const [name, value] of Object.entries(raw)) {
+      if (value === false || value === null || value === undefined) continue
+      entries.push(value === true ? name.trim() : `${name.trim()}=${value}`)
+    }
+  }
+  return [...new Set(entries.filter(Boolean))]
+}
+
+// ESP-IDF linker fragment files (.lf) the app contributes to the link. This is
+// how an app places its own -- or the framework's -- sections in a particular
+// memory, e.g. moving Gea's zero-initialised statics to PSRAM to leave the
+// scarce internal SRAM to a realtime audio path.
+export function normalizeLdFragments(raw) {
+  const list = typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw : []
+  const fragments = list.map(normalizeManifestRelativePath).filter((fragment) => fragment.endsWith('.lf'))
+  return [...new Set(fragments)]
+}
+
 export function normalizeApp(root, packageJson) {
   const gea = packageJson.gea || {}
   const id = typeof gea.id === 'string' && gea.id ? gea.id : packageId(packageJson.name)
@@ -263,6 +317,8 @@ export function normalizeApp(root, packageJson) {
     targets: normalizeTargets(gea.targets),
     icons: normalizeIcons(gea.icons),
     nativeSources: normalizeNativeSources(gea.nativeSources),
+    defines: normalizeDefines(gea.defines),
+    ldFragments: normalizeLdFragments(gea.ldFragments),
     launcher: normalizeLauncher(gea.launcher),
     manifest: gea,
     packageJson

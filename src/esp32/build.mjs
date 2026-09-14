@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { loadChipCatalogFromDir, writeCustomTarget } from '../boards/custom-target.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
-import { appCmakeMeta } from '../manifest.mjs'
+import { appCmakeMeta, appCmakeDefines, appCmakeLdFragments } from '../manifest.mjs'
 import { formatCommand } from '../run.mjs'
 import { resolveAppCapabilities } from './capabilities.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
@@ -172,7 +172,11 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     capabilities = resolveAppCapabilities(ctx, app, { env })
     if (bleOta) capabilities.ble = true
     const meta = appCmakeMeta(ctx, app)
+    const appDefines = appCmakeDefines(app)
+    const appLdFragments = appCmakeLdFragments(app)
     idfArgs.push(`-DGEA_EMBEDDED_APP=${app.id}`, `-DGEA_EMBEDDED_APP_META=${meta}`)
+    if (appDefines) idfArgs.push(`-DGEA_EMBEDDED_APP_DEFINES=${appDefines}`)
+    if (appLdFragments) idfArgs.push(`-DGEA_EMBEDDED_APP_LDFRAGMENTS=${appLdFragments}`)
     idfArgs.push(
       `-DGEA_EMBEDDED_CAPABILITY_NETWORK=${capabilities.network ? 1 : 0}`,
       `-DGEA_EMBEDDED_CAPABILITY_BLE=${capabilities.ble ? 1 : 0}`,
@@ -183,6 +187,8 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     // conditional components such as bt enter the dependency graph.
     childEnv.GEA_EMBEDDED_APP = app.id
     childEnv.GEA_EMBEDDED_APP_META = meta
+    if (appDefines) childEnv.GEA_EMBEDDED_APP_DEFINES = appDefines
+    if (appLdFragments) childEnv.GEA_EMBEDDED_APP_LDFRAGMENTS = appLdFragments
     childEnv.GEA_EMBEDDED_CAPABILITY_NETWORK = capabilities.network ? '1' : '0'
     childEnv.GEA_EMBEDDED_CAPABILITY_BLE = capabilities.ble ? '1' : '0'
     childEnv.GEA_EMBEDDED_CAPABILITY_AUDIO = capabilities.audio ? '1' : '0'

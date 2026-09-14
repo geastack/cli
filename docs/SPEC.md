@@ -249,6 +249,38 @@ Validation rules:
 - target backends may reject apps whose runtime or capabilities they do not
   support.
 
+### Native build contributions
+
+An app targeting a native board may also carry three optional fields. All three
+are resolved against the app root and validated by `gea doctor`.
+
+```jsonc
+{
+  "gea": {
+    "nativeSources": ["native/engine.cpp"],  // compiled into the board's main component
+    "defines": { "GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS": 4 },
+    "ldFragments": "native/memory.lf"        // string or array
+  }
+}
+```
+
+- `nativeSources` — C/C++/ObjC sources. Their directories become include paths.
+- `defines` — preprocessor macros, as an object or as `NAME=value` strings; a
+  value of `true` emits a bare define and `false` drops the entry. These apply
+  to the **whole** native build, not only the app's own sources: a macro that
+  sizes a framework type (a cache-slot count, say) changes that type's layout,
+  so the framework and the app must be compiled with the same value or they
+  disagree about a struct at link.
+- `ldFragments` — ESP-IDF linker fragment files (`.lf`). This is how an app
+  places sections in a particular memory — for example moving Gea's
+  zero-initialised statics to PSRAM so a realtime audio path keeps the scarce
+  internal SRAM. Each mapping names the archive it applies to, so a fragment can
+  target the framework as well as the app.
+
+Boards need no change to accept any of them: the esp32 backend passes them to
+CMake, `targets/esp32/gea_framework.cmake` applies the defines as a build
+property, and the shared `gea_framework` component registers the fragments.
+
 ## Backend Contract
 
 Each target backend should expose enough metadata for the CLI to:

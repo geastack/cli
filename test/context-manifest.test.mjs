@@ -7,6 +7,8 @@ import { createChildEnv, createContext } from '../src/context.mjs'
 import { loadTargets } from '../src/boards/targets.mjs'
 import {
   appCmakeMeta,
+  appCmakeDefines,
+  appCmakeLdFragments,
   appPlatformForTarget,
   appPlatformsForTarget,
   discoverApps,
@@ -121,4 +123,51 @@ test('manifest helpers validate current app and installed target metadata', (t) 
 
   const bad = findCurrentApp(fixture.badAppDir)
   assert.deepEqual(validateApp(bad), ['gea.entry does not exist: missing.tsx'])
+})
+
+test('an app declares compile defines and linker fragments for the native build', (t) => {
+  const fixture = createFixture(t)
+  const root = path.join(fixture.root, 'apps', 'pedal')
+  writeJson(path.join(root, 'package.json'), {
+    name: 'pedal',
+    gea: {
+      id: 'pedal',
+      entry: 'index.tsx',
+      targets: { esp32: true },
+      defines: { GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS: 4, GEA_RUNTIME_COMPACT_ALLOCATION: true, GEA_UNUSED: false },
+      ldFragments: 'memory.lf'
+    }
+  })
+  const app = findCurrentApp(root)
+  assert.deepEqual(app.defines, ['GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS=4', 'GEA_RUNTIME_COMPACT_ALLOCATION'])
+  assert.deepEqual(app.ldFragments, ['memory.lf'])
+  assert.equal(appCmakeDefines(app), 'GEA_EMBEDDED_UI_TRANSFORM_CACHE_SLOTS=4;GEA_RUNTIME_COMPACT_ALLOCATION')
+  assert.equal(appCmakeLdFragments(app), path.join(root, 'memory.lf'))
+  // The meta line stays positional: defines and fragments must not leak into it.
+  const ctx = createContext(parseArgs([]), {}, fixture.root)
+  assert.equal(appCmakeMeta(ctx, app).includes('memory.lf'), false)
+  assert.ok(validateApp(app).includes('gea.ldFragments entry does not exist: memory.lf'))
+})
+
+test('an array of defines is accepted and invalid macros are reported', (t) => {
+  const fixture = createFixture(t)
+  const root = path.join(fixture.root, 'apps', 'arrayed')
+  writeJson(path.join(root, 'package.json'), {
+    name: 'arrayed',
+    gea: { id: 'arrayed', entry: 'index.tsx', targets: { esp32: true }, defines: ['GEA_A=1', 'GEA_B', '2BAD=1'] }
+  })
+  const app = findCurrentApp(root)
+  assert.deepEqual(app.defines, ['GEA_A=1', 'GEA_B', '2BAD=1'])
+  assert.ok(validateApp(app).includes('gea.defines entry is not a valid macro: 2BAD=1'))
+})
+
+test('an app without the new fields keeps empty lists', (t) => {
+  const fixture = createFixture(t)
+  const root = path.join(fixture.root, 'apps', 'plain')
+  writeJson(path.join(root, 'package.json'), { name: 'plain', gea: { id: 'plain', entry: 'index.tsx', targets: { esp32: true } } })
+  const app = findCurrentApp(root)
+  assert.deepEqual(app.defines, [])
+  assert.deepEqual(app.ldFragments, [])
+  assert.equal(appCmakeDefines(app), '')
+  assert.equal(appCmakeLdFragments(app), '')
 })
