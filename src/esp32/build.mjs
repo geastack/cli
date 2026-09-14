@@ -217,6 +217,11 @@ function preparePartitions(app, config, buildDir) {
       GEA_EMBEDDED_APP_DEFINES: appDefines,
       GEA_EMBEDDED_APP_LDFRAGMENTS: appCmakeLdFragments(app),
       GEA_EMBEDDED_APP_COMPONENT_DIRS: appTargetPaths(app, 'esp32', 'componentDirs').join(';'),
+      // Component names the app's own native sources include headers from or
+      // take PUBLIC compile definitions from. They land on the shared
+      // gea_framework component's REQUIRES, which is transitive, so the app's
+      // sources in `main` see them without every board declaring them.
+      GEA_EMBEDDED_APP_COMPONENT_REQUIRES: esp32Config.componentRequires.join(';'),
       GEA_EMBEDDED_APP_LINK_OPTIONS: esp32Config.linkOptions.join(';'),
       // `symbol=file` pairs; CMake splits each on the first '='.
       GEA_EMBEDDED_APP_EMBED_FILES: Object.entries(esp32Config.embedFiles)

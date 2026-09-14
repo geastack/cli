@@ -266,6 +266,7 @@ same thing for any native target.
       "web": true,
       "esp32": {
         "componentDirs": ["native/audio", "third_party/usb"],
+        "componentRequires": ["audio", "usb"],
         "linkOptions": ["-Wl,--wrap=tlsf_memalign_offs"],
         "embedFiles": { "factory_model": "assets/model.namb" },
         "ldFragments": "native/memory.lf",
@@ -291,6 +292,11 @@ same thing for any native target.
 - `componentDirs` — extra ESP-IDF component directories. A component is not a
   list of files: it carries its own compile options, `REQUIRES` and conditions,
   which is why these cannot be folded into `nativeSources`.
+- `componentRequires` — the component names the app's own `nativeSources` need
+  headers or `PUBLIC` compile definitions from. Registering a component through
+  `componentDirs` puts it in the build; it does not put it on the app sources'
+  include path, because those sources are compiled into the board's `main`
+  component and ESP-IDF resolves include paths through `REQUIRES`.
 - `linkOptions` — linker flags, e.g. `-Wl,--wrap=<symbol>`.
 - `embedFiles` — `{ symbol: file }`. The bytes go into the application image and
   the firmware reaches them by that symbol. Covers both `EMBED_FILES` and

@@ -140,6 +140,7 @@ test('a target entry both enables the target and configures its native build', (
         esp32: {
           ldFragments: 'memory.lf',
           componentDirs: ['native/audio'],
+          componentRequires: ['audio', 'nam', 'not a name'],
           linkOptions: ['-Wl,--wrap=tlsf_memalign_offs'],
           embedFiles: { model: 'assets/model.namb' },
           partitions: { models: { type: 'data', subtype: '0x40', size: '6M', data: 'build/models.bin' } },
@@ -155,6 +156,7 @@ test('a target entry both enables the target and configures its native build', (
   const esp32 = appTargetConfig(app, 'esp32')
   assert.deepEqual(esp32.ldFragments, ['memory.lf'])
   assert.deepEqual(esp32.componentDirs, ['native/audio'])
+  assert.deepEqual(esp32.componentRequires, ['audio', 'nam', 'not a name'])
   assert.deepEqual(esp32.linkOptions, ['-Wl,--wrap=tlsf_memalign_offs'])
   assert.deepEqual(esp32.embedFiles, { model: 'assets/model.namb' })
   assert.equal(esp32.partitions.models.size, '6M')
@@ -169,6 +171,8 @@ test('a target entry both enables the target and configures its native build', (
   const errors = validateApp(app)
   assert.ok(errors.includes('gea.targets.esp32.ldFragments entry does not exist: memory.lf'))
   assert.ok(errors.includes('gea.targets.esp32.componentDirs entry does not exist: native/audio'))
+  // A component name is an identifier, never a path or a phrase.
+  assert.ok(errors.includes('gea.targets.esp32.componentRequires is not a component name: not a name'))
   assert.ok(errors.includes('gea.targets.esp32.sdkconfig does not exist: native/sdkconfig.defaults'))
 })
 

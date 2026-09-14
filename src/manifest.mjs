@@ -88,6 +88,9 @@ export function validateApp(app) {
     for (const dir of config.componentDirs) {
       if (!exists(path.join(app.root, dir))) errors.push(`${where('componentDirs')} entry does not exist: ${dir}`)
     }
+    for (const name of config.componentRequires) {
+      if (!/^[A-Za-z0-9_.-]+$/.test(name)) errors.push(`${where('componentRequires')} is not a component name: ${name}`)
+    }
     if (config.sdkconfig && !exists(path.join(app.root, config.sdkconfig))) {
       errors.push(`${where('sdkconfig')} does not exist: ${config.sdkconfig}`)
     }
@@ -323,7 +326,7 @@ export function normalizeDefines(raw) {
 
 
 function emptyTargetConfig() {
-  return { ldFragments: [], componentDirs: [], linkOptions: [], embedFiles: {}, partitions: null, sdkconfig: '', prebuild: '' }
+  return { ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, sdkconfig: '', prebuild: '' }
 }
 
 function normalizeStringList(raw) {
@@ -377,6 +380,7 @@ function normalizeTargetConfig(raw) {
     configs[name] = {
       ldFragments: normalizeStringList(value.ldFragments).filter((entry) => entry.endsWith('.lf')).map(normalizeManifestRelativePath),
       componentDirs: normalizeStringList(value.componentDirs).map(normalizeManifestRelativePath),
+      componentRequires: normalizeStringList(value.componentRequires),
       linkOptions: normalizeStringList(value.linkOptions),
       embedFiles: normalizeEmbedFiles(value.embedFiles),
       partitions: normalizePartitions(value.partitions),
