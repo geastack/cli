@@ -177,6 +177,29 @@ function gea(args, fixture, extra = {}) {
   return runGea(args, { ...out.io, cwd: fixture.appDir, env: fixture.env, ...extra }).then((code) => ({ code, out: out.out.join('\n'), err: out.err.join('\n') }))
 }
 
+test('an app-declared CSS device pixel ratio reaches both the layout define and the font cache variable', async (t) => {
+  const fixture = createFixture(t)
+  const manifestPath = path.join(fixture.appDir, 'package.json')
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  manifest.gea.cssDevicePixelRatio = 2
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+  const dry = await gea(['build', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(dry.code, 0, dry.err)
+  // The board declares its own font ratio with a non-FORCE cache set, so this
+  // -D wins; the layout ratio rides along with the app's defines because those
+  // are applied to the whole native build, framework sources included.
+  assert.match(dry.out, /-DGEA_EMBEDDED_CSS_DEVICE_PIXEL_RATIO=2\.0/)
+  assert.match(dry.out, /-DGEA_EMBEDDED_APP_DEFINES=GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=2\.0/)
+})
+
+test('an app that declares no CSS device pixel ratio passes neither flag', async (t) => {
+  const fixture = createFixture(t)
+  const dry = await gea(['build', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(dry.code, 0, dry.err)
+  assert.doesNotMatch(dry.out, /DEVICE_PIXEL_RATIO/)
+})
+
 test('build configures and builds the app in its own ESP-IDF build directory', async (t) => {
   const fixture = createFixture(t)
   const buildDir = fixture.buildDir('esp32-s3-touch-amoled-2.06', 'watch')

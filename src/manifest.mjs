@@ -110,6 +110,9 @@ export function validateApp(app) {
   for (const define of app.defines) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*(?:=.*)?$/.test(define)) errors.push(`gea.defines entry is not a valid macro: ${define}`)
   }
+  if (Number.isNaN(app.cssDevicePixelRatio)) {
+    errors.push(`gea.cssDevicePixelRatio must be a positive number: ${JSON.stringify(app.manifest?.cssDevicePixelRatio)}`)
+  }
   return errors
 }
 
@@ -213,6 +216,7 @@ export function appSummary(ctx, app) {
     nativeSources: app.nativeSources,
     compilerPlugins: app.compilerPlugins,
     defines: app.defines,
+    cssDevicePixelRatio: app.cssDevicePixelRatio,
     targetConfig: app.targetConfig,
     launcher: app.launcher
   }
@@ -318,6 +322,20 @@ export function normalizeNativeSources(raw) {
 // ({ GEA_X: 4, GEA_Y: 'text' }) or an array of ready-made `NAME=value` strings,
 // and normalizes both to the array form CMake consumes. A boolean true becomes
 // a bare define.
+// A CSS device pixel ratio the APP declares: how many physical pixels one CSS px
+// in its own stylesheets is worth. It reaches two places that have to agree --
+// the layout ratio Application::init receives
+// (GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO) and the ratio geatsc bakes glyph
+// atlases at (GEA_EMBEDDED_CSS_DEVICE_PIXEL_RATIO, which a board otherwise
+// declares for itself). Absent, both keep their defaults, so an app that
+// declares nothing builds exactly as before. NaN marks a malformed value for
+// validateApp to report; 0 means "not declared".
+export function normalizeCssDevicePixelRatio(raw) {
+  if (raw === undefined || raw === null || raw === '') return 0
+  const ratio = typeof raw === 'string' ? Number(raw) : raw
+  return typeof ratio === 'number' && Number.isFinite(ratio) && ratio > 0 ? ratio : NaN
+}
+
 export function normalizeDefines(raw) {
   const entries = []
   if (Array.isArray(raw)) {
@@ -417,6 +435,7 @@ export function normalizeApp(root, packageJson) {
     nativeSources: normalizeNativeSources(gea.nativeSources),
     compilerPlugins: normalizeStringList(gea.compilerPlugins).map(normalizeManifestRelativePath),
     defines: normalizeDefines(gea.defines),
+    cssDevicePixelRatio: normalizeCssDevicePixelRatio(gea.cssDevicePixelRatio),
     targetConfig: normalizeTargetConfig(gea.targets),
     launcher: normalizeLauncher(gea.launcher),
     manifest: gea,

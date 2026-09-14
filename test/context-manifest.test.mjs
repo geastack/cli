@@ -206,6 +206,33 @@ test('an array of defines is accepted and invalid macros are reported', (t) => {
   assert.ok(validateApp(app).includes('gea.defines entry is not a valid macro: 2BAD=1'))
 })
 
+test('an app can declare its own CSS device pixel ratio', (t) => {
+  const fixture = createFixture(t)
+  const root = path.join(fixture.root, 'apps', 'dense')
+  writeJson(path.join(root, 'package.json'), {
+    name: 'dense',
+    gea: { id: 'dense', entry: 'index.tsx', targets: { esp32: true }, cssDevicePixelRatio: 2 }
+  })
+  const app = findCurrentApp(root)
+  assert.equal(app.cssDevicePixelRatio, 2)
+  assert.ok(!validateApp(app).some((line) => line.includes('cssDevicePixelRatio')))
+})
+
+test('a malformed CSS device pixel ratio is reported, and no ratio means zero', (t) => {
+  const fixture = createFixture(t)
+  const bad = path.join(fixture.root, 'apps', 'bad-dpr')
+  writeJson(path.join(bad, 'package.json'), {
+    name: 'bad-dpr',
+    gea: { id: 'bad-dpr', entry: 'index.tsx', targets: { esp32: true }, cssDevicePixelRatio: 'huge' }
+  })
+  const badApp = findCurrentApp(bad)
+  assert.ok(validateApp(badApp).some((line) => line.startsWith('gea.cssDevicePixelRatio must be a positive number')))
+
+  const plain = path.join(fixture.root, 'apps', 'no-dpr')
+  writeJson(path.join(plain, 'package.json'), { name: 'no-dpr', gea: { id: 'no-dpr', entry: 'index.tsx', targets: { esp32: true } } })
+  assert.equal(findCurrentApp(plain).cssDevicePixelRatio, 0)
+})
+
 test('an app without the new fields keeps empty lists', (t) => {
   const fixture = createFixture(t)
   const root = path.join(fixture.root, 'apps', 'plain')

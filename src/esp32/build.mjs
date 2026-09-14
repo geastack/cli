@@ -234,6 +234,15 @@ function runAppPrebuild(app, config, { dryRun, log }) {
 // instead of IDF's flash target: without it the flash would read the board's
 // static table and skip every payload, leaving a board with an app and no
 // factory data.
+// `2` -> `2.0`, `1.5` -> `1.5`, not declared -> ''. Keeps the value a double
+// literal for the C++ define while staying the plain decimal string CMake hands
+// to geatsc.
+function cssDevicePixelRatioLiteral(ratio) {
+  if (!(ratio > 0)) return ''
+  const text = String(ratio)
+  return text.includes('.') ? text : `${text}.0`
+}
+
 function preparePartitions(app, config, buildDir) {
   const plan = ({ csv = '', payloads = [] }) => {
     writeFlashPlan(buildDir, { csv, payloads })
@@ -255,7 +264,16 @@ function preparePartitions(app, config, buildDir) {
     capabilities = resolveAppCapabilities(ctx, app, { env })
     if (bleOta) capabilities.ble = true
     const meta = appCmakeMeta(ctx, app)
-    const appDefines = appCmakeDefines(app)
+    // gea.cssDevicePixelRatio lands in two places that have to agree. The
+    // layout ratio travels with the app's own defines, because those go on the
+    // whole native build -- the framework's runtime.cpp is what reads it. The
+    // font ratio is a cache variable each board declares with a plain
+    // `set(... CACHE STRING ...)`, so a -D of the same name, which exists before
+    // the board's CMakeLists runs, wins without the board knowing about apps.
+    const cssDpr = cssDevicePixelRatioLiteral(app.cssDevicePixelRatio)
+    const appDefines = [appCmakeDefines(app), cssDpr && `GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=${cssDpr}`]
+      .filter(Boolean)
+      .join(';')
     const esp32Config = appEsp32Config
     // Runs before the partition table is read and before configure, because it
     // is what produces the files embedFiles and a partition's data refer to.
@@ -283,6 +301,7 @@ function preparePartitions(app, config, buildDir) {
       GEA_EMBEDDED_APP_GEATSC_PLUGINS: app.compilerPlugins.map((plugin) => path.join(app.root, plugin)).join(';')
     }
     idfArgs.push(`-DGEA_EMBEDDED_APP=${app.id}`, `-DGEA_EMBEDDED_APP_META=${meta}`)
+    if (cssDpr) idfArgs.push(`-DGEA_EMBEDDED_CSS_DEVICE_PIXEL_RATIO=${cssDpr}`)
     for (const [name, value] of Object.entries(appNative)) if (value) idfArgs.push(`-D${name}=${value}`)
     idfArgs.push(
       `-DGEA_EMBEDDED_CAPABILITY_NETWORK=${capabilities.network ? 1 : 0}`,
