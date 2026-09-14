@@ -192,6 +192,26 @@ test('the sdkconfig policy sets development logging, stacks and the S3 instructi
   assert.match(boardCache, /^CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y$/m)
 })
 
+test("an app's own defaults outrank the board's internal-memory policy", (t) => {
+  // The generated sdkconfig outranks every defaults file, so a value the policy
+  // writes is not a tie-break -- it is the last word, and without this an app
+  // could never change these however it edited its own defaults.
+  const appDefaults = [
+    'CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192',
+    'CONFIG_ESP_IPC_TASK_STACK_SIZE=2048',
+    'CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384',
+    ''
+  ].join('\n')
+  const text = policy(t, { appDefaults, existing: 'CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768\n' })
+  assert.match(text, /^CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192$/m)
+  assert.match(text, /^CONFIG_ESP_IPC_TASK_STACK_SIZE=2048$/m)
+  assert.match(text, /^CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384$/m)
+
+  // A board default is not the app asking: the board's own policy value stands.
+  const boardOnly = policy(t, { defaults: 'CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192\n' })
+  assert.match(boardOnly, /^CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768$/m)
+})
+
 test('an app that runs its own Bluetooth stack keeps the controller the Gea BLE API never asked for', (t) => {
   const appDefaults = 'CONFIG_BT_ENABLED=y\nCONFIG_BT_NIMBLE_ENABLED=y\n'
   // Sticky state from a build configured before the app asked for Bluetooth:

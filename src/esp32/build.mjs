@@ -64,6 +64,13 @@ export function requireEspIdf(env, log) {
 export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta, partitionCsv }) {
   const set = (key, value) => sdkconfig.set(key, value)
   const unset = (key) => sdkconfig.unset(key)
+  // A board value the app's own defaults may replace. Every value this policy
+  // writes lands in the generated sdkconfig, which outranks every defaults file
+  // (IDF's "Defaults policy: sdkconfig") -- so a board value written here does
+  // not merely win a tie, it silently overrules what the app asked for, and no
+  // edit to the app's defaults can ever take effect. The app is the more
+  // specific declaration, so it wins.
+  const board = (key, value) => sdkconfig.set(key, sdkconfig.appDefaultValue(key) || value)
 
   // An app that declares its own partitions replaces the board's table. The
   // path is absolute because a generated table lives in the build directory,
@@ -76,10 +83,15 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
     set('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME', `"${partitionCsv}"`)
   }
 
-  set('CONFIG_ESP_MAIN_TASK_STACK_SIZE', String(selection.mainTaskStackSize || 32768))
-  set('CONFIG_ESP_IPC_TASK_STACK_SIZE', String(selection.ipcTaskStackSize || 16384))
-  set('CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY', 'y')
-  set('CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL', '0')
+  // These four are all internal-DRAM decisions, which is the memory an app's
+  // own DMA buffers and real-time arenas come from: the two task stacks are
+  // allocated from it, and the two PSRAM settings decide how much of the rest
+  // stays available. An app that sizes them itself knows its own budget better
+  // than the board does.
+  board('CONFIG_ESP_MAIN_TASK_STACK_SIZE', String(selection.mainTaskStackSize || 32768))
+  board('CONFIG_ESP_IPC_TASK_STACK_SIZE', String(selection.ipcTaskStackSize || 16384))
+  board('CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY', 'y')
+  board('CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL', '0')
 
   // The S3's default 16 KB instruction cache is too small for a frame's code
   // working set; 32 KB cut a whole frame ~35% for 16 KB of internal SRAM.

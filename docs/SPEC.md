@@ -321,6 +321,13 @@ same thing for any native target.
   changes. Turning `CONFIG_BT_ENABLED` on here is how an app that drives a
   Bluetooth stack from its own native sources, rather than through the Gea BLE
   API, keeps the controller in the build.
+  It also outranks the CLI's own board policy. ESP-IDF's "Defaults policy:
+  sdkconfig" makes the generated `sdkconfig` the last word over every defaults
+  file, so a value the CLI writes there would otherwise be unanswerable however
+  the app edits its own defaults. Where the app names one of those keys, the
+  app's value is what gets written -- the S3 instruction-cache size, the main
+  and IPC task stacks, and the PSRAM malloc placement, all of which decide how
+  much internal SRAM is left for an app's own DMA buffers and real-time arenas.
 - `prebuild` — a command run before the build, for generating the files the
   fields above refer to.
 
