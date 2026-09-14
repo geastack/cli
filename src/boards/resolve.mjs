@@ -84,8 +84,9 @@ export function resolveBoardSelection({
     } else if (boardName) {
       // A WiFi-only board hits this on monitor/screenshot. Point at the
       // cable-free command instead of dead-ending on USB.
+      const flag = Object.keys(boards).length > 1 ? ` --board ${boardName}` : ''
       const wireless = boardTransport(board, 'ota').host
-        ? ` This board has transports.ota.host, so 'gea logs --board ${boardName}' and 'gea screenshot --board ${boardName}' work with no cable.`
+        ? ` This board has transports.ota.host, so 'gea logs${flag}' and 'gea screenshot${flag}' work with no cable.`
         : ''
       throw new Error(`Board '${boardName}' does not define transports.usbSerial.serial, and no USB port was passed.${wireless}`)
     }

@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import { flag, option, optionList } from '../args.mjs'
+import { loadBoardConfig, normalizeBoardConfig } from '../boards/config.mjs'
 import { resolveBoardSelection } from '../boards/resolve.mjs'
 import { resolveUsbSerialPort } from '../boards/usb.mjs'
 import { createChildEnv } from '../context.mjs'
@@ -15,12 +16,13 @@ import { runGeaos } from '../geaos/adapter.mjs'
 import { assertTargetEnabled, assertValidApp, discoverApps, resolveRequestedApp, targetEnabledForApp } from '../manifest.mjs'
 import { buildRp2350, flashRp2350, rp2350BuildDir } from '../rp2350/adapter.mjs'
 import { runXbox } from '../xbox/adapter.mjs'
+import { success } from '../report.mjs'
 
 // Every board-facing command: resolve the alias, pick the adapter, run.
 
 export function selectBoard(ctx, parsed, needs = {}) {
-  const boardName = option(parsed, 'board', '')
   const targetName = option(parsed, 'target', '')
+  const boardName = option(parsed, 'board', '') || (targetName ? '' : onlyRegisteredBoard(ctx))
   if (!boardName && !targetName) fail('--board <alias> is required (see gea boards list).', ExitCode.usage)
   try {
     return resolveBoardSelection({
@@ -35,6 +37,16 @@ export function selectBoard(ctx, parsed, needs = {}) {
   } catch (error) {
     fail(error.message, ExitCode.usage)
   }
+}
+
+// A single registered alias needs no --board; several do, and the error names
+// them so the reader can pick.
+function onlyRegisteredBoard(ctx) {
+  const aliases = Object.keys(normalizeBoardConfig(loadBoardConfig(ctx)))
+  if (aliases.length === 1) return aliases[0]
+  if (aliases.length > 1) fail(`--board <alias> is required, several boards are registered: ${aliases.join(', ')}.`, ExitCode.usage)
+
+  return ''
 }
 
 function optionalApp(ctx, parsed, rest, selection, { required = false } = {}) {
@@ -56,6 +68,18 @@ function optionalApp(ctx, parsed, rest, selection, { required = false } = {}) {
   assertValidApp(app)
   assertTargetEnabled(ctx, app, selection.boardName || selection.target)
   return app
+}
+
+// An app that asked for BLE updates at create time updates over BLE unless
+// --transport says otherwise. Outside an app folder there is nothing to read,
+// and Wi-Fi stays the default.
+function defaultOtaTransport(ctx, parsed, rest) {
+  try {
+    const app = resolveRequestedApp(ctx, parsed, option(parsed, 'app') || rest[0] ? rest : [])
+    return manifestRequestsBleOta(app?.packageJson) ? 'ble' : 'wifi'
+  } catch {
+    return 'wifi'
+  }
 }
 
 function bleOtaRequested(parsed, app, env) {
@@ -100,7 +124,7 @@ export async function buildCommand(ctx, parsed, rest, options) {
     case 'xbox-uwp':
       return runXbox({ app, action: 'build', env, dryRun: base.dryRun, stdout: base.stdout })
     case 'esp32-idf': {
-      buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr, configureOnly: flag(parsed, 'configure-only') })
+      await buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr, configureOnly: flag(parsed, 'configure-only') })
       return 0
     }
     case 'rp2350-pico':
@@ -140,7 +164,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   const idf = requireEspIdf(env, base.stdout)
   const flashEnv = idf.env
   const opts = flashOptions(flashEnv, { manualBoot: flag(parsed, 'manual-boot'), noReset: option(parsed, 'reset') === false, baud: option(parsed, 'flash-baud', '') })
-  const common = { idf, selection, options: opts, port: selection.port, env: flashEnv, dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr }
+  const common = { idf, selection, options: opts, port: selection.port, env: flashEnv, dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr }
   const slotImages = optionList(parsed, 'slot-image')
   const eraseSlotName = option(parsed, 'erase-slot', '')
   const slot = option(parsed, 'slot', '')
@@ -166,7 +190,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
 
   let image = explicitImage ? path.resolve(ctx.cwd, explicitImage) : images.app
   if (!explicitImage && !flag(parsed, 'no-build')) {
-    buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr })
+    await buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr })
   }
   const appLabel = app?.id || 'prebuilt image'
   if (slot) {
@@ -212,7 +236,7 @@ export async function flashCommand(ctx, parsed, rest, options, { monitor = false
 // ---- ota ------------------------------------------------------------------------
 
 export async function otaCommand(ctx, parsed, rest, options) {
-  const transport = option(parsed, 'transport', 'wifi')
+  const transport = option(parsed, 'transport', '') || defaultOtaTransport(ctx, parsed, rest)
   if (transport !== 'wifi' && transport !== 'ble') fail("--transport must be 'wifi' or 'ble'.", ExitCode.usage)
   const selection = selectBoard(ctx, parsed, transport === 'wifi' ? { otaHost: true } : {})
   if (selection.bootMode === 'ram-only') {
@@ -243,7 +267,7 @@ export async function otaCommand(ctx, parsed, rest, options) {
   if (!explicitImage) {
     const prepared = flag(parsed, 'no-build')
       ? { images: buildImages(esp32BuildDir(ctx, selection, app.id, env)) }
-      : buildEsp32Firmware({ ctx, selection, app, env, bleOta: transport === 'ble' || bleOtaRequested(parsed, app, env), dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr })
+      : await buildEsp32Firmware({ ctx, selection, app, env, bleOta: transport === 'ble' || bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr })
     image = prepared.images.app
   }
 
@@ -337,13 +361,13 @@ export async function screenshotCommand(ctx, parsed, rest, options) {
   return withDevice(ctx, parsed, options, usbSelection, transport, async (device, base) => {
     const timeoutMs = Number(option(parsed, 'timeout', transport === 'wifi' ? 30 : 12)) * 1000
     const shot = await saveScreenshot(device, file, { timeoutMs, legacy: flag(parsed, 'legacy') })
-    base.stdout(`Saved ${shot.width}x${shot.height} screenshot${shot.app ? ` of ${shot.app}` : ''} from ${device.description} to ${file}`)
+    success(base.stdout, `Saved ${shot.width}x${shot.height} screenshot${shot.app ? ` of ${shot.app}` : ''} from ${device.description} to ${file}`)
   })
 }
 
 // ---- devctl -------------------------------------------------------------------------
 
-const devctlUsage = `gea devctl <verb> [args] --board <alias> [--transport auto|usb|wifi]
+const devctlUsage = `gea devctl <verb> [args] [--board <alias>] [--transport auto|usb|wifi]
 
 Verbs (USB, GEADEV protocol):
   ping | app | state | mem | summary | i2cscan | reboot

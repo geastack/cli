@@ -13,6 +13,7 @@ import { SerialDevice, geadev } from '../device/serial.mjs'
 import { ExitCode, fail } from '../errors.mjs'
 import { exists } from '../fs-utils.mjs'
 import { detectSerialDevices } from '../serial-devices.mjs'
+import { success, warn } from '../report.mjs'
 
 export const boardsUsage = `gea boards <subcommand> [--global | --local]
 
@@ -254,7 +255,7 @@ export async function boardsCommand(ctx, parsed, rest, options) {
       return current
     })
     if (scope && origins.get(name) && origins.get(name) !== file) {
-      options.stderr(`Note: '${name}' also exists in ${origins.get(name)}; the project entry is the one commands see.`)
+      warn(options.stderr, `Note: '${name}' also exists in ${origins.get(name)}; the project entry is the one commands see.`)
     }
     options.stdout(value === undefined ? `Removed ${keyPath} from '${name}' in ${file}` : `Set ${keyPath}=${JSON.stringify(value)} on '${name}' in ${file}`)
     return 0
@@ -275,7 +276,7 @@ export async function boardsCommand(ctx, parsed, rest, options) {
       removedFrom.push(file)
     }
     if (removedFrom.length === 0) fail(`'${name}' is not defined in ${files.join(' or ')}.`, ExitCode.usage)
-    options.stdout(`Removed '${name}' from ${removedFrom.join(', ')}`)
+    success(options.stdout, `Removed '${name}' from ${removedFrom.join(', ')}`)
     return 0
   }
 
@@ -291,7 +292,7 @@ export async function boardsCommand(ctx, parsed, rest, options) {
       current[to] = entry
       return current
     })
-    options.stdout(`Renamed '${from}' to '${to}' in ${file}`)
+    success(options.stdout, `Renamed '${from}' to '${to}' in ${file}`)
     return 0
   }
 
@@ -303,7 +304,7 @@ export async function boardsCommand(ctx, parsed, rest, options) {
     if (json) {
       options.stdout(JSON.stringify(results, null, 2))
     } else if (results.length === 0) {
-      options.stdout('No serial devices detected. Plug a board in over USB and retry.')
+      warn(options.stdout, 'No serial devices detected. Plug a board in over USB and retry.')
     } else {
       for (const result of results) options.stdout(formatDiscovery(result))
       const unconfigured = results.filter((result) => !result.alias && result.serial)
@@ -322,7 +323,7 @@ export async function boardsCommand(ctx, parsed, rest, options) {
           current[result.alias] = setFieldPath(base, 'transports.ota.host', result.ip)
           return current
         })
-        options.stdout(`Saved transports.ota.host=${result.ip} for '${result.alias}' in ${file}`)
+        success(options.stdout, `Saved transports.ota.host=${result.ip} for '${result.alias}' in ${file}`)
       }
     }
     return 0

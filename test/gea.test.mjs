@@ -208,6 +208,30 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
   assert.equal(again.code, 0)
   const second = fixture.calls().filter((line) => !line.includes('idf_tools.py export') && !line.startsWith('compiler '))
   assert.deepEqual(second, [`cmake --build ${buildDir} --parallel 2`])
+
+  // CMake lists app sources at configure time, so a file added afterwards
+  // has to trigger a reconfigure or it is never compiled.
+  fs.rmSync(fixture.callLog)
+  fs.writeFileSync(path.join(fixture.appDir, 'App.tsx'), 'export const added = 1\n')
+  const grown = await gea(['build', '--board', 'amoled'], fixture)
+  assert.equal(grown.code, 0, grown.err)
+  assert.ok(fixture.calls().some((line) => / reconfigure$/.test(line)), 'a new source file reconfigures')
+})
+
+test('--board can be omitted when exactly one board is registered', async (t) => {
+  const fixture = createFixture(t)
+
+  // The fixture home registers amoled and amoled-wifi, so the choice is ambiguous.
+  await assert.rejects(
+    gea(['build', '--dry-run'], fixture),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /amoled, amoled-wifi/.test(error.message)
+  )
+
+  const single = path.join(fixture.root, 'one-board.json')
+  writeJson(single, { amoled: { target: 'esp32-s3-touch-amoled-2.06', adapter: 'esp32-idf' } })
+  const dry = await gea(['build', '--dry-run', '--boards-config', single], fixture)
+  assert.equal(dry.code, 0, dry.err)
+  assert.match(dry.out, /-DGEA_EMBEDDED_APP=watch/)
 })
 
 test('flash writes bootloader, app, partition table and otadata over USB and then monitors', async (t) => {
@@ -217,16 +241,16 @@ test('flash writes bootloader, app, partition table and otadata over USB and the
 
   const dry = await gea(['flash', '--board', 'amoled', '--dry-run'], fixture)
   assert.equal(dry.code, 0, dry.err)
-  assert.match(dry.out, /USB flash attempt 1 on <usb serial USB123>/)
+  assert.match(dry.out, /Flashing over USB on <usb serial USB123>/)
   const esptool = dry.out.split('\n').find((line) => line.includes('-m esptool'))
   assert.ok(esptool, dry.out)
-  assert.match(esptool, /-m esptool -p '<usb serial USB123>' --chip esp32s3 --before default_reset --after hard_reset -b 921600 write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB/)
+  assert.match(esptool, /-m esptool -p '<usb serial USB123>' --chip esp32s3 --before default-reset --after hard-reset -b 921600 write-flash --flash-mode dio --flash-freq 80m --flash-size 16MB/)
   assert.match(esptool, new RegExp(`0x0 ${escapeRegex(buildDir)}/bootloader/bootloader.bin 0x10000 ${escapeRegex(buildDir)}/gea_embedded.bin 0x8000 ${escapeRegex(buildDir)}/partition_table/partition-table.bin 0xd000 ${escapeRegex(buildDir)}/ota_data_initial.bin`))
 
   const options = await gea(['flash', '--board', 'amoled', '--port', fixture.fakePort, '--manual-boot', '--no-reset', '--flash-baud', '460800', '--dry-run'], fixture)
   assert.equal(options.code, 0, options.err)
   assert.match(options.out, /Manual boot mode: hold BOOT/)
-  assert.match(options.out, new RegExp(`-p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before no_reset --after no_reset -b 460800 write_flash`))
+  assert.match(options.out, new RegExp(`-p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before no-reset --after no-reset -b 460800 write-flash`))
 
   const manual = await gea(['flash', '--board', 'amoled-manual', '--dry-run'], fixture)
   assert.match(manual.err, /power-cycle/i)
@@ -235,7 +259,7 @@ test('flash writes bootloader, app, partition table and otadata over USB and the
   assert.equal(real.code, 0, real.err)
   const call = fixture.calls().find((line) => line.includes('-m esptool'))
   assert.ok(call, fixture.calls().join('\n'))
-  assert.match(call, new RegExp(`^python -m esptool -p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before default_reset --after hard_reset -b 921600 write_flash`))
+  assert.match(call, new RegExp(`^python -m esptool -p ${escapeRegex(fixture.fakePort)} --chip esp32s3 --before default-reset --after hard-reset -b 921600 write-flash`))
 
   const monitor = await gea(['run', '--board', 'amoled', '--dry-run'], fixture)
   assert.equal(monitor.code, 0, monitor.err)
@@ -250,17 +274,17 @@ test('flash slot management: erase, stage into a slot, and restore boot metadata
 
   const erase = await gea(['flash', '--board', 'amoled', '--erase-slot', 'ota_1', '--dry-run'], fixture)
   assert.equal(erase.code, 0, erase.err)
-  assert.match(erase.out, /erase_region 0x210000 2097152/)
+  assert.match(erase.out, /erase-region 0x210000 2097152/)
 
   const stage = await gea(['flash', '--board', 'amoled', '--image', image, '--slot', '1', '--dry-run'], fixture)
   assert.equal(stage.code, 0, stage.err)
-  assert.match(stage.out, new RegExp(`write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB 0x210000 ${escapeRegex(image)}`))
+  assert.match(stage.out, new RegExp(`write-flash --flash-mode dio --flash-freq 80m --flash-size 16MB 0x210000 ${escapeRegex(image)}`))
 
   const built = await gea(['build', '--board', 'amoled'], fixture)
   assert.equal(built.code, 0, built.err)
   const restore = await gea(['flash', '--board', 'amoled', '--restore-boot', '--dry-run'], fixture)
   assert.equal(restore.code, 0, restore.err)
-  assert.match(restore.out, /write_flash .* 0xd000 .*ota_data_initial\.bin$/m)
+  assert.match(restore.out, /write-flash .* 0xd000 .*ota_data_initial\.bin$/m)
   assert.doesNotMatch(restore.out, /gea_embedded\.bin/)
 })
 
@@ -283,6 +307,14 @@ test('ota uploads the built image over WiFi and BLE OTA runs the swift helper', 
   assert.equal(ble.code, 0, ble.err)
   assert.match(ble.out, /-DGEA_EMBEDDED_CAPABILITY_BLE=1/)
   assert.match(ble.out, new RegExp(`swift .*src/ble/ble-ota\\.swift ${escapeRegex(buildDir)}/gea_embedded\\.bin`))
+
+  // An app created with BLE updates enabled does not need --transport.
+  const manifestPath = path.join(fixture.appDir, 'package.json')
+  const manifest = readJson(manifestPath)
+  writeJson(manifestPath, { ...manifest, gea: { ...manifest.gea, ota: { ble: true } } })
+  const implied = await gea(['ota', '--board', 'amoled', '--dry-run'], fixture)
+  assert.equal(implied.code, 0, implied.err)
+  assert.match(implied.out, /ble-ota\.swift/)
 })
 
 test('logs and screenshots pick WiFi when the board has an address, USB otherwise', async (t) => {
@@ -329,7 +361,8 @@ test('setup builds a known target in configure-only mode and can write a local b
   const out = capture()
   // known board, amoled, alias, connected over USB (the one detected device
   // is taken without asking for its serial), no OTA host, save, no ESP-IDF install.
-  const prompt = scriptedPrompt(['1', '1', 'desk-amoled', 'y', '', 'y', 'n'])
+  // "y" is not a host, so the wizard asks again before accepting an empty answer.
+  const prompt = scriptedPrompt(['1', '1', 'desk-amoled', 'y', 'y', '', 'y', 'n'])
   await runGea(['setup', '--dry-run'], {
     ...out.io,
     prompt,
@@ -344,7 +377,7 @@ test('setup builds a known target in configure-only mode and can write a local b
   assert.equal(boards['desk-amoled'].target, 'esp32-s3-touch-amoled-2.06')
   assert.equal(boards['desk-amoled'].transports.usbSerial.serial, 'USB123')
   assert.equal(boards.amoled.target, 'esp32-s3-touch-amoled-2.06', 'existing home aliases survive')
-  assert.match(out.out.join('\n'), /Ready: npx gea flash --board desk-amoled --monitor/)
+  assert.match(out.out.join('\n'), /Ready: gea flash --board desk-amoled --monitor/)
 })
 
 test('custom setup composes a flash-ready target from the chip catalog', async (t) => {
@@ -388,7 +421,7 @@ test('custom setup composes a flash-ready target from the chip catalog', async (
   assert.deepEqual(definition.buses.i2c, { sda: 15, scl: 14 })
   assert.deepEqual(definition.storage.microSD.pins, { clk: 2, cmd: 1, data0: 3 })
   assert.equal(definition.controls.launcherButton.pin, 0)
-  assert.match(out.out.join('\n'), /Ready: npx gea flash --board from-scratch --monitor/)
+  assert.match(out.out.join('\n'), /Ready: gea flash --board from-scratch --monitor/)
 
   // The custom target is materialized into the build directory and handed to CMake.
   const built = await gea(['build', '--board', 'from-scratch', '--dry-run'], fixture)
@@ -539,7 +572,7 @@ test('an ESP32 board cannot be configured without an app, and the wizard picks o
   assert.doesNotMatch(prompt.questions.join('\n'), /USB serial number/)
   assert.match(text, /Initializing board target 'root-amoled' for app 'watch'/)
   assert.match(text, /-DGEA_EMBEDDED_APP=watch/)
-  assert.match(text, /Ready: npx gea flash --board root-amoled --app watch --monitor/)
+  assert.match(text, /Ready: gea flash --board root-amoled --app watch --monitor/)
 
   // flash from the root, with no app to infer, names the candidates too.
   const flash = capture()

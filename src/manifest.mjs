@@ -126,10 +126,16 @@ export function targetEnabledForApp(ctx, app, targetOrPlatform) {
 }
 
 export function assertTargetEnabled(ctx, app, targetOrPlatform) {
-  if (!targetEnabledForApp(ctx, app, targetOrPlatform)) {
-    const platform = appPlatformForTarget(ctx, targetOrPlatform) || targetOrPlatform
-    fail(`App '${app.id}' does not enable target '${platform}'.`, ExitCode.targetUnavailable)
+  if (targetEnabledForApp(ctx, app, targetOrPlatform)) return
+
+  const platform = appPlatformForTarget(ctx, targetOrPlatform) || targetOrPlatform
+  // Without the targets package a board alias cannot be mapped to a platform,
+  // and the fallback name would blame the app for a missing dependency.
+  if (!knownPlatforms.includes(platform) && !ctx.targetsRoot) {
+    fail(`Cannot resolve '${targetOrPlatform}' to a platform: @geastack/targets is not installed in this project (npm i @geastack/targets).`, ExitCode.missingDependency)
   }
+
+  fail(`App '${app.id}' does not enable target '${platform}'.`, ExitCode.targetUnavailable)
 }
 
 export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios', 'android', 'xbox'])

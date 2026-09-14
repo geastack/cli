@@ -5,12 +5,14 @@ import path from 'node:path'
 import { loadChipCatalogFromDir, writeCustomTarget } from '../boards/custom-target.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { appCmakeMeta, appCmakeDefines, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
-import { formatCommand } from '../run.mjs'
+import { quietSteps, runQuiet } from '../run.mjs'
 import { resolveAppCapabilities } from './capabilities.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
 import { writePartitionTable } from './partitions-from-manifest.mjs'
+import { listAppSources } from './source-set.mjs'
 import { generateWifiConfig } from './wifi-config.mjs'
+import { hint, warn } from '../report.mjs'
 
 // The ESP-IDF build. Everything the old bash board script decided about a
 // build lives here: where the build directory is, what the app-local
@@ -277,7 +279,8 @@ function preparePartitions(app, config, buildDir) {
   }).save()
 
   const defaultsArg = [defaultsFile, appSdkconfigFile].filter(Boolean).join(';')
-  return { buildDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, images: buildImages(buildDir) }
+  const sourceSet = app ? listAppSources(app.root) : []
+  return { buildDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, sourceSet, images: buildImages(buildDir) }
 }
 
 function commandExists(name, env) {
@@ -302,27 +305,30 @@ export function configureArguments(prepared, env) {
   return args
 }
 
-function runInTarget(command, args, { cwd, env, dryRun, stdout, failureCode = ExitCode.buildFailed }) {
-  if (dryRun) {
-    stdout(formatCommand([command, ...args]))
-    return
-  }
-  const result = spawnSync(command, args, { cwd, env, stdio: 'inherit' })
-  if (result.error) throw result.error
-  if (result.status !== 0) throw new CliError(`ERROR: Command failed (${result.status ?? 1}): ${formatCommand([command, ...args])}`, failureCode)
+function runInTarget(command, args, { cwd, env, dryRun, verbose, label, logFile, stdout, stderr, failureCode = ExitCode.buildFailed }) {
+  return runQuiet(command, args, { cwd, env, dryRun, verbose, label, logFile, stdout, stderr, failureCode })
 }
 
 // App capability flags are CMake cache entries. Reconfigure only when those
 // inputs change; ordinary source/CMake dependency changes remain the build
 // system's responsibility. This retains Ninja's sub-second no-op.
-export function ensureConfigured({ idf, prepared, env, dryRun = false, stdout }) {
+export async function ensureConfigured({ idf, prepared, env, dryRun = false, verbose = false, stdout, stderr = console.error }) {
   const signatureFile = path.join(prepared.buildDir, '.gea-configure-args')
-  const signature = [`-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs].join('\n') + '\n'
+  const signature = [`-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs, ...(prepared.sourceSet || [])].join('\n') + '\n'
   if (existsSync(path.join(prepared.buildDir, 'CMakeCache.txt')) && existsSync(signatureFile) && readFileSync(signatureFile, 'utf8') === signature) {
     return false
   }
   const { command, args } = idfPyCommand(idf, [...configureArguments(prepared, env), ...prepared.idfArgs, 'reconfigure'])
-  runInTarget(command, args, { cwd: prepared.targetDir, env, dryRun, stdout })
+  await runInTarget(command, args, {
+    cwd: prepared.targetDir,
+    env,
+    dryRun,
+    verbose,
+    label: 'Configuring ESP-IDF',
+    logFile: path.join(prepared.buildDir, 'gea-configure.log'),
+    stdout,
+    stderr
+  })
   if (!dryRun) {
     mkdirSync(prepared.buildDir, { recursive: true })
     const tmp = `${signatureFile}.tmp.${process.pid}`
@@ -362,7 +368,7 @@ export function acquireHeavyBuildLock({ ctx, env, label, stderr }) {
         live = false
       }
       if (live) {
-        stderr(`Another heavyweight build is already using this workspace:\n${owner.trim()}\n(lock: ${lockPath})`)
+        warn(stderr, `Another heavyweight build is already using this workspace:\n${owner.trim()}\n(lock: ${lockPath})`)
         fail('Heavy-build lock is held; retry when that build finishes or unset GEA_SERIALIZE_HEAVY_BUILDS.', ExitCode.buildFailed)
       }
       unlinkSync(lockPath)
@@ -377,25 +383,47 @@ export function acquireHeavyBuildLock({ ctx, env, label, stderr }) {
   }
 }
 
-export function buildEsp32Firmware({ ctx, selection, app = null, env = ctx.env || process.env, bleOta = false, dryRun = false, stdout = console.log, stderr = console.error, configureOnly = false }) {
-  const idf = requireEspIdf(env, stdout)
-  const prepared = prepareEsp32Build({ ctx, selection, app, env: idf.env, log: stdout, bleOta, dryRun })
+export async function buildEsp32Firmware({ ctx, selection, app = null, env = ctx.env || process.env, bleOta = false, dryRun = false, verbose = false, stdout = console.log, stderr = console.error, configureOnly = false }) {
+  // On a terminal the toolchain, target and capability lines fold into one
+  // dim line; the spinner labels name each phase.
+  const quiet = quietSteps(env, verbose)
+  const detail = quiet ? () => {} : stdout
+  const idf = requireEspIdf(env, detail)
+  const prepared = prepareEsp32Build({ ctx, selection, app, env: idf.env, log: detail, bleOta, dryRun })
   prepared.targetDir = selection.targetDir
+  if (quiet) hint(stdout, buildSummaryLine(idf, selection, prepared.capabilities))
+
   const buildEnv = { ...prepared.childEnv }
   const release = acquireHeavyBuildLock({ ctx, env: buildEnv, label: app ? `${selection.target} app=${app.id}` : selection.target, stderr })
   try {
     if (configureOnly) {
-      stdout(`Configuring target ${selection.idfTarget || 'esp32s3'}...`)
-      ensureConfigured({ idf, prepared, env: buildEnv, dryRun, stdout })
+      detail(`Configuring target ${selection.idfTarget || 'esp32s3'}...`)
+      await ensureConfigured({ idf, prepared, env: buildEnv, dryRun, verbose, stdout, stderr })
       return prepared
     }
-    stdout(app ? `Building firmware for app '${app.id}' in ${prepared.buildDir}...` : 'Building firmware...')
-    ensureConfigured({ idf, prepared, env: buildEnv, dryRun, stdout })
-    runInTarget('cmake', ['--build', prepared.buildDir, '--parallel', buildJobs(buildEnv)], { cwd: selection.targetDir, env: buildEnv, dryRun, stdout })
+
+    detail(app ? `Building firmware for app '${app.id}' in ${prepared.buildDir}...` : 'Building firmware...')
+    await ensureConfigured({ idf, prepared, env: buildEnv, dryRun, verbose, stdout, stderr })
+    await runInTarget('cmake', ['--build', prepared.buildDir, '--parallel', buildJobs(buildEnv)], {
+      cwd: selection.targetDir,
+      env: buildEnv,
+      dryRun,
+      verbose,
+      label: 'Building firmware',
+      logFile: path.join(prepared.buildDir, 'gea-build.log'),
+      stdout,
+      stderr
+    })
   } finally {
     release()
   }
+
   return prepared
+}
+
+function buildSummaryLine(idf, selection, capabilities) {
+  const flags = ['network', 'ble', 'audio'].map((name) => `${name}=${capabilities[name] ? 1 : 0}`).join(' ')
+  return `ESP-IDF ${idf.version?.full || 'unknown'} · ${selection.target} · ${flags}`
 }
 
 export function fullCleanEsp32({ ctx, selection, app = null, env = ctx.env || process.env, stdout = console.log }) {

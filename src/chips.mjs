@@ -4,6 +4,7 @@ import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { ask, choose, createPrompt } from './prompts.mjs'
+import { success } from './report.mjs'
 
 export async function runChips(ctx, parsed, rest, io = {}) {
   const action = rest[0] || 'list'
@@ -52,7 +53,7 @@ export async function runChips(ctx, parsed, rest, io = {}) {
       const role = Object.keys(definition.chips).find((key) => selectedDriver(definition.chips[key]) === id)
       if (!role) fail(`Chip '${id}' is not selected by board '${location.boardName}'.`, ExitCode.usage)
       delete definition.chips[role]
-      stdout(`Removed ${id} from ${location.boardName}.`)
+      success(stdout, `Removed ${id} from ${location.boardName}.`)
     }
     writeJson(location.definitionPath, definition)
     return 0
@@ -74,7 +75,7 @@ export async function runChips(ctx, parsed, rest, io = {}) {
         replace: flag(parsed, 'replace'),
         boardName: location.boardName
       })
-      stdout(`Added ${id} as ${role} on ${location.boardName}.`)
+      success(stdout, `Added ${id} as ${role} on ${location.boardName}.`)
     }
     if (provided.size > 0) {
       fail(`Unused --set values: ${[...provided.keys()].join(', ')}`, ExitCode.usage)

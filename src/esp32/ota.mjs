@@ -6,6 +6,7 @@ import { otaErase, otaUpload, waitForOtaServer } from '../device/wifi.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { formatCommand } from '../run.mjs'
 import { slotGeometry } from './flash.mjs'
+import { success } from '../report.mjs'
 
 // Over-the-air delivery: WiFi through the board's OTA server, or BLE through
 // the CoreBluetooth helper. Neither touches the bootloader or partition table.
@@ -23,7 +24,7 @@ export async function otaFlash({ host, image, dryRun = false, stdout = console.l
     return
   }
   await otaUpload({ host, image, stdout })
-  stdout('OTA complete. Board is rebooting.')
+  success(stdout, 'OTA complete. Board is rebooting.')
 }
 
 export async function otaStage({ selection, host, image, slot, boot = false, reboot = false, appLabel = 'prebuilt image', dryRun = false, stdout = console.log }) {
@@ -39,7 +40,7 @@ export async function otaStage({ selection, host, image, slot, boot = false, reb
     return
   }
   await otaUpload({ host, image, slot: geometry.name, boot, reboot, stdout })
-  stdout(`Staged '${appLabel}' in ${geometry.name} over OTA. Boot selection was not changed.`)
+  success(stdout, `Staged '${appLabel}' in ${geometry.name} over OTA. Boot selection was not changed.`)
 }
 
 export async function otaEraseSlot({ selection, host, slot, dryRun = false, stdout = console.log }) {
@@ -51,7 +52,7 @@ export async function otaEraseSlot({ selection, host, slot, dryRun = false, stdo
   }
   const reply = await otaErase({ host, slot: geometry.name })
   if (reply) stdout(reply)
-  stdout(`Erased ${geometry.name} over OTA.`)
+  success(stdout, `Erased ${geometry.name} over OTA.`)
 }
 
 export async function waitForReboot({ host, stdout = console.log, timeoutMs = 120000 }) {

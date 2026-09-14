@@ -12,8 +12,8 @@ import { ExitCode, fail } from './errors.mjs'
 import { espIdfVersion as readInstalledEspIdfVersion, findEspIdf } from './esp32/idf-env.mjs'
 import { extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
-import { ask, choose, confirm, createPrompt } from './prompts.mjs'
-import { runExternal } from './run.mjs'
+import { BACK, ask, choose, confirm, createPrompt, ui } from './prompts.mjs'
+import { runExternal, runQuiet } from './run.mjs'
 import { detectSerialDevices } from './serial-devices.mjs'
 import { commandVersion } from './toolchain.mjs'
 
@@ -75,8 +75,9 @@ export async function runSetupWizard(ctx, parsed, io) {
     const boardSetup = mode === 'custom'
       ? await setupCustomBoard(ctx, parsed, io, prompt)
       : await setupKnownBoard(ctx, parsed, io, prompt)
+    if (boardSetup === BACK) return runSetupWizard(ctx, parsed, io)
     if (boardSetup?.cancelled) {
-      stdout('Setup cancelled. No board files were changed.')
+      ui(io).outro('Setup cancelled. No board files were changed.')
       return 0
     }
 
@@ -88,9 +89,9 @@ export async function runSetupWizard(ctx, parsed, io) {
     await maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup)
     if (boardSetup?.flashReady) {
       const appFlag = boardSetup.app && boardSetup.app.root !== findCurrentApp(ctx.cwd)?.root ? ` --app ${boardSetup.app.id}` : ''
-      stdout(`Ready: npx gea flash --board ${boardSetup.alias}${appFlag} --monitor`)
+      ui(io).outro(`Ready: gea flash${boardFlag(ctx, boardSetup.alias)}${appFlag} --monitor`)
     } else {
-      stdout('Profile saved. Add or select a target backend before flashing this board.')
+      ui(io).outro('Profile saved. Add or select a target backend before flashing this board.')
     }
     return 0
   } finally {
@@ -107,8 +108,11 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
       label: board.label,
       description: boardDescription(board)
     })),
-    defaultValue: knownBoards[0].id
+    defaultValue: knownBoards[0].id,
+    back: true
   })
+  if (boardId === BACK) return BACK
+
   const board = knownBoards.find((candidate) => candidate.id === boardId)
   if (!board) fail(`Unknown board selection '${boardId}'.`, ExitCode.usage)
 
@@ -124,7 +128,8 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
   })
   const otaHost = await ask(prompt, {
     message: 'OTA host/IP (optional)',
-    defaultValue: ''
+    defaultValue: '',
+    validate: validateOtaHost
   })
 
   const configPath = boardConfigPath(ctx, parsed)
@@ -143,8 +148,8 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
   const config = readBoardConfig(configPath)
   config[alias] = entry
   writeJsonEnsured(configPath, config)
-  io.stdout(`Wrote board alias '${alias}' to ${configPath}`)
-  io.stdout(`Target: ${board.target}`)
+  ui(io).success(`Wrote board alias '${alias}' to ${configPath}`)
+  ui(io).message(`Target: ${board.target}`)
   return { alias, flashReady: true }
 }
 
@@ -156,6 +161,7 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
     validate: validateAlias
   })
   const mcu = await choose(prompt, {
+    back: true,
     message: 'MCU / SoC',
     choices: [
       {
@@ -166,6 +172,8 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
     ],
     defaultValue: 'esp32s3'
   })
+  if (mcu === BACK) return BACK
+
 
   const definition = {
     id: alias,
@@ -264,25 +272,20 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
   const config = readBoardConfig(configPath)
   config[alias] = entry
   writeJsonEnsured(configPath, config)
-  io.stdout(`Wrote custom target to ${definitionPath}`)
-  io.stdout(`Wrote board alias '${alias}' to ${configPath}`)
+  ui(io).success(`Wrote custom target to ${definitionPath}`)
+  ui(io).success(`Wrote board alias '${alias}' to ${configPath}`)
   if (missingRoles.length) {
-    io.stdout(`Add the remaining roles with: npx gea chips add <chip> --board ${alias}`)
+    ui(io).message(`Add the remaining roles with: gea chips add <chip>${boardFlag(ctx, alias)}`)
   }
   return { alias, flashReady: missingRoles.length === 0 }
 }
 
 function renderHeader(io, title, lines = []) {
-  io.stdout('')
-  io.stdout(title)
-  io.stdout('-'.repeat(title.length))
-  for (const line of lines.filter(Boolean)) io.stdout(line)
+  ui(io).intro(title, lines.filter(Boolean))
 }
 
 function renderStep(io, title, lines = []) {
-  io.stdout('')
-  io.stdout(`[ ${title} ]`)
-  for (const line of lines.filter(Boolean)) io.stdout(line)
+  ui(io).step(title, lines)
 }
 
 function renderKnownBoardReview(io, { alias, board, configPath, entry }) {
@@ -327,10 +330,7 @@ async function shouldSaveSetup(parsed, prompt, message) {
 }
 
 function writeRows(io, rows) {
-  const width = rows.reduce((max, [label]) => Math.max(max, label.length), 0)
-  for (const [label, value] of rows) {
-    io.stdout(`${label.padEnd(width)} : ${value || 'not set'}`)
-  }
+  ui(io).rows(rows)
 }
 
 function boardDescription(board) {
@@ -362,13 +362,16 @@ async function maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force = fa
   })
   if (!install) return
   if (!exists(path.join(ctx.cwd, 'package.json'))) {
-    io.stdout(`No package.json in ${ctx.cwd}; skipping npm install.`)
+    ui(io).warn(`No package.json in ${ctx.cwd}; skipping npm install.`)
     return
   }
-  runExternal('npm', ['install'], {
+  await runQuiet('npm', ['install'], {
     cwd: ctx.cwd,
     env: io.env || process.env,
     dryRun: option(parsed, 'dry-run') === true,
+    verbose: flag(parsed, 'verbose'),
+    label: 'Installing npm dependencies',
+    logFile: path.join(ctx.cwd, '.gea', 'npm-install.log'),
     stdout: io.stdout
   })
 }
@@ -380,11 +383,11 @@ async function maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force = fa
 async function maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup) {
   if (!boardSetup?.alias || !boardSetup.flashReady) return 0
   if (option(parsed, 'initialize') === false) {
-    io.stdout(`Board initialization skipped. Later: npx gea setup --board ${boardSetup.alias} --app <id>`)
+    ui(io).warn(`Board initialization skipped. Later: gea setup${boardFlag(ctx, boardSetup.alias)} --app <id>`)
     return 0
   }
   if (!ctx.targetsRoot) {
-    io.stdout(`@geastack/targets is not installed. Later: npx gea setup --board ${boardSetup.alias} --app <id>`)
+    ui(io).warn(`@geastack/targets is not installed. Later: gea setup${boardFlag(ctx, boardSetup.alias)} --app <id>`)
     return 0
   }
   const app = await chooseAppForBoard(ctx, parsed, io, prompt, boardSetup.alias)
@@ -392,7 +395,7 @@ async function maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup) {
   // The Ready hint must repeat the app when the wizard chose it: from a
   // project root the next command cannot infer one.
   boardSetup.app = app
-  io.stdout(`Initializing board target '${boardSetup.alias}' for app '${app.id}'...`)
+  ui(io).message(`Initializing board target '${boardSetup.alias}' for app '${app.id}'...`)
   const { buildCommand } = await import('./commands/board.mjs')
   const setupParsed = { ...parsed, options: { ...parsed.options, board: boardSetup.alias, app: app.id, 'configure-only': true } }
   return buildCommand(ctx, setupParsed, [], io)
@@ -408,7 +411,7 @@ async function chooseAppForBoard(ctx, parsed, io, prompt, alias) {
   if (current && targetEnabledForApp(ctx, current, alias)) return current
   const candidates = discoverApps(ctx).filter((app) => targetEnabledForApp(ctx, app, alias))
   if (candidates.length === 0) {
-    io.stdout(`No app in ${ctx.projectRoot} targets '${alias}' yet; skipping board initialization. Later: npx gea setup --board ${alias} --app <id>`)
+    ui(io).warn(`No app in ${ctx.projectRoot} targets '${alias}' yet; skipping board initialization. Later: gea setup${boardFlag(ctx, alias)} --app <id>`)
     return null
   }
   if (candidates.length === 1) return candidates[0]
@@ -442,7 +445,7 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, target
   const resolvedVersion = targetVersion || await resolveEspIdfVersionForWizard(parsed, io)
   const status = detectEspIdf(env, resolvedVersion)
   if (status.available) {
-    if (force) io.stdout(`ESP-IDF found: ${status.detail}`)
+    if (force) ui(io).success(`ESP-IDF found: ${status.detail}`)
     return 0
   }
 
@@ -451,7 +454,7 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, target
     defaultValue: false
   })
   if (!install) {
-    io.stdout(`ESP-IDF install later: npx gea setup --esp-idf`)
+    ui(io).warn(`ESP-IDF install later: npx gea setup --esp-idf`)
     return 0
   }
 
@@ -478,8 +481,8 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, target
   })
 
   const exportScript = process.platform === 'win32' ? path.join(idfDir, 'export.bat') : path.join(idfDir, 'export.sh')
-  io.stdout(`ESP-IDF installed at ${idfDir}`)
-  io.stdout(process.platform === 'win32' ? `For future shells: ${exportScript}` : `For future shells: . "${exportScript}"`)
+  ui(io).success(`ESP-IDF installed at ${idfDir}`)
+  ui(io).message(process.platform === 'win32' ? `For future shells: ${exportScript}` : `For future shells: . "${exportScript}"`)
   return 0
 }
 
@@ -510,10 +513,10 @@ function detectEspIdf(env, targetVersion) {
 // registered without a serial; `gea boards discover --save` fills it in later.
 async function selectUsbSerial(prompt, io, ctx, { message }) {
   const env = io.env || process.env
-  io.stdout(message)
+  ui(io).message(message)
   const connected = await confirm(prompt, { message: 'Is the board connected over USB right now?', defaultValue: true })
   if (!connected) {
-    io.stdout('No USB serial recorded. Later, with the board plugged in: gea boards discover --save')
+    ui(io).warn('No USB serial recorded. Later, with the board plugged in: gea boards discover --save')
     return ''
   }
   const known = loadBoardConfig(ctx)
@@ -521,10 +524,10 @@ async function selectUsbSerial(prompt, io, ctx, { message }) {
   while (true) {
     const devices = detectSerialDevices({ env }).filter((device) => device.serial)
     if (devices.length === 0) {
-      io.stdout('No USB board detected. Check the cable (some are power-only) and that the board is on.')
+      ui(io).warn('No USB board detected. Check the cable (some are power-only) and that the board is on.')
       const retry = await confirm(prompt, { message: 'Retry detection?', defaultValue: true })
       if (retry) continue
-      io.stdout('No USB serial recorded. Later, with the board plugged in: gea boards discover --save')
+      ui(io).warn('No USB serial recorded. Later, with the board plugged in: gea boards discover --save')
       return ''
     }
     const results = await discoverBoards({ devices, boards: known, probe })
@@ -535,7 +538,7 @@ async function selectUsbSerial(prompt, io, ctx, { message }) {
       return bits.join(', ')
     }
     if (results.length === 1) {
-      io.stdout(`Detected ${describe(results[0])}`)
+      ui(io).success(`Detected ${describe(results[0])}`)
       return results[0].serial
     }
     const selected = await choose(prompt, {
@@ -570,6 +573,20 @@ function readBoardConfig(filePath) {
 function writeJsonEnsured(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   writeJson(filePath, value)
+}
+
+// Commands pick the only registered board on their own, so a hint names the
+// alias only when the reader has several to choose from.
+function boardFlag(ctx, alias) {
+  return Object.keys(loadBoardConfig(ctx)).length > 1 ? ` --board ${alias}` : ''
+}
+
+function validateOtaHost(value) {
+  if (!value) return ''
+  const ipv4 = /^(\d{1,3})(\.\d{1,3}){3}$/.test(value)
+  const hostname = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(value)
+  if (ipv4 || hostname) return ''
+  return 'enter an IP address such as 192.168.1.20 or a hostname such as board.local, or leave it empty'
 }
 
 function validateAlias(value) {
