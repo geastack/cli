@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 import { flag } from '../args.mjs'
@@ -7,15 +6,11 @@ import { ExitCode } from '../errors.mjs'
 import { findEspIdf, findIdfPythonEnv } from '../esp32/idf-env.mjs'
 import { exists } from '../fs-utils.mjs'
 import { discoverApps, resolveRequestedApp, validateApp } from '../manifest.mjs'
-import { commandVersion, nodeAtLeast } from '../toolchain.mjs'
+import { commandVersion, nodeAtLeast, onPath } from '../toolchain.mjs'
 import pc from 'picocolors'
 
 function packageExists(dir) {
   return Boolean(dir) && exists(path.join(dir, 'package.json'))
-}
-
-function onPath(name, env) {
-  return String(env.PATH || '').split(path.delimiter).some((dir) => dir && existsSync(path.join(dir, name)))
 }
 
 async function serialportAvailable() {
@@ -53,6 +48,10 @@ export async function doctorCommand(ctx, parsed, rest, options) {
   add('arm-none-eabi-gcc (RP2350)', onPath('arm-none-eabi-gcc', env) || Boolean(env.PICO_TOOLCHAIN_PATH), env.PICO_TOOLCHAIN_PATH || 'optional', false)
   add('picotool (RP2350)', onPath('picotool', env), onPath('picotool', env) ? 'on PATH' : 'optional', false)
   add('swift (BLE OTA)', onPath('swift', env), onPath('swift', env) ? 'on PATH' : 'optional; macOS only', false)
+  // gea simulate compiles the app with emcc and links with em++, and hashes
+  // both binaries into its object-cache profile, so both are worth naming.
+  add('emcc (gea simulate)', onPath('emcc', env), commandVersion('emcc', ['--version'], env).split('\n')[0] || 'optional; source emsdk_env.sh (docs/SETUP.md)', false)
+  add('em++ (gea simulate)', onPath('em++', env), onPath('em++', env) ? 'on PATH' : 'optional; source emsdk_env.sh (docs/SETUP.md)', false)
 
   const boardFiles = boardConfigTiers(ctx).filter((tier) => exists(tier.file)).map((tier) => tier.file)
   try {

@@ -1,6 +1,6 @@
 {
   "name": "@geastack/cli",
-  "version": "0.1.72",
+  "version": "0.1.73",
   "type": "module",
   "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
   "publishConfig": {
@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0",
+    "@geastack/simulator": "^0.1.1",
     "picocolors": "^1.1.1",
     "serialport": "^13.0.0"
   },

@@ -15,6 +15,14 @@ import { runSetupWizard } from './setup-wizard.mjs'
 
 const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
+// The platforms board selection serves: an app declaring one of them has a
+// board to resolve, which is what a bare `gea build` is asking for.
+const boardPlatforms = Object.freeze(['esp32', 'rp2350', 'geaos'])
+
+function declaresBoardTarget(app) {
+  return boardPlatforms.some((platform) => Boolean(app?.targets?.[platform]))
+}
+
 const geaosDeviceActions = new Set(['bringup', 'probe', 'shell', 'push', 'record', 'tap', 'drag', 'down', 'move', 'up', 'flash-kernel'])
 
 export async function runGea(argv, io = {}) {
@@ -52,18 +60,53 @@ export async function runGea(argv, io = {}) {
   // Xbox is both a platform and a concrete built-in UWP target.
   const target = option(parsed, 'target', '')
   // macOS never reaches board selection: it has no alias and no catalog entry,
-  // so an app declaring `targets.macos` is the whole configuration. Without a
-  // --target or --board it is the default on a Mac, which is what makes
-  // `gea build` inside the app folder the command a user actually types.
+  // so an app declaring `targets.macos` is the whole configuration -- and on a
+  // Mac a bare `gea build` inside such an app's folder is the command a user
+  // actually types. It is only the whole configuration when there is no board
+  // to pick, though: an app that also declares esp32/rp2350/geaos keeps board
+  // selection for a bare `gea build`, so the command still reports which board
+  // it needs rather than quietly producing a .app in place of firmware. For those
+  // apps the Mac build is the documented `gea build --target macos`.
   if (command === 'build' && (target === 'macos' || (!target && !option(parsed, 'board')))) {
     const app = parsed.options.app || rest[0] ? findAppById(ctx, String(parsed.options.app || rest[0])) : findCurrentApp(cwd)
-    if (app?.targets?.macos && (target === 'macos' || process.platform === 'darwin')) {
+    if (app?.targets?.macos && (target === 'macos' || (process.platform === 'darwin' && !declaresBoardTarget(app)))) {
       const { runMacos } = await import('./macos/adapter.mjs')
       return runMacos({ app, env, dryRun: flag(parsed, 'dry-run'), stdout })
     }
     if (target === 'macos') {
       fail(app ? `'${app.id}' does not declare gea.targets.macos.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
     }
+  }
+  // `web` names two targets, and both are driven by gea, so it leaves the
+  // refusal below the way macos does above. `gea simulate` is the WASM device
+  // simulator; `gea {dev,build} --target web` is a real DOM/CSS web app. A bare
+  // `gea dev` means the latter -- it is the only target with a dev server, and
+  // it is what `gea create` scaffolds into a new app's package.json.
+  if ((command === 'dev' || command === 'build') && (target === 'web' || (!target && command === 'dev'))) {
+    const app = webApp(ctx, parsed, rest, cwd)
+    const { runWebBuild, runWebDev } = await import('./web/adapter.mjs')
+    const shared = { app, env, dryRun: flag(parsed, 'dry-run'), stdout }
+    if (command === 'dev') return runWebDev({ ...shared, port: option(parsed, 'port', '') })
+    return runWebBuild({ ...shared, outDir: option(parsed, 'out-dir', '') })
+  }
+  if (command === 'simulate') {
+    const app = webApp(ctx, parsed, rest, cwd)
+    const { runSimulate } = await import('./web/adapter.mjs')
+    return runSimulate({
+      ctx,
+      app,
+      env,
+      dryRun: flag(parsed, 'dry-run'),
+      stdout,
+      port: option(parsed, 'port', ''),
+      open: !flag(parsed, 'no-open'),
+      view: {
+        width: option(parsed, 'width', ''),
+        height: option(parsed, 'height', ''),
+        dpr: option(parsed, 'dpr', ''),
+        zoom: option(parsed, 'zoom', '')
+      }
+    })
   }
   if (target && target !== 'xbox' && knownPlatforms.includes(target) && ['build', 'flash', 'run', 'monitor', 'ota'].includes(command)) {
     if (target === 'esp32' || target === 'rp2350' || target === 'geaos') {
@@ -128,6 +171,16 @@ function legacyList(ctx, parsed, rest, options) {
   fail(`Unknown list subject '${subject}'. Expected apps, targets, or boards.`, ExitCode.usage)
 }
 
+// The web target has no board and no catalogue entry, so an app id -- or the
+// folder you are standing in -- is the whole selection. Same rule the rest of
+// the CLI uses, stated once because three commands share it.
+function webApp(ctx, parsed, rest, cwd) {
+  const requested = parsed.options.app || rest[0]
+  const app = requested ? findAppById(ctx, String(requested)) : findCurrentApp(cwd)
+  if (!app) fail('No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
+  return app
+}
+
 function usage() {
   return `gea ${version}
 
@@ -135,6 +188,11 @@ ${heading('Usage:')}
   gea create <name>                              scaffold a new Gea project
   gea setup [--board <alias>]                    guided board setup, or configure a board's build
   gea doctor [--json] [--strict]                 check packages and toolchains
+
+${heading('Run on this machine (no board needed):')}
+  gea simulate [app] [--port N]                  build to WASM + open the device simulator  [--no-open] [--width W --height H --dpr D --zoom Z]
+  gea dev [app] [--port N]                       real DOM + CSS dev server with HMR  (same as --target web)
+  gea build --target web [app] [--out-dir d]     build the app as a real web app
 
 ${heading('Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):')}
   gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)  [--verbose]

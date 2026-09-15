@@ -6,7 +6,7 @@ import test from 'node:test'
 
 import { CliError, ExitCode } from '../src/errors.mjs'
 import { runGea } from '../src/gea.mjs'
-import { capture, createFakeToolchain, createFixture, readJson, scriptedPrompt, writeJson } from './helpers/fixture.mjs'
+import { capture, createFakeToolchain, createFixture, readJson, scriptedPrompt, writeExecutable, writeJson } from './helpers/fixture.mjs'
 
 test('help, version, and unknown command behavior are stable', async () => {
   const help = capture()
@@ -256,6 +256,50 @@ test('--board can be omitted when exactly one board is registered', async (t) =>
   assert.equal(dry.code, 0, dry.err)
   assert.match(dry.out, /-DGEA_EMBEDDED_APP=watch/)
 })
+
+test('a bare `gea build` only means macOS for an app with no board to pick', async (t) => {
+  const fixture = createFixture(t)
+  // The fixture's `watch` declares both macos and esp32, so `gea build` in its
+  // folder is asking for a board -- naming the ambiguity, not building a .app.
+  installFakeApple(fixture.appDir)
+  await assert.rejects(
+    gea(['build', '--dry-run'], fixture),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /amoled, amoled-wifi/.test(error.message)
+  )
+
+  // --target macos is how such an app asks for the Mac build, on any host.
+  const explicit = await gea(['build', '--target', 'macos', '--dry-run'], fixture)
+  assert.equal(explicit.code, 0, explicit.err)
+  assert.match(explicit.out, /build-macos\.sh watch$/m)
+
+  // An app with no board-driven target has nothing to select, so on a Mac the
+  // bare build is the Mac build.
+  const macOnly = path.join(fixture.root, 'apps/mac-only')
+  fs.mkdirSync(macOnly, { recursive: true })
+  fs.writeFileSync(path.join(macOnly, 'index.tsx'), 'export const value = 1\n')
+  writeJson(path.join(macOnly, 'package.json'), {
+    name: '@fixture/mac-only',
+    private: true,
+    gea: { id: 'mac-only', name: 'Mac Only', entry: 'index.tsx', runtime: 'gea', targets: { web: true, macos: true } }
+  })
+  installFakeApple(macOnly)
+  const bare = await gea(['build', '--dry-run'], fixture, { cwd: macOnly })
+  if (process.platform === 'darwin') {
+    assert.equal(bare.code, 0, bare.err)
+    assert.match(bare.out, /build-macos\.sh mac-only$/m)
+  } else {
+    // Off a Mac the same app has no default target at all.
+    assert.equal(bare.code, ExitCode.usage)
+  }
+})
+
+// @geastack/apple ships the macOS target; the adapter resolves it from the
+// app's own dependencies, so it is installed per app.
+function installFakeApple(appDir) {
+  const root = path.join(appDir, 'node_modules', '@geastack', 'apple')
+  writeJson(path.join(root, 'package.json'), { name: '@geastack/apple', version: '0.1.0' })
+  writeExecutable(path.join(root, 'targets', 'macos', 'build-macos.sh'), '#!/usr/bin/env bash\nexit 0\n')
+}
 
 test('flash writes bootloader, app, partition table and otadata over USB and then monitors', async (t) => {
   const fixture = createFixture(t)
@@ -524,9 +568,12 @@ test('build rejects invalid manifests, incompatible boards, and platform names',
     gea(['ota', '--board', 'amoled', '--transport', 'serial'], fixture),
     (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /transport/.test(error.message)
   )
+  // web and macos are driven by gea; the platforms whose build lives in their
+  // own target project still say so. (The web commands have their own tests in
+  // web-target.test.mjs.)
   await assert.rejects(
-    gea(['build', '--target', 'web', '--dry-run'], fixture),
-    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /web build is not driven by gea/.test(error.message)
+    gea(['build', '--target', 'ios', '--dry-run'], fixture),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /ios build is not driven by gea/.test(error.message)
   )
   await assert.rejects(
     gea(['build', '--board', 'amoled', '--dry-run'], fixture, { env: { ...fixture.env, IDF_PATH: '', IDF_PYTHON_ENV_PATH: '', HOME: fixture.root } }),
