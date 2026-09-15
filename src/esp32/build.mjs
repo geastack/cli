@@ -111,6 +111,42 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
       unset('CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB')
       set('CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB', 'y')
     }
+
+    // The data cache is what a PSRAM framebuffer is read and written through.
+    // This board's is 410x502x2 = 411 KB in octal PSRAM, so every rasterized
+    // pixel and every flush read is a cache transaction; IDF's default 32 KB
+    // with a 32-byte line spends two transactions on every 64-byte burst the
+    // PSRAM controller would have served in one. 64 KB / 64 B matches the
+    // controller's burst and holds more of a scanline's working set. The cost
+    // is 32 KB of internal SRAM off the heap, and like the instruction cache
+    // it lives in the generated (sticky) sdkconfig, so defaults alone would
+    // never reach an existing build directory -- which is why an app that asks
+    // for a smaller cache or line in its own defaults is honoured rather than
+    // silently overruled.
+    if (sdkconfig.appDefaultIsSet('CONFIG_ESP32S3_DATA_CACHE_16KB')) {
+      unset('CONFIG_ESP32S3_DATA_CACHE_32KB')
+      unset('CONFIG_ESP32S3_DATA_CACHE_64KB')
+      set('CONFIG_ESP32S3_DATA_CACHE_16KB', 'y')
+    } else if (sdkconfig.appDefaultIsSet('CONFIG_ESP32S3_DATA_CACHE_32KB')) {
+      unset('CONFIG_ESP32S3_DATA_CACHE_16KB')
+      unset('CONFIG_ESP32S3_DATA_CACHE_64KB')
+      set('CONFIG_ESP32S3_DATA_CACHE_32KB', 'y')
+    } else {
+      unset('CONFIG_ESP32S3_DATA_CACHE_16KB')
+      unset('CONFIG_ESP32S3_DATA_CACHE_32KB')
+      set('CONFIG_ESP32S3_DATA_CACHE_64KB', 'y')
+    }
+    // A 64-byte line needs a 32 KB or 64 KB data cache; a board that pinned
+    // itself to 16 KB keeps the 32-byte line it is allowed.
+    if (sdkconfig.appDefaultIsSet('CONFIG_ESP32S3_DATA_CACHE_LINE_32B') ||
+        sdkconfig.appDefaultIsSet('CONFIG_ESP32S3_DATA_CACHE_16KB')) {
+      unset('CONFIG_ESP32S3_DATA_CACHE_LINE_64B')
+      set('CONFIG_ESP32S3_DATA_CACHE_LINE_32B', 'y')
+    } else {
+      unset('CONFIG_ESP32S3_DATA_CACHE_LINE_16B')
+      unset('CONFIG_ESP32S3_DATA_CACHE_LINE_32B')
+      set('CONFIG_ESP32S3_DATA_CACHE_LINE_64B', 'y')
+    }
   }
 
   unset('CONFIG_GEA_EMBEDDED_PRODUCTION_LOCKDOWN')
