@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 
+import { detectSerialDevices } from '../serial-devices.mjs'
+
 // A board is identified by its USB SERIAL, never by a /dev path: enumerated
 // paths change on every plug-in and identical boards routinely share one.
 // Everything here maps a stable serial to whatever port the OS gave it today.
@@ -18,12 +20,24 @@ const serialPatterns = [
 ]
 
 export function serialPortCandidates() {
+  // Windows has no /dev: a port is `COM3`, enumerated through the OS rather
+  // than listed in a directory. Everything below that asks "is this port here?"
+  // has to go through the same enumeration, because existsSync('COM3') is
+  // always false and made every Windows wait time out.
+  if (process.platform === 'win32') return detectSerialDevices({}).map((device) => device.path).sort()
   const dev = '/dev'
   if (!existsSync(dev)) return []
   return readdirSync(dev)
     .filter((name) => serialPatterns.some((pattern) => pattern.test(name)))
     .map((name) => path.join(dev, name))
     .sort()
+}
+
+// Windows port names are case-insensitive, so compare them that way.
+export function serialPortPresent(port) {
+  if (!port) return false
+  if (process.platform !== 'win32') return existsSync(port)
+  return serialPortCandidates().some((candidate) => candidate.toUpperCase() === port.toUpperCase())
 }
 
 export function resolveAutoUsbPort() {
@@ -225,11 +239,11 @@ export async function waitForSerialPort({
   let nextLog = startedAt
   while (true) {
     if (port) {
-      if (existsSync(port)) return port
+      if (serialPortPresent(port)) return port
     } else if (serial) {
       try {
         const resolved = resolver({ serial })
-        if (resolved && existsSync(resolved)) return resolved
+        if (resolved && serialPortPresent(resolved)) return resolved
       } catch {
         // not attached yet
       }

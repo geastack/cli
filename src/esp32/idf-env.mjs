@@ -77,9 +77,21 @@ function envExportDir(exportScript) {
   return exportScript ? path.dirname(exportScript) : ''
 }
 
+// A venv keeps its interpreter in `bin/python` everywhere except Windows,
+// where it is `Scripts/python.exe`. ESP-IDF's own installer follows that, so
+// looking only for the POSIX layout finds nothing on a correctly installed
+// Windows toolchain and reports it as missing.
+const venvPython = process.platform === 'win32' ? path.join('Scripts', 'python.exe') : path.join('bin', 'python')
+const venvBin = process.platform === 'win32' ? 'Scripts' : 'bin'
+export const installScriptName = process.platform === 'win32' ? 'install.bat' : 'install.sh'
+
+export function idfVenvPython(pythonEnv) {
+  return path.join(pythonEnv, venvPython)
+}
+
 export function findIdfPythonEnv(idfDir, env = process.env, home = os.homedir()) {
   const explicit = env.IDF_PYTHON_ENV_PATH
-  if (explicit && existsSync(path.join(explicit, 'bin', 'python'))) return explicit
+  if (explicit && existsSync(idfVenvPython(explicit))) return explicit
   const version = espIdfVersion(idfDir)?.majorMinor
   if (!version) return ''
   const envRoot = path.join(env.IDF_TOOLS_PATH || path.join(home, '.espressif'), 'python_env')
@@ -94,7 +106,7 @@ export function findIdfPythonEnv(idfDir, env = process.env, home = os.homedir())
     .filter((name) => name.startsWith(prefix) && name.endsWith('_env'))
     .sort()
     .map((name) => path.join(envRoot, name))
-    .filter((dir) => existsSync(path.join(dir, 'bin', 'python')))
+    .filter((dir) => existsSync(idfVenvPython(dir)))
   return candidates[0] || ''
 }
 
@@ -121,11 +133,12 @@ export function activateEspIdf({ env = process.env, home = os.homedir(), log = (
   if (!idfDir) return null
   const pythonEnv = findIdfPythonEnv(idfDir, env, home)
   if (!pythonEnv) {
+    const envRoot = path.join(env.IDF_TOOLS_PATH || path.join(home, '.espressif'), 'python_env')
     throw new Error(
-      `ESP-IDF at ${idfDir} has no installed Python environment under ${env.IDF_TOOLS_PATH || path.join(home, '.espressif')}/python_env. Run its install.sh once.`
+      `ESP-IDF at ${idfDir} has no installed Python environment under ${envRoot}. Run ${path.join(idfDir, installScriptName)} once.`
     )
   }
-  const python = path.join(pythonEnv, 'bin', 'python')
+  const python = idfVenvPython(pythonEnv)
   const idfToolsPy = path.join(idfDir, 'tools', 'idf_tools.py')
   const cacheKey = `${idfDir}\n${pythonEnv}`
   let exported = activationCache.get(cacheKey)
@@ -157,7 +170,7 @@ export function activateEspIdf({ env = process.env, home = os.homedir(), log = (
       IDF_PATH: idfDir,
       IDF_PYTHON_ENV_PATH: pythonEnv,
       VIRTUAL_ENV: pythonEnv,
-      PATH: [path.join(pythonEnv, 'bin'), exportedPath || env.PATH || ''].filter(Boolean).join(path.delimiter)
+      PATH: [path.join(pythonEnv, venvBin), exportedPath || env.PATH || ''].filter(Boolean).join(path.delimiter)
     }
   }
 }

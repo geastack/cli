@@ -4,6 +4,8 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+import { spawnArgs } from '../src/spawn-args.mjs'
+
 const SCOPE = '@geastack/'
 const ORG_PACKAGES_URL = 'https://www.npmjs.com/settings/geastack/packages'
 const DEFAULT_REGISTRY = 'https://registry.npmjs.org/'
@@ -268,7 +270,7 @@ function printPlan(packages, root, options) {
 }
 
 function ensureNpm() {
-  const result = spawnSync('npm', ['--version'], { encoding: 'utf8' })
+  const result = spawnSync(...spawnArgs('npm', ['--version'], { encoding: 'utf8' }))
   if (result.error) {
     fail(`npm is required on PATH to publish packages: ${result.error.message}`)
   }
@@ -277,9 +279,9 @@ function ensureNpm() {
 
 function npmVersionExists(name, version, options) {
   const result = spawnSync(
-    'npm',
-    ['view', `${name}@${version}`, 'version', '--registry', options.registry, '--json'],
-    { encoding: 'utf8' }
+    ...spawnArgs('npm', ['view', `${name}@${version}`, 'version', '--registry', options.registry, '--json'], {
+      encoding: 'utf8'
+    })
   )
   if (result.status === 0) return true
   const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
@@ -289,7 +291,7 @@ function npmVersionExists(name, version, options) {
 }
 
 function runNpm(args, { cwd, label }) {
-  const result = spawnSync('npm', args, { cwd, stdio: 'inherit' })
+  const result = spawnSync(...spawnArgs('npm', args, { cwd, stdio: 'inherit' }))
   if (result.error) fail(`${label} failed: ${result.error.message}`)
   if (result.status !== 0) fail(`${label} failed with exit code ${result.status}`)
 }

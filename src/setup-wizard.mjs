@@ -9,7 +9,7 @@ import { discoverApps, findCurrentApp, resolveRequestedApp, targetEnabledForApp 
 import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from './chips.mjs'
 import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
-import { espIdfVersion as readInstalledEspIdfVersion, findEspIdf } from './esp32/idf-env.mjs'
+import { espIdfVersion as readInstalledEspIdfVersion, findEspIdf, findIdfPythonEnv } from './esp32/idf-env.mjs'
 import { extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { BACK, ask, choose, confirm, createPrompt, ui } from './prompts.mjs'
@@ -123,7 +123,7 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
     validate: validateAlias
   })
   renderStep(io, 'Connection', ['Use a detected serial device, enter one manually, or skip it for now.'])
-  const serial = await selectUsbSerial(prompt, io, ctx, {
+  const usbIdentity = await selectUsbIdentity(prompt, io, ctx, {
     message: 'The USB serial identifies this board whatever port it lands on.'
   })
   const otaHost = await ask(prompt, {
@@ -137,7 +137,7 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
     target: board.target,
     adapter: board.adapter,
     transports: compactObject({
-      usbSerial: serial ? { serial } : undefined,
+      usbSerial: compactObject(usbIdentity),
       ota: otaHost ? { host: otaHost } : undefined
     })
   }
@@ -244,7 +244,7 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
   }
 
   renderStep(io, 'Connection', ['The first flash uses USB. BLE OTA can take over after the initial firmware is running.'])
-  const usbSerial = await selectUsbSerial(prompt, io, ctx, {
+  const usbIdentity = await selectUsbIdentity(prompt, io, ctx, {
     message: 'The USB serial identifies this board whatever port it lands on.'
   })
 
@@ -257,7 +257,7 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
     adapter: 'esp32-idf',
     appPlatform: 'esp32',
     transports: compactObject({
-      usbSerial: usbSerial ? { serial: usbSerial } : undefined
+      usbSerial: compactObject(usbIdentity)
     })
   })
   const requiredRoles = roles.map(([role]) => role)
@@ -297,7 +297,7 @@ function renderKnownBoardReview(io, { alias, board, configPath, entry }) {
     ['Board', board.label],
     ['Target', entry.target],
     ['Adapter', entry.adapter],
-    ['USB serial', entry.transports?.usbSerial?.serial || 'manual / not set'],
+    ['USB identity', usbIdentityLabel(entry, 'manual / not set')],
     ['OTA host', entry.transports?.ota?.host || 'not set'],
     ['Config', configPath]
   ])
@@ -317,7 +317,7 @@ function renderCustomBoardReview(io, { alias, definition, definitionPath, config
     ['IMU', describeObject(definition.chips.imu)],
     ['Audio', describeObject(definition.chips.audio)],
     ['I2C', describeObject(definition.buses.i2c)],
-    ['USB serial', entry.transports?.usbSerial?.serial || 'auto / pass --port'],
+    ['USB identity', usbIdentityLabel(entry, 'auto / pass --port')],
     ['Missing roles', missingRoles.join(', ') || 'none'],
     ['Target definition', definitionPath],
     ['Board config', configPath]
@@ -494,8 +494,13 @@ function detectEspIdf(env, targetVersion) {
   const idfDir = findEspIdf(env)
   if (idfDir) {
     const installed = readInstalledEspIdfVersion(idfDir)
-    const detail = `${installed?.full || 'unknown version'} at ${idfDir}`
-    return { available: idfVersionMeetsTarget(installed, targetVersion), detail }
+    // A checkout is not an installation. `install.bat`/`install.sh` still has to
+    // build the tool venv, and until it does every build dies at activation, so
+    // a clone on its own has to read as unavailable or the wizard declares
+    // success and leaves nothing that can compile.
+    const toolsInstalled = Boolean(findIdfPythonEnv(idfDir, env))
+    const detail = `${installed?.full || 'unknown version'} at ${idfDir}${toolsInstalled ? '' : ' (tools not installed)'}`
+    return { available: toolsInstalled && idfVersionMeetsTarget(installed, targetVersion), detail }
   }
   const legacyOutput = commandVersion('idf.py', ['--version'], env)
   if (legacyOutput) {
@@ -511,35 +516,44 @@ function detectEspIdf(env, targetVersion) {
 // USB registry, and PINGs each port so the user picks by what the board says
 // it is running rather than by a /dev name. A board that is not connected is
 // registered without a serial; `gea boards discover --save` fills it in later.
-async function selectUsbSerial(prompt, io, ctx, { message }) {
+// Returns how this board will be found again: `{ serial }` when the device
+// publishes one, otherwise `{ port }`. A serial is preferred because it holds
+// across replugging and distinguishes two identical boards, but devices that
+// publish none -- the ESP32-S3's built-in USB Serial/JTAG among them -- used to
+// be filtered out here and could not be registered at all.
+async function selectUsbIdentity(prompt, io, ctx, { message }) {
   const env = io.env || process.env
   ui(io).message(message)
   const connected = await confirm(prompt, { message: 'Is the board connected over USB right now?', defaultValue: true })
-  if (!connected) {
-    ui(io).warn('No USB serial recorded. Later, with the board plugged in: gea boards discover --save')
-    return ''
+  const nothingRecorded = () => {
+    ui(io).warn('No USB identity recorded. Later, with the board plugged in: gea boards discover --save')
+    return {}
   }
+  if (!connected) return nothingRecorded()
   const known = loadBoardConfig(ctx)
   const probe = io.probeSerialDevice || ((device) => probeSerialDevice(device, { env }))
+  const identityOf = (result) => (result.serial ? { serial: result.serial } : { port: result.path })
   while (true) {
-    const devices = detectSerialDevices({ env }).filter((device) => device.serial)
+    const devices = detectSerialDevices({ env })
     if (devices.length === 0) {
       ui(io).warn('No USB board detected. Check the cable (some are power-only) and that the board is on.')
       const retry = await confirm(prompt, { message: 'Retry detection?', defaultValue: true })
       if (retry) continue
-      ui(io).warn('No USB serial recorded. Later, with the board plugged in: gea boards discover --save')
-      return ''
+      return nothingRecorded()
     }
     const results = await discoverBoards({ devices, boards: known, probe })
     const describe = (result) => {
-      const bits = [result.label && result.label !== result.path ? `${result.label} on ${result.path}` : result.path, `serial ${result.serial}`]
+      const bits = [result.label && result.label !== result.path ? `${result.label} on ${result.path}` : result.path]
+      // Saying "serial <blank>" reads as a bug; name the port as the identity
+      // instead, which is what such a board is actually registered by.
+      bits.push(result.serial ? `serial ${result.serial}` : `no USB serial, identified by port ${result.path}`)
       if (result.responds) bits.push(result.app ? `running ${result.app}` : 'gea firmware')
       if (result.alias) bits.push(`already registered as '${result.alias}'`)
       return bits.join(', ')
     }
     if (results.length === 1) {
       ui(io).success(`Detected ${describe(results[0])}`)
-      return results[0].serial
+      return identityOf(results[0])
     }
     const selected = await choose(prompt, {
       message: 'Several USB devices are connected. Which one is this board?',
@@ -550,9 +564,9 @@ async function selectUsbSerial(prompt, io, ctx, { message }) {
       ],
       defaultValue: 'device-0'
     })
-    if (selected === 'skip') return ''
+    if (selected === 'skip') return {}
     if (selected === 'retry') continue
-    return results[Number.parseInt(selected.slice('device-'.length), 10)].serial
+    return identityOf(results[Number.parseInt(selected.slice('device-'.length), 10)])
   }
 }
 
@@ -605,6 +619,16 @@ async function askPin(prompt, message) {
       return pin >= 0 && pin <= 48 ? '' : 'enter a GPIO number from 0 through 48'
     }
   }))
+}
+
+// A board is found by serial when it publishes one and by port otherwise, so
+// the review says which of the two was recorded rather than only ever naming
+// a serial that may not exist.
+function usbIdentityLabel(entry, fallback) {
+  const usb = entry.transports?.usbSerial || {}
+  if (usb.serial) return `serial ${usb.serial}`
+  if (usb.port) return `port ${usb.port}`
+  return fallback
 }
 
 function compactObject(value) {

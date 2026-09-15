@@ -76,7 +76,10 @@ test('createContext discovers a project-local board config', (t) => {
   assert.ok(ctx.homeBoardsConfig.endsWith(path.join('.geastack', 'boards.json')))
   assert.equal(createContext(parseArgs([]), { HOME: fixture.root }, fixture.appDir).homeBoardsConfig, path.join(fixture.root, '.geastack', 'boards.json'))
   assert.equal(createContext(parseArgs([]), { GEA_HOME: '/opt/gea' }, fixture.appDir).homeBoardsConfig, path.join('/opt/gea', 'boards.json'))
-  assert.equal(createContext(parseArgs([]), { GEA_BOARDS_CONFIG: '/etc/gea/boards.json' }, fixture.appDir).boardsConfig, '/etc/gea/boards.json')
+  assert.equal(
+    createContext(parseArgs([]), { GEA_BOARDS_CONFIG: '/etc/gea/boards.json' }, fixture.appDir).boardsConfig,
+    path.resolve(fixture.appDir, '/etc/gea/boards.json')
+  )
 })
 
 test('targets.json entries resolve to installed target project directories', (t) => {

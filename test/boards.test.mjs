@@ -96,7 +96,10 @@ test('OTA needs a host from the board or the command line', () => {
 })
 
 test('boards without a USB serial fail clearly and point at the wireless path', () => {
-  assert.throws(() => resolveBoardSelection({ boardName: 'noUsb', targets, config, needs: { usbPort: true } }), /does not define transports\.usbSerial\.serial/)
+  assert.throws(
+    () => resolveBoardSelection({ boardName: 'noUsb', targets, config, needs: { usbPort: true } }),
+    /defines neither transports\.usbSerial\.serial nor transports\.usbSerial\.port/
+  )
   assert.throws(() => resolveBoardSelection({ boardName: 'legacyPath', targets, config }), /transports\.usbSerial\.path.*no longer supported/)
   assert.throws(() => resolveBoardSelection({ boardName: 'missing', targets, config }), /Unknown board 'missing'/)
   assert.throws(() => resolveBoardSelection({ targets, config }), /No board selected/)
@@ -175,4 +178,19 @@ test('custom targets compose from the chip catalog', (t) => {
   assert.equal(selection.targetDir, '/pkg/targets/esp32-s3-touch-amoled-2.06')
   assert.equal(selection.adapter, 'esp32-idf')
   assert.equal(selection.idfTarget, 'esp32s3')
+})
+
+test('a board with no USB serial is identified by its recorded port', () => {
+  // The ESP32-S3's built-in USB Serial/JTAG publishes no iSerialNumber, so
+  // every platform reports an empty serial for it; the port is then the only
+  // identity such a board can carry.
+  const byPort = { ...config, jtag: { target: 'esp32-s3-touch-amoled-2.06', adapter: 'esp32-idf', transports: { usbSerial: { port: 'COM3' } } } }
+  const selection = resolveBoardSelection({ boardName: 'jtag', targets, config: byPort, needs: { usbPort: true }, usbSerialResolver: neverTouchHardware })
+  assert.equal(selection.port, 'COM3')
+})
+
+test('a recorded serial still wins over a recorded port', () => {
+  const both = { ...config, dual: { target: 'esp32-s3-touch-amoled-2.06', adapter: 'esp32-idf', transports: { usbSerial: { serial: 'ABC123', port: 'COM9' } } } }
+  const selection = resolveBoardSelection({ boardName: 'dual', targets, config: both, needs: { usbPort: true }, usbSerialResolver: () => '/dev/resolved-from-serial' })
+  assert.equal(selection.port, '/dev/resolved-from-serial')
 })

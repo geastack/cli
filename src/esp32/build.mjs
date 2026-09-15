@@ -283,9 +283,19 @@ function preparePartitions(app, config, buildDir) {
   return { buildDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, sourceSet, images: buildImages(buildDir) }
 }
 
+// Windows executables carry an extension from PATHEXT, so probing for the bare
+// name finds nothing even when the tool is installed and on PATH -- which is
+// how an ESP-IDF install that ships ninja.exe still read as "no ninja".
+function executableNames(name, env) {
+  if (process.platform !== 'win32') return [name]
+  const extensions = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  return [name, ...extensions.map((extension) => name + extension)]
+}
+
 function commandExists(name, env) {
   const dirs = String(env.PATH || '').split(path.delimiter).filter(Boolean)
-  return dirs.some((dir) => existsSync(path.join(dir, name)))
+  const names = executableNames(name, env)
+  return dirs.some((dir) => names.some((candidate) => existsSync(path.join(dir, candidate))))
 }
 
 export function configureArguments(prepared, env) {
@@ -295,9 +305,15 @@ export function configureArguments(prepared, env) {
   // configured. Prefer Ninja for new builds (its no-op dependency traversal
   // is dramatically cheaper) while leaving existing Make builds untouched.
   if (!existsSync(path.join(prepared.buildDir, 'CMakeCache.txt'))) {
-    const generator = env.GEA_IDF_GENERATOR || (commandExists('ninja', env) ? 'Ninja' : 'Unix Makefiles')
+    // idf.py accepts only Ninja on Windows, so the probe must not decide there:
+    // a false negative would pick a generator the build refuses outright.
+    const windows = process.platform === 'win32'
+    const generator = env.GEA_IDF_GENERATOR || (windows || commandExists('ninja', env) ? 'Ninja' : 'Unix Makefiles')
     if (generator !== 'Ninja' && generator !== 'Unix Makefiles') {
       fail(`GEA_IDF_GENERATOR must be 'Ninja' or 'Unix Makefiles' (got '${generator}').`, ExitCode.usage)
+    }
+    if (windows && generator !== 'Ninja') {
+      fail(`ESP-IDF on Windows supports only the Ninja generator (got '${generator}').`, ExitCode.usage)
     }
     args.push('-G', generator)
   }

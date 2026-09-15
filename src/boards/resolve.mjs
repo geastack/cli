@@ -75,12 +75,21 @@ export function resolveBoardSelection({
   let port = ''
   let host = ''
   const usbSerial = usb.serial || ''
+  // A serial is still the identity of choice -- it survives replugging and
+  // tells two identical boards apart. But some devices publish none at all:
+  // the ESP32-S3's built-in USB Serial/JTAG has no iSerialNumber, so every
+  // platform reports an empty serial for it and the board could not be
+  // registered at all. `port` names such a board explicitly, and is only
+  // consulted when there is no serial to prefer.
+  const usbPort = usb.port || ''
 
   if (needs.usbPort && usbSerialAdapters.has(adapter)) {
     if (!isAuto(requestedPort)) {
       port = requestedPort
     } else if (usbSerial) {
       if (!deferUsbPort) port = usbSerialResolver({ serial: usbSerial })
+    } else if (usbPort) {
+      port = usbPort
     } else if (boardName) {
       // A WiFi-only board hits this on monitor/screenshot. Point at the
       // cable-free command instead of dead-ending on USB.
@@ -88,7 +97,7 @@ export function resolveBoardSelection({
       const wireless = boardTransport(board, 'ota').host
         ? ` This board has transports.ota.host, so 'gea logs${flag}' and 'gea screenshot${flag}' work with no cable.`
         : ''
-      throw new Error(`Board '${boardName}' does not define transports.usbSerial.serial, and no USB port was passed.${wireless}`)
+      throw new Error(`Board '${boardName}' defines neither transports.usbSerial.serial nor transports.usbSerial.port, and no USB port was passed.${wireless}`)
     }
   }
 

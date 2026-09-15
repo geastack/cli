@@ -95,7 +95,11 @@ function detectWindowsSerialDevices(env) {
       [
         '-NoProfile',
         '-Command',
-        'Get-CimInstance Win32_SerialPort | Select-Object DeviceID,Name,PNPDeviceID | ConvertTo-Json -Compress'
+        // Windows PowerShell writes in the console's OEM code page, so a port
+        // label like "Serielles USB-Gerät" arrives mangled when read as UTF-8.
+        // Setting the output encoding first makes the pipe match the decoding.
+        '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;' +
+          'Get-CimInstance Win32_SerialPort | Select-Object DeviceID,Name,PNPDeviceID | ConvertTo-Json -Compress'
       ],
       { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] }
     ).trim()
@@ -132,10 +136,18 @@ function serialFromLinuxById(name) {
   return parts.at(-1) || ''
 }
 
+// A Windows instance ID is `USB\VID_xxxx&PID_yyyy[&MI_zz]\<instance>`, and the
+// last field is the device's USB serial only when the device reports one.
+// Otherwise Windows synthesises it from the bus position, and those always
+// carry `&` -- as an ESP32-S3's native USB does with `9&1099E41D&0&0000`.
+// Taking the trailing run of that yields `0000`, which is not a serial and
+// identifies nothing: two such boards would claim the same identity.
 function serialFromDeviceName(name) {
-  const text = String(name || '')
-  const candidates = text.match(/[A-Za-z0-9:-]{4,}/g) || []
-  return candidates.at(-1) || ''
+  const fields = String(name || '').split('\\')
+  if (fields.length < 3) return ''
+  const instance = fields.at(-1).trim()
+  if (!instance || instance.includes('&')) return ''
+  return instance
 }
 
 function safeReaddir(dir) {

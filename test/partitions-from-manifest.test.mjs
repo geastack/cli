@@ -36,7 +36,7 @@ test('a manifest table becomes a CSV and yields its payload pairs', (t) => {
   assert.match(csv, /^nvs, data, nvs, 0x9000, 24K, $/m)
   assert.match(csv, /^ota_0, app, ota_0, , 4M, $/m)
   // Only a partition that declares data produces a payload, and it is absolute.
-  assert.deepEqual(payloads, ['models=/app/build/models.bin'])
+  assert.deepEqual(payloads, [`models=${path.join('/app', 'build/models.bin')}`])
 })
 
 test('an over-long partition name is refused before the flash', (t) => {
