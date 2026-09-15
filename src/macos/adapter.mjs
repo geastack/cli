@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 import { CliError, ExitCode, fail } from '../errors.mjs'
@@ -27,6 +27,8 @@ export function runMacos({ app, env, dryRun = false, stdout }) {
   // examples workspace -- a root's own package.json is one of the places
   // discovery looks, so this holds for every app rather than for a layout.
   const childEnv = { ...env, GEA_APPS_ROOT: app.root }
+  const plugins = geatscPluginsOf(app, require)
+  if (plugins.length > 0) childEnv.GEA_EXTRA_GEATSC_PLUGINS = plugins.join(path.delimiter)
   if (dryRun) {
     stdout(formatCommand(['bash', script, app.id]))
     return 0
@@ -35,4 +37,39 @@ export function runMacos({ app, env, dryRun = false, stdout }) {
   if (result.error) throw result.error
   if (result.status !== 0) throw new CliError(`macOS build failed (${result.status ?? 1}).`, ExitCode.deployFailed)
   return 0
+}
+
+// Compiler plugins come from the packages the app depends on.
+//
+// Each of these packages ships its own geatsc plugin and exports it as
+// "./geatsc-plugin". An app that depends on the package has already said it
+// wants it; requiring it to ALSO keep a geatsc-plugin.mjs in its own folder
+// that re-exports the package's is a step with no decision in it, and the
+// relative path such a stub inevitably carries only resolves for an app that
+// sits inside this repository -- skytail's pointed outside it, so the plugin
+// silently never loaded and three was compiled without its native transforms.
+//
+// An app-owned geatsc-plugin.mjs still wins, and when it exists it is the WHOLE
+// list rather than an addition to it. That is the only way a plugin that wraps
+// a package's own -- three-batched-mesh's probe wraps native-webgl-angle's and
+// re-runs its source transforms -- does not end up applied twice, and it keeps
+// "the app states its plugins" a real choice rather than an override.
+function geatscPluginsOf(app, require) {
+  const own = path.join(app.root, 'geatsc-plugin.mjs')
+  if (existsSync(own)) return [own]
+  const plugins = []
+  let manifest = {}
+  try {
+    manifest = JSON.parse(readFileSync(path.join(app.root, 'package.json'), 'utf8'))
+  } catch {
+    return plugins
+  }
+  for (const name of Object.keys({ ...manifest.dependencies, ...manifest.devDependencies })) {
+    try {
+      plugins.push(require.resolve(`${name}/geatsc-plugin`))
+    } catch {
+      // The package ships no plugin, which is the normal case.
+    }
+  }
+  return plugins
 }
