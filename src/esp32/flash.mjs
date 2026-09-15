@@ -101,6 +101,14 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
       return 0
     }
     if (status === 130 || status === 143) throw new CliError('ERROR: USB flash interrupted.', ExitCode.deployFailed)
+    // A completed write that only failed on esptool's own teardown is a
+    // success: the images are on the board and it has been reset. Report it
+    // as one, so the retry loop does not re-flash and re-reboot for minutes.
+    if (flashCompleted(logFile)) {
+      warn(stderr, `esptool exited ${status} after resetting the board; the flash itself completed.`)
+      if (step.quiet) stdout(flashSummary(logFile))
+      return 0
+    }
     if (options.retrySeconds > 0 && (Date.now() - startedAt) / 1000 >= options.retrySeconds) {
       throw new CliError(`ERROR: USB flash failed after ${attempt} attempt(s).`, ExitCode.deployFailed)
     }
@@ -108,6 +116,27 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
     attempt += 1
     await new Promise((resolve) => setTimeout(resolve, 1000))
   }
+}
+
+// esptool resets the board as its LAST act, and on a USB-Serial/JTAG chip that
+// reset detaches the device from USB. esptool then tries to restore the port it
+// no longer has and dies with pySerial's "Cannot configure port" -- after every
+// image has already been written and verified. Retrying that re-flashes a board
+// that was already flashed, and resets it again, for the whole retrySeconds
+// window: 300 seconds and thirteen reboots for a flash that succeeded the first
+// time, which is what "the board keeps restarting" turned out to be. esptool
+// prints the reset banner only once every write has been verified, so finding
+// it in the last attempt means the flash is done and there is nothing to retry.
+function flashCompleted(logFile) {
+  let text
+  try {
+    text = readFileSync(logFile, 'utf8')
+  } catch {
+    return false
+  }
+  const attempts = text.split(/^(?=esptool v)/m)
+  const last = attempts[attempts.length - 1].replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+  return /^(Hard resetting|Staying in bootloader|Resetting with a watchdog)/m.test(last)
 }
 
 // esptool prints one "Wrote N bytes ... at 0x... in T seconds" line per

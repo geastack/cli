@@ -80,7 +80,13 @@ export async function runStep(command, args, options = {}) {
   const passthrough = verbose || env.GEA_VERBOSE === '1' || !process.stdout.isTTY || !logFile
   if (passthrough) {
     stdout(`${label}...`)
-    const status = await spawnAndWait(command, args, { cwd, env, stdio: 'inherit' })
+    // Still write the log when one was asked for. A caller that reads the log
+    // back to decide what happened -- runEsptoolOverUsb, to tell a flash that
+    // completed from one that did not -- would otherwise be blind exactly when
+    // output is piped, which is every non-interactive run.
+    const status = logFile
+      ? await spawnAndTee(command, args, { cwd, env }, logFile, appendLog)
+      : await spawnAndWait(command, args, { cwd, env, stdio: 'inherit' })
     return { status, quiet: false }
   }
 
@@ -99,6 +105,32 @@ export async function runStep(command, args, options = {}) {
   stderr(failureExcerpt(logFile))
   stderr(pc.dim(`Full log: ${logFile}`))
   return { status, quiet: true }
+}
+
+// Passthrough that also records. The child gets pipes rather than the parent's
+// own handles, so its output is forwarded here and copied into the log.
+function spawnAndTee(command, args, options, logFile, appendLog) {
+  fs.mkdirSync(path.dirname(logFile), { recursive: true })
+  const log = fs.openSync(logFile, appendLog ? 'a' : 'w')
+  return new Promise((resolve, reject) => {
+    const child = spawn(...spawnArgs(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] }))
+    const forward = (source, sink) => {
+      source.on('data', (chunk) => {
+        sink.write(chunk)
+        fs.writeSync(log, chunk)
+      })
+    }
+    forward(child.stdout, process.stdout)
+    forward(child.stderr, process.stderr)
+    child.on('error', (error) => {
+      fs.closeSync(log)
+      reject(error)
+    })
+    child.on('close', (code) => {
+      fs.closeSync(log)
+      resolve(code ?? 1)
+    })
+  })
 }
 
 function spawnAndWait(command, args, options) {
