@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { createRequire } from 'node:module'
 
 import { loadBoardConfig, normalizeBoardConfig } from './boards/config.mjs'
 import { loadTargets } from './boards/targets.mjs'
@@ -78,7 +79,7 @@ export function validateApp(app) {
   if (!app.runtime) errors.push('gea.runtime is required or must default to gea')
   if (!app.targets || typeof app.targets !== 'object' || Array.isArray(app.targets)) errors.push('gea.targets must be an object')
   for (const source of app.nativeSources) {
-    if (!exists(path.join(app.root, source))) errors.push(`gea.nativeSources entry does not exist: ${source}`)
+    if (!resolveAppSourcePath(app.root, source)) errors.push(`gea.nativeSources entry does not exist: ${source}`)
   }
   for (const plugin of app.compilerPlugins) {
     if (!exists(path.join(app.root, plugin))) errors.push(`gea.compilerPlugins entry does not exist: ${plugin}`)
@@ -214,6 +215,9 @@ export function appSummary(ctx, app) {
     targets: app.targets,
     icons: app.icons,
     nativeSources: app.nativeSources,
+    // Absolute, already resolved: a target consuming these must not re-join
+    // them to the app root, because a package entry does not live there.
+    nativeSourcePaths: app.nativeSources.map((source) => resolveAppSourcePath(app.root, source)).filter((resolved) => resolved !== null),
     compilerPlugins: app.compilerPlugins,
     defines: app.defines,
     cssDevicePixelRatio: app.cssDevicePixelRatio,
@@ -307,6 +311,24 @@ function normalizeManifestRelativePath(value) {
   if (path.posix.isAbsolute(normalized) || normalized.startsWith('../')) return ''
   if (normalized.includes('/../') || normalized.includes(';')) return ''
   return normalized
+}
+
+// A nativeSources entry is either a path inside the app or a file in one of its
+// packages. App-relative wins when it exists, so nothing already declared can
+// change meaning; anything else is handed to node resolution, which is what
+// lets an app name `@geastack/native-webgl-angle/native/audio_host.mm` instead
+// of keeping a wrapper .mm whose only content is an #include of it. Those
+// wrappers had to spell a path relative to the app, and the path they spelled
+// only resolved for an app living inside the geastack tree.
+export function resolveAppSourcePath(root, source) {
+  const local = path.resolve(root, source)
+  if (exists(local)) return local
+  if (source.startsWith('./') || source.startsWith('../') || path.isAbsolute(source)) return null
+  try {
+    return createRequire(path.join(root, 'package.json')).resolve(source)
+  } catch {
+    return null
+  }
 }
 
 export function normalizeNativeSources(raw) {
