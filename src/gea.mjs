@@ -9,7 +9,7 @@ import { doctorCommand } from './commands/doctor.mjs'
 import { createContext } from './context.mjs'
 import { runCreateGeastack } from './create-geastack.mjs'
 import { ExitCode, fail } from './errors.mjs'
-import { knownPlatforms } from './manifest.mjs'
+import { findAppById, findCurrentApp, knownPlatforms } from './manifest.mjs'
 import { heading } from './report.mjs'
 import { runSetupWizard } from './setup-wizard.mjs'
 
@@ -51,6 +51,20 @@ export async function runGea(argv, io = {}) {
 
   // Xbox is both a platform and a concrete built-in UWP target.
   const target = option(parsed, 'target', '')
+  // macOS never reaches board selection: it has no alias and no catalog entry,
+  // so an app declaring `targets.macos` is the whole configuration. Without a
+  // --target or --board it is the default on a Mac, which is what makes
+  // `gea build` inside the app folder the command a user actually types.
+  if (command === 'build' && (target === 'macos' || (!target && !option(parsed, 'board')))) {
+    const app = parsed.options.app || rest[0] ? findAppById(ctx, String(parsed.options.app || rest[0])) : findCurrentApp(cwd)
+    if (app?.targets?.macos && (target === 'macos' || process.platform === 'darwin')) {
+      const { runMacos } = await import('./macos/adapter.mjs')
+      return runMacos({ app, env, dryRun: flag(parsed, 'dry-run'), stdout })
+    }
+    if (target === 'macos') {
+      fail(app ? `'${app.id}' does not declare gea.targets.macos.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
+    }
+  }
   if (target && target !== 'xbox' && knownPlatforms.includes(target) && ['build', 'flash', 'run', 'monitor', 'ota'].includes(command)) {
     if (target === 'esp32' || target === 'rp2350' || target === 'geaos') {
       fail(`--target ${target} names a platform; pass --board <alias> (gea boards list) or --target <target id> (gea targets list).`, ExitCode.usage)
