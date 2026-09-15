@@ -66,7 +66,7 @@ function copyLauncherIcon({ repoRoot, app, outputFile }) {
   return `generated/icons/${outputName}`
 }
 
-export function generateLauncherCatalog({ repoRoot, apps: allApps, target = 'geaos', outputFile }) {
+export function generateLauncherCatalog({ repoRoot, apps: allApps, target = 'web', outputFile }) {
   if (!repoRoot) throw new Error('generateLauncherCatalog requires repoRoot')
   if (!Array.isArray(allApps)) throw new Error('generateLauncherCatalog requires apps')
   if (!outputFile) throw new Error('generateLauncherCatalog requires outputFile')

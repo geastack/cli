@@ -15,7 +15,6 @@ export async function appsCommand(ctx, parsed, rest, options) {
   switch (sub) {
     case 'list': return listApps(ctx, parsed, options)
     case 'inspect': return inspectApp(ctx, parsed, args, options)
-    case 'pack': return packApp(ctx, parsed, args, options)
     case 'index': return appIndex(ctx, parsed, options)
     case 'launcher': return launcher(ctx, parsed, options)
     case 'icons': return icons(ctx, parsed, args, options)
@@ -46,18 +45,6 @@ function inspectApp(ctx, parsed, args, options) {
   return 0
 }
 
-async function packApp(ctx, parsed, args, options) {
-  const app = resolveRequestedApp(ctx, parsed, args)
-  assertValidApp(app)
-  const target = option(parsed, 'target', 'geaos')
-  const { createGeaBundle } = await import('../apps/bundle-writer.mjs')
-  const out = path.resolve(ctx.cwd, option(parsed, 'out', path.join(ctx.projectRoot, 'dist', `${app.id}-${target}.gea.zip`)))
-  const artifactDir = option(parsed, 'artifact-dir', '')
-  const manifest = createGeaBundle({ repoRoot: ctx.projectRoot, app, target, outputPath: out, artifactDir: artifactDir ? path.resolve(ctx.cwd, artifactDir) : '' })
-  options.stdout(flag(parsed, 'json') ? JSON.stringify({ outputPath: out, manifest }, null, 2) : out)
-  return 0
-}
-
 async function appIndex(ctx, parsed, options) {
   const { generateAppIndex } = await import('../apps/app-index-writer.mjs')
   const outputFile = path.resolve(ctx.cwd, option(parsed, 'out', path.join(ctx.projectRoot, 'simulator', 'src', 'generated', 'app-index.ts')))
@@ -68,7 +55,7 @@ async function appIndex(ctx, parsed, options) {
 
 async function launcher(ctx, parsed, options) {
   const { generateLauncherCatalog } = await import('../apps/launcher-catalog.mjs')
-  const target = option(parsed, 'target', 'geaos')
+  const target = option(parsed, 'target', 'web')
   const outputFile = path.resolve(ctx.cwd, option(parsed, 'out', path.join(ctx.projectRoot, 'apps', 'app-launcher', 'generated', 'LauncherCatalog.tsx')))
   const apps = generateLauncherCatalog({ repoRoot: ctx.projectRoot, apps: discoverApps(ctx), target, outputFile })
   options.stdout(flag(parsed, 'json') ? JSON.stringify({ outputFile, apps: apps.map((app) => appSummary(ctx, app)) }, null, 2) : outputFile)
@@ -142,7 +129,7 @@ async function appleIcons(ctx, parsed, args, options) {
 async function iconSheet(ctx, parsed, options) {
   const { generateIconStyleSheet } = await import('../apps/openai-icons.mjs')
   const excluded = new Set(optionList(parsed, 'exclude'))
-  const iconTarget = option(parsed, 'target', 'geaos')
+  const iconTarget = option(parsed, 'target', 'all')
   const outputPath = path.resolve(ctx.cwd, option(parsed, 'out', path.join(ctx.projectRoot, 'docs', 'icon-style-preview', `${iconTarget}-icon-style-sheet.png`)))
   const apps = discoverApps(ctx)
     .filter((app) => iconTarget === 'all' || app.targets?.[iconTarget] === true)
