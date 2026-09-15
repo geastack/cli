@@ -326,7 +326,7 @@ test('a manifest partition table, not the board\'s, is what the flash writes -- 
   // Slot geometry reads the same table.
   const erase = await gea(['flash', '--board', 'amoled', '--erase-slot', 'ota_1', '--dry-run'], fixture)
   assert.equal(erase.code, 0, erase.err)
-  assert.match(erase.out, /erase_region 0x420000 4194304/)
+  assert.match(erase.out, /erase-region 0x420000 4194304/)
 
   // Mode, frequency and size come from the build too, not from the board
   // catalog: an app whose sdkconfig declares a 32MB chip writes past the
@@ -334,7 +334,7 @@ test('a manifest partition table, not the board\'s, is what the flash writes -- 
   fs.writeFileSync(path.join(buildDir, 'flasher_args.json'), JSON.stringify({ flash_settings: { flash_mode: 'qio', flash_freq: '120m', flash_size: '32MB' } }))
   const configured = await gea(['flash', '--board', 'amoled', '--no-build', '--dry-run'], fixture)
   assert.equal(configured.code, 0, configured.err)
-  assert.match(configured.out, /write_flash --flash_mode qio --flash_freq 120m --flash_size 32MB/)
+  assert.match(configured.out, /write-flash --flash-mode qio --flash-freq 120m --flash-size 32MB/)
 
   // A payload the app never produced is named before esptool runs.
   fs.rmSync(library)

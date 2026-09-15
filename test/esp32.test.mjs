@@ -333,14 +333,14 @@ test('a USB-Serial-JTAG board is restarted by its watchdog, not by the reset pin
   // A chip without the peripheral is flashed through a UART bridge, where the
   // reset pin is the only thing that can restart it.
   const bridged = flashOptions({}, { idf: { version: { major: 6 } }, selection: { idfTarget: 'esp32' } })
-  assert.equal(bridged.after, 'hard_reset')
+  assert.equal(bridged.after, 'hard-reset')
 
   // esptool 4 (ESP-IDF 5) has no watchdog reset to ask for.
   const old = flashOptions({}, { idf: { version: { major: 5 } }, selection: { idfTarget: 'esp32s3' } })
-  assert.equal(old.after, 'hard_reset')
+  assert.equal(old.after, 'hard-reset')
 
   // --no-reset means leave the chip where esptool left it, whatever the board.
   const held = flashOptions({}, { idf: { version: { major: 6 } }, selection: { idfTarget: 'esp32s3' }, noReset: true })
-  assert.equal(held.after, 'no_reset')
+  assert.equal(held.after, 'no-reset')
 })
 
