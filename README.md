@@ -148,9 +148,6 @@ Python, and board configuration. For the Waveshare ESP32-S3 AMOLED path, use
 `npx gea doctor` checks the same dependencies and prints warnings for optional
 target toolchains that are not installed.
 
-[docs/NPX-COMMANDS.md](docs/NPX-COMMANDS.md) captures the private npmjs
-`npx` command shape for release.
-
 ## Responsibilities
 
 The CLI should own:
@@ -174,8 +171,6 @@ expose stable command contracts.
   GeaStack resolves, and the board configuration files.
 - [docs/DEVICE-CONTROL.md](docs/DEVICE-CONTROL.md): `gea devctl` in full, both
   wire protocols, and the display knobs.
-- [docs/NPX-COMMANDS.md](docs/NPX-COMMANDS.md): the npm onboarding flow, the
-  setup wizard, board management, and app selection.
 
 ## Current Status
 

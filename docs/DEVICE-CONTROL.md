@@ -218,5 +218,5 @@ arrives as a single verb named `hbm on`. Pass the arguments separately.
 ## See also
 
 - [`SETUP.md`](SETUP.md) for the board configuration files and their entry shapes
-- [`NPX-COMMANDS.md`](NPX-COMMANDS.md) for `gea boards` and the setup wizard
+- [`SETUP.md`](SETUP.md) for `gea boards` and the setup wizard
 - [`SPEC.md`](SPEC.md) for the full command surface and exit codes
