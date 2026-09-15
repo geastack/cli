@@ -1,6 +1,6 @@
 {
   "name": "@geastack/create-geastack",
-  "version": "0.1.11",
+  "version": "0.1.13",
   "type": "module",
   "description": "Project scaffolder for GeaStack apps.",
   "publishConfig": {
