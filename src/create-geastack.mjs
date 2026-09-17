@@ -275,6 +275,11 @@ async function chooseBlankTarget(prompt, { back }) {
         value: 'android',
         label: 'Android',
         description: 'A native Android application.'
+      },
+      {
+        value: 'windows',
+        label: 'Windows',
+        description: 'A native Windows desktop application.'
       }
     ],
     defaultValue: 'web'
@@ -298,7 +303,8 @@ function targetManifest(requestedTargets) {
     geaos: enabled.has('geaos'),
     macos: enabled.has('macos'),
     ios: enabled.has('ios'),
-    android: enabled.has('android')
+    android: enabled.has('android'),
+    windows: enabled.has('windows')
   }
 }
 
@@ -311,7 +317,8 @@ function targetManifestFromObject(targets = {}) {
     geaos: targets.geaos === true,
     macos: targets.macos === true,
     ios: targets.ios === true,
-    android: targets.android === true
+    android: targets.android === true,
+    windows: targets.windows === true
   }
 }
 
@@ -340,7 +347,8 @@ function packageJson({ appId, displayName, targets, entry, coreDependency, cliDe
       '@geajs/core': sourcePackage.dependencies?.['@geajs/core'] || '^1.3.0',
       '@geastack/core': coreDependency,
       '@geastack/cli': cliDependency,
-      ...(needsTargetsPackage(targets) ? { '@geastack/targets': sourcePackage.dependencies?.['@geastack/targets'] || targetsDependencyDefault } : {})
+      ...(needsTargetsPackage(targets) ? { '@geastack/targets': sourcePackage.dependencies?.['@geastack/targets'] || targetsDependencyDefault } : {}),
+      ...(targets.windows ? { '@geastack/windows': sourcePackage.dependencies?.['@geastack/windows'] || windowsDependencyDefault } : {})
     },
     devDependencies: {
       ...(sourcePackage.devDependencies || {}),
@@ -357,6 +365,10 @@ function packageJson({ appId, displayName, targets, entry, coreDependency, cliDe
 function needsTargetsPackage(targets) {
   return targets.esp32 || targets.rp2350
 }
+
+// The Windows target ships inside @geastack/windows, resolved from the app's
+// own dependencies by `gea build --target windows`.
+const windowsDependencyDefault = '^0.1.0'
 
 function indexTsx(displayName) {
   return `import { ReactiveComponent, mount } from '@geastack/core'
@@ -493,7 +505,11 @@ npx gea build --target web`
       ? `npx gea setup
 npx gea build
 npx gea flash --monitor`
-      : `npx gea setup
+      : targets.windows && !targets.macos
+        ? `npx gea setup
+npx gea build --target windows
+npx gea run --target windows`
+        : `npx gea setup
 npx gea build`
   return `# ${displayName}
 
@@ -578,7 +594,7 @@ Automation options:
   --name <display-name>
   --examples-repo <git-url-or-local-path>
   --examples-ref <git-ref>
-  --targets web,esp32,rp2350,geaos,macos,ios,android
+  --targets web,esp32,rp2350,geaos,macos,ios,android,windows
   --core-dependency <specifier>
   --cli-dependency <specifier>
   --install

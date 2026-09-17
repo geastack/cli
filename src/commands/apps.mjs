@@ -73,7 +73,7 @@ async function icons(ctx, parsed, args, options) {
     ? all
       .filter((app) => iconTarget && iconTarget !== 'all'
         ? app.targets?.[iconTarget] === true
-        : ['geaos', 'esp32', 'ios', 'macos'].some((candidate) => app.targets?.[candidate] === true))
+        : ['geaos', 'esp32', 'ios', 'macos', 'windows'].some((candidate) => app.targets?.[candidate] === true))
       .filter((app) => !excluded.has(app.id))
     : [resolveRequestedApp(ctx, parsed, [requested])]
   await generateIconSets({

@@ -293,6 +293,53 @@ test('a bare `gea build` only means macOS for an app with no board to pick', asy
   }
 })
 
+test('`gea build --target windows` runs the Windows target script from @geastack/windows', async (t) => {
+  const fixture = createFixture(t)
+  // `watch` declares windows alongside its boards; the explicit target is how
+  // such an app asks for the Windows build, on any host.
+  installFakeWindows(fixture.appDir)
+  const explicit = await gea(['build', '--target', 'windows', '--dry-run'], fixture)
+  assert.equal(explicit.code, 0, explicit.err)
+  assert.match(explicit.out, /build-windows\.mjs'? watch$/m)
+  // `gea run --target windows` builds and launches.
+  const run = await gea(['run', '--target', 'windows', '--dry-run'], fixture)
+  assert.equal(run.code, 0, run.err)
+  assert.match(run.out, /build-windows\.mjs'? watch --run$/m)
+  // Compiler plugins the app depends on are handed to the build.
+  await assert.rejects(
+    gea(['build', '--target', 'windows', '--dry-run'], fixture, { cwd: path.join(fixture.root, 'apps/web-only') }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /does not declare gea.targets.windows/.test(error.message)
+  )
+
+  // An app with no board-driven target and no other desktop target: on a
+  // Windows machine the bare build is the Windows build.
+  const winOnly = path.join(fixture.root, 'apps/win-only')
+  fs.mkdirSync(winOnly, { recursive: true })
+  fs.writeFileSync(path.join(winOnly, 'index.tsx'), 'export const value = 1\n')
+  writeJson(path.join(winOnly, 'package.json'), {
+    name: '@fixture/win-only',
+    private: true,
+    gea: { id: 'win-only', name: 'Win Only', entry: 'index.tsx', runtime: 'gea', targets: { web: true, windows: true } }
+  })
+  installFakeWindows(winOnly)
+  const bare = await gea(['build', '--dry-run'], fixture, { cwd: winOnly })
+  if (process.platform === 'win32') {
+    assert.equal(bare.code, 0, bare.err)
+    assert.match(bare.out, /build-windows\.mjs'? win-only$/m)
+  } else {
+    assert.equal(bare.code, ExitCode.usage)
+  }
+})
+
+// @geastack/windows ships the Win32 target; like the Apple package it is
+// resolved from the app's own dependencies.
+function installFakeWindows(appDir) {
+  const root = path.join(appDir, 'node_modules', '@geastack', 'windows')
+  writeJson(path.join(root, 'package.json'), { name: '@geastack/windows', version: '0.1.0' })
+  fs.mkdirSync(path.join(root, 'targets', 'win32'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'targets', 'win32', 'build-windows.mjs'), 'process.exit(0)\n')
+}
+
 // @geastack/apple ships the macOS target; the adapter resolves it from the
 // app's own dependencies, so it is installed per app.
 function installFakeApple(appDir) {

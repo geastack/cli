@@ -142,7 +142,7 @@ export function assertTargetEnabled(ctx, app, targetOrPlatform) {
   fail(`App '${app.id}' does not enable target '${platform}'.`, ExitCode.targetUnavailable)
 }
 
-export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios', 'android', 'xbox'])
+export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios', 'android', 'windows', 'xbox'])
 
 export function appPlatformForTarget(ctx, targetOrBoard) {
   return appPlatformsForTarget(ctx, targetOrBoard)[0] || ''

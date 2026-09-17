@@ -77,6 +77,21 @@ export async function runGea(argv, io = {}) {
       fail(app ? `'${app.id}' does not declare gea.targets.macos.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
     }
   }
+  // Windows mirrors macOS: a platform, not a board, driven by one script that
+  // ships inside @geastack/windows. `gea build --target windows` works on any
+  // host; a bare `gea build` on a Windows machine means the Windows build for
+  // an app whose only desktop target is Windows. `gea run --target windows`
+  // builds and then launches the executable.
+  if ((command === 'build' || command === 'run') && (target === 'windows' || (command === 'build' && !target && !option(parsed, 'board')))) {
+    const app = parsed.options.app || rest[0] ? findAppById(ctx, String(parsed.options.app || rest[0])) : findCurrentApp(cwd)
+    if (app?.targets?.windows && (target === 'windows' || (process.platform === 'win32' && !declaresBoardTarget(app)))) {
+      const { runWindows } = await import('./windows/adapter.mjs')
+      return runWindows({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, run: command === 'run' })
+    }
+    if (target === 'windows') {
+      fail(app ? `'${app.id}' does not declare gea.targets.windows.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
+    }
+  }
   // `web` names two targets, and both are driven by gea, so it leaves the
   // refusal below the way macos does above. `gea simulate` is the WASM device
   // simulator; `gea {dev,build} --target web` is a real DOM/CSS web app. A bare

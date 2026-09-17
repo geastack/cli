@@ -382,7 +382,7 @@
     {
       "id": "notes-jsx",
       "name": "geaNotes",
-      "description": "macOS notes app in JSX",
+      "description": "macOS and Windows notes app in JSX",
       "path": "apps/notes-jsx",
       "entry": "index.tsx",
       "runtime": "gea",
@@ -391,7 +391,8 @@
         "esp32": false,
         "geaos": false,
         "macos": true,
-        "ios": false
+        "ios": false,
+        "windows": true
       }
     },
     {
@@ -407,6 +408,22 @@
         "geaos": false,
         "macos": true,
         "ios": false
+      }
+    },
+    {
+      "id": "notes-windows",
+      "name": "geaNotes",
+      "description": "native Windows notes app",
+      "path": "apps/notes-windows",
+      "entry": "index.ts",
+      "runtime": "windows-native",
+      "targets": {
+        "web": false,
+        "esp32": false,
+        "geaos": false,
+        "macos": false,
+        "ios": false,
+        "windows": true
       }
     },
     {

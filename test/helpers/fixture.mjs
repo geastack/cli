@@ -40,12 +40,12 @@ export function createFixture(t, options = {}) {
   writeApp(root, 'apps/watch', {
     id: 'watch',
     name: 'Watch',
-    targets: { web: true, esp32: true, rp2350: false, geaos: true, macos: true, ios: true, android: true }
+    targets: { web: true, esp32: true, rp2350: false, geaos: true, macos: true, ios: true, android: true, windows: true }
   })
   writeApp(root, 'apps/web-only', {
     id: 'web-only',
     name: 'Web Only',
-    targets: { web: true, esp32: false, rp2350: false, geaos: false, macos: false, ios: false, android: false }
+    targets: { web: true, esp32: false, rp2350: false, geaos: false, macos: false, ios: false, android: false, windows: false }
   })
   writeJson(path.join(root, 'apps/bad-app/package.json'), {
     name: '@fixture/bad-app',
