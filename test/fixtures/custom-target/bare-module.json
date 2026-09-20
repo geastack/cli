@@ -1,0 +1,15 @@
+{
+  "id": "bare-module",
+  "extends": "esp32-s3",
+  "adapter": "esp32-idf",
+  "mcu": "esp32s3",
+  "flashSize": "16MB",
+  "console": { "transport": "uart", "uart": 0, "baud": 115200 },
+  "psram": { "mode": "octal", "speed": 80 },
+  "canvas": { "width": 240, "height": 240 },
+  "controls": { "launcherButton": { "pin": 0, "activeLevel": 0 } },
+  "partitions": {
+    "nvs":     { "type": "data", "subtype": "nvs",   "offset": "0x9000",  "size": "0x6000" },
+    "factory": { "type": "app",  "subtype": "factory", "offset": "0x10000", "size": "0x600000" }
+  }
+}

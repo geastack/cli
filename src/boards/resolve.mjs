@@ -1,0 +1,178 @@
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+
+import { boardConfigOrigins, boardConfigPath, loadBoardConfig, normalizeBoardConfig } from './config.mjs'
+import { loadTargets } from './targets.mjs'
+import { resolveUsbSerialPort } from './usb.mjs'
+
+export const usbSerialAdapters = new Set(['esp32-idf', 'rp2350-pico'])
+export const geaosAdapters = new Set(['geaos-linux', 'geaos-arm64'])
+
+function boardTransport(board, name) {
+  return board?.transports?.[name] || {}
+}
+
+function isAuto(value) {
+  return !value || /^auto$/i.test(value) || value === '<auto>'
+}
+
+// A composed target's JSON: an id, the target it extends, and the overrides
+// that make it a different module. Read the same way wherever it ships from, so
+// a board that moves into @geastack/targets is validated as it was before.
+function readTargetDefinition(file, { missing }) {
+  if (!existsSync(file)) throw new Error(missing)
+  const definition = JSON.parse(readFileSync(file, 'utf8'))
+  if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+    throw new Error(`Target definition must be a JSON object: ${file}`)
+  }
+  if (!definition.id) throw new Error(`Target definition is missing id: ${file}`)
+  if (!definition.extends) throw new Error(`Target definition is missing extends: ${file}`)
+  return definition
+}
+
+// Turns a board alias (or a bare target id) into everything a command needs:
+// the target project directory, its adapter, chip/flash metadata and the
+// transports the command asked for. `needs.usbPort` resolves the board's USB
+// serial to today's /dev port; `needs.otaHost` resolves transports.ota.host.
+// Commands state what they need instead of the resolver guessing from names.
+export function resolveBoardSelection({
+  ctx = null,
+  boardName = '',
+  targetName = '',
+  requestedPort = '',
+  requestedHost = '',
+  needs = {},
+  targets = ctx ? loadTargets(ctx) : {},
+  config = ctx ? loadBoardConfig(ctx) : {},
+  // A targetDefinition is relative to the file its alias came from, which
+  // differs between the home and project tiers.
+  configDir = ctx ? path.dirname((boardName && boardConfigOrigins(ctx).get(boardName)) || boardConfigPath(ctx)) : process.cwd(),
+  usbSerialResolver = resolveUsbSerialPort,
+  deferUsbPort = false
+} = {}) {
+  const boards = normalizeBoardConfig(config)
+  const board = boardName ? boards[boardName] : null
+  if (boardName && !board) {
+    throw new Error(`Unknown board '${boardName}'. Run gea boards list, or gea boards add to register it.`)
+  }
+
+  let target = board?.target || targetName || ''
+  if (!target) throw new Error('No board selected. Pass --board <alias> (gea boards list) or --target <id>.')
+  let targetBase = target
+  let targetDefinition = ''
+  let definition = null
+  // Two places a composed definition can come from, and the alias wins: a board
+  // registered in this project describes a module someone has on their desk,
+  // while the registry's copy describes the module in general. An alias that
+  // names its own definition is deliberately overriding the shipped one.
+  const libraryDefinition = targets[target]?.definitionPath || ''
+  if (board?.targetDefinition) {
+    targetDefinition = path.resolve(configDir, board.targetDefinition)
+    definition = readTargetDefinition(targetDefinition, {
+      missing: `Target definition for board '${boardName}' was not found: ${targetDefinition}`
+    })
+  } else if (libraryDefinition) {
+    targetDefinition = libraryDefinition
+    definition = readTargetDefinition(targetDefinition, {
+      missing: `Target '${target}' names a definition that is not in @geastack/targets: ${targetDefinition}`
+    })
+  }
+  if (definition) {
+    if (board?.target && board.target !== definition.id) {
+      throw new Error(`Board '${boardName}' selects target '${board.target}', but ${targetDefinition} defines '${definition.id}'.`)
+    }
+    target = definition.id
+    targetBase = definition.extends
+  }
+  const targetInfo = targets[targetBase] || {}
+  const adapter = board?.adapter || definition?.adapter || targetInfo.adapter || ''
+  if (!adapter) throw new Error(`Unknown target '${target}'. It is not in targets.json and the board declares no adapter.`)
+
+  const usb = boardTransport(board, 'usbSerial')
+  if (usb.path) {
+    throw new Error(`Board '${boardName}' uses transports.usbSerial.path, which is no longer supported; set transports.usbSerial.serial instead.`)
+  }
+  let port = ''
+  let host = ''
+  const usbSerial = usb.serial || ''
+  // A serial is still the identity of choice -- it survives replugging and
+  // tells two identical boards apart. But some devices publish none at all:
+  // the ESP32-S3's built-in USB Serial/JTAG has no iSerialNumber, so every
+  // platform reports an empty serial for it and the board could not be
+  // registered at all. `port` names such a board explicitly, and is only
+  // consulted when there is no serial to prefer.
+  const usbPort = usb.port || ''
+
+  if (needs.usbPort && usbSerialAdapters.has(adapter)) {
+    if (!isAuto(requestedPort)) {
+      port = requestedPort
+    } else if (usbSerial) {
+      if (!deferUsbPort) port = usbSerialResolver({ serial: usbSerial })
+    } else if (usbPort) {
+      port = usbPort
+    } else if (boardName) {
+      // A WiFi-only board hits this on monitor/screenshot. Point at the
+      // cable-free command instead of dead-ending on USB.
+      const flag = Object.keys(boards).length > 1 ? ` --board ${boardName}` : ''
+      const wireless = boardTransport(board, 'ota').host
+        ? ` This board has transports.ota.host, so 'gea logs${flag}' and 'gea screenshot${flag}' work with no cable.`
+        : ''
+      throw new Error(`Board '${boardName}' defines neither transports.usbSerial.serial nor transports.usbSerial.port, and no USB port was passed.${wireless}`)
+    }
+  }
+
+  // geaos devices are identified by USB serial too, but tolerantly: a build
+  // with the watch detached must still work, so an unresolved port stays
+  // empty and the adapter errors at the point it needs the device.
+  if (needs.usbPort && geaosAdapters.has(adapter)) {
+    if (!isAuto(requestedPort)) {
+      port = requestedPort
+    } else if (usbSerial && !deferUsbPort) {
+      try {
+        port = usbSerialResolver({ serial: usbSerial })
+      } catch {
+        port = ''
+      }
+    }
+  }
+
+  if (needs.otaHost) {
+    if (!isAuto(requestedHost)) {
+      host = requestedHost
+    } else {
+      host = boardTransport(board, 'ota').host || ''
+      if (!host) throw new Error(`Board '${boardName || target}' does not define transports.ota.host, and no --host was passed.`)
+    }
+  }
+
+  const selection = {
+    boardName,
+    target,
+    adapter,
+    bootMode: targetInfo.bootMode || '',
+    targetDir: board?.targetDir || targetInfo.targetDir || '',
+    // The definition outranks the base it extends: a composed board's flash is
+    // its own module's, not the flash of the board whose stack it borrows.
+    flashSize: board?.flashSize || definition?.flashSize || targetInfo.flashSize || '',
+    appPlatform: board?.appPlatform || targetInfo.appPlatform || '',
+    compatibleAppPlatforms: Array.isArray(targetInfo.compatibleAppPlatforms) ? targetInfo.compatibleAppPlatforms : [],
+    idfTarget: board?.idfTarget || targetInfo.idfTarget || '',
+    esptoolChip: board?.esptoolChip || targetInfo.esptoolChip || '',
+    mainTaskStackSize: board?.mainTaskStackSize || targetInfo.mainTaskStackSize || '',
+    ipcTaskStackSize: board?.ipcTaskStackSize || targetInfo.ipcTaskStackSize || '',
+    port,
+    host,
+    usbSerial,
+    usbRestartAfterFlash: usb.restartAfterFlash || '',
+    otaHost: boardTransport(board, 'ota').host || '',
+    telnetHost: boardTransport(board, 'telnet').host || board?.telnetHost || targetInfo.telnetHost || '',
+    telnetPort: String(boardTransport(board, 'telnet').port || board?.telnetPort || targetInfo.telnetPort || ''),
+    fastbootSerial: boardTransport(board, 'fastboot').serial || board?.fastbootSerial || '',
+    mtkWorkdir: boardTransport(board, 'mtk').workdir || board?.mtkWorkdir || '',
+    mtkBootSlot: boardTransport(board, 'mtk').bootSlot || board?.mtkBootSlot || '',
+    mtkMethod: boardTransport(board, 'mtk').method || board?.mtkMethod || '',
+    mtkMonitorGlob: boardTransport(board, 'mtk').monitorGlob || board?.mtkMonitorGlob || '',
+    targetDefinition
+  }
+  return selection
+}

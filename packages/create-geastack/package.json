@@ -1,0 +1,27 @@
+{
+  "name": "@geastack/create-geastack",
+  "version": "0.1.14",
+  "description": "Project scaffolder for GeaStack apps.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/cli.git",
+    "directory": "packages/create-geastack"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "bin": {
+    "create-geastack": "bin/create-geastack.mjs"
+  },
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@geastack/cli": "^0.1.78"
+  }
+}

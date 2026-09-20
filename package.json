@@ -1,0 +1,52 @@
+{
+  "name": "@geastack/cli",
+  "version": "0.1.78",
+  "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/cli.git"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "bin": {
+    "gea": "bin/gea.mjs",
+    "create-geastack": "bin/create-geastack.mjs"
+  },
+  "exports": {
+    ".": "./src/gea.mjs",
+    "./create": "./src/create-geastack.mjs",
+    "./errors": "./src/errors.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "starters/",
+    "examples/",
+    "docs/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@clack/prompts": "^1.8.0",
+    "@geastack/simulator": "^0.1.6",
+    "picocolors": "^1.1.1",
+    "serialport": "^13.0.0"
+  },
+  "starterDependencies": {
+    "@geastack/core": "^0.1.23",
+    "@geastack/targets": "^0.1.77"
+  },
+  "scripts": {
+    "check": "node --check bin/gea.mjs && node --check bin/create-geastack.mjs && find src test packages -name '*.mjs' -print0 | xargs -0 -n1 node --check",
+    "test": "node --test"
+  }
+}

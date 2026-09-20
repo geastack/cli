@@ -1,0 +1,33 @@
+{
+  "name": "@geastack/starter-counter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Touchscreen counter with component-local reactive state.",
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@geajs/core": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest"
+  },
+  "gea": {
+    "id": "counter",
+    "name": "Component Counter",
+    "description": "Touchscreen counter with component-local reactive state.",
+    "entry": "src/index.tsx",
+    "targets": {
+      "web": false,
+      "esp32": true,
+      "rp2350": false,
+      "geaos": false,
+      "macos": false,
+      "ios": false
+    },
+    "ota": {
+      "ble": true
+    }
+  }
+}

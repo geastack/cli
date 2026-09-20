@@ -1,0 +1,27 @@
+{
+  "id": "manual-amoled",
+  "extends": "esp32-s3",
+  "adapter": "esp32-idf",
+  "mcu": "esp32s3",
+  "buses": { "i2c": { "sda": 15, "scl": 14 } },
+  "chips": {
+    "display": {
+      "driver": "co5300",
+      "interface": "qspi",
+      "width": 410,
+      "height": 502,
+      "spiHost": "spi2",
+      "pins": { "cs": 12, "pclk": 11, "data0": 4, "data1": 5, "data2": 6, "data3": 7, "reset": 8, "te": 13 }
+    },
+    "touch": { "driver": "ft3168", "interface": "i2c", "pins": { "reset": 9, "interrupt": 38 } },
+    "power": { "driver": "axp2101", "interface": "i2c" },
+    "imu": { "driver": "qmi8658", "interface": "i2c" },
+    "audio": {
+      "driver": "es8311",
+      "interface": "i2s",
+      "pins": { "mclk": 16, "bclk": 41, "ws": 45, "dout": 40, "din": 42, "powerAmplifier": 46 }
+    }
+  },
+  "storage": { "microSD": { "interface": "sdmmc-1bit", "pins": { "clk": 2, "cmd": 1, "data0": 3 } } },
+  "controls": { "launcherButton": { "pin": 0, "activeLevel": 0 } }
+}
