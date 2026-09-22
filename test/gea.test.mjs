@@ -621,6 +621,8 @@ test('custom setup composes a flash-ready target from the chip catalog', async (
     '1',
     '1',
     '1', '16', '41', '45', '40', '42', '46',
+    // I/O expander: the last choice is "None / configure later".
+    '2',
     'y', '2', '1', '3',
     'y', '0', '1',
     'y',

@@ -242,6 +242,77 @@ test('a bare module composes with no peripherals at all', (t) => {
   assert.equal(selection.idfTarget, 'esp32s3')
 })
 
+test('a parallel RGB panel board composes with a GT911 and an I/O expander', (t) => {
+  // The Waveshare 7" shape: no panel controller (the LCD peripheral scans a
+  // PSRAM framebuffer out), touch reset and backlight on a CH422G, INT on a
+  // GPIO. None of that fits the QSPI display block, so the RGB kind carries
+  // its own timings and pins, and the expander is a role of its own.
+  const definitionPath = path.join(fixtureDir, 'rgb-panel-board.json')
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const definition = JSON.parse(readFileSync(definitionPath, 'utf8'))
+  const target = normalizeCustomTarget(definition, catalog)
+
+  assert.equal(target.chips.display.interface, 'rgb')
+  assert.equal(target.chips.display.pclkActiveNeg, true)
+  assert.deepEqual(target.chips.display.pins.data.slice(0, 3), [14, 38, 18])
+  assert.equal(target.chips.display.pins.backlight, -1)
+  // Touch lines are optional: reset goes through the expander here.
+  assert.equal(target.chips.touch.pins.reset, -1)
+  assert.equal(target.chips.touch.pins.interrupt, 4)
+  assert.deepEqual(target.chips.expander.outputs, { backlight: 2, touchReset: 1, displayReset: 3 })
+  assert.equal(target.chips.expander.initialOutputs, 30)
+
+  const header = renderBoardHeader(target)
+  assert.match(header, /#define GEA_BOARD_HAS_EXPANDER 1/)
+  assert.match(header, /RgbPanelDisplayConfig display\{/)
+  assert.match(header, /\.data = \{ GPIO_NUM_14, GPIO_NUM_38/)
+  assert.match(header, /\.pclkActiveNeg = true/)
+  assert.match(header, /\.backlight = GPIO_NUM_NC/)
+  assert.match(header, /IoExpanderConfig expander\{ \.initialOutputs = 30, \.backlight = 2, \.touchReset = 1, \.displayReset = 3 \}/)
+  assert.doesNotMatch(header, /Co5300DisplayConfig/)
+  assert.doesNotMatch(header, /spi_master\.h/)
+
+  const cmake = renderTargetCmake(target, '/out')
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_DISPLAY_INTERFACE "rgb"\)/)
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_TOUCH_DRIVER "gt911"\)/)
+  assert.match(cmake, /chip_bindings\/displays\/rgb_panel\.cpp/)
+  assert.match(cmake, /\$\{GEA_CHIPS\}\/touch\/gt911\/gt911\.cpp/)
+  assert.match(cmake, /chip_bindings\/expanders\/ch422g\.cpp/)
+  assert.doesNotMatch(cmake, /touch_absent/)
+  // The RGB framebuffer scans out native-order RGB565; the base's swapped
+  // (panel-endian) default must not be applied on top of it.
+  assert.match(cmake, /GEA_EMBEDDED_PIXEL_PANEL_ENDIAN=0/)
+  assert.match(cmake, /GEA_EMBEDDED_DISPLAY_WIDTH=800/)
+
+  // A QSPI board is untouched by any of this.
+  const amoled = normalizeCustomTarget(JSON.parse(readFileSync(path.join(fixtureDir, 'manual-amoled.json'), 'utf8')), catalog)
+  const amoledCmake = renderTargetCmake(amoled, '/out')
+  assert.match(amoledCmake, /set\(GEA_CUSTOM_TARGET_DISPLAY_INTERFACE "qspi"\)/)
+  assert.match(amoledCmake, /set\(GEA_CUSTOM_TARGET_TOUCH_DRIVER "ft3168"\)/)
+  assert.doesNotMatch(amoledCmake, /PIXEL_PANEL_ENDIAN/)
+  assert.equal(amoled.chips.expander, null)
+
+  // The expander sits on the I2C bus, so a board that has one must wire it.
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, buses: {} }, catalog),
+    /buses\.i2c is required because .*chips\.expander/
+  )
+  // A GPIO can only carry one RGB lane.
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, display: { ...definition.chips.display, pins: { ...definition.chips.display.pins, data15: 14 } } } }, catalog),
+    /GPIO 14 is assigned to both display DATA0 and display DATA15/
+  )
+  // A display chip cannot fill the expander role.
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, expander: { driver: 'co5300', interface: 'i2c' } } }, catalog),
+    /Chip 'co5300' is a display, so it cannot fill the expander role/
+  )
+
+  const fixture = createFixture(t)
+  const written = writeCustomTarget({ definitionPath, outDir: path.join(fixture.root, 'generated'), catalog })
+  assert.match(readFileSync(written.headerPath, 'utf8'), /GEA_BOARD_HAS_EXPANDER 1/)
+})
+
 test('a composed target shipped by @geastack/targets needs no per-project definition', () => {
   // The whole point of promoting a composed board into the targets package: an
   // alias names the target and nothing else, and every project resolves it the

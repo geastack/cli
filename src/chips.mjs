@@ -252,15 +252,23 @@ function parseSetOptions(parsed) {
   return out
 }
 
+const trueWords = ['true', 'yes', '1', 'on']
+const falseWords = ['false', 'no', '0', 'off']
+
 function parseFieldValue(value, field) {
   if (field.optional && (value === '' || value === 'none' || value === 'null')) return null
   if (field.type === 'integer' || field.type === 'pin') return Number.parseInt(value, 10)
+  if (field.type === 'boolean') return typeof value === 'boolean' ? value : trueWords.includes(String(value).toLowerCase())
   return String(value)
 }
 
 function validateFieldValue(value, field) {
   if (field.optional && value === '') return ''
   if (field.type === 'choice') return field.values.includes(value) ? '' : `choose one of ${field.values.join(', ')}`
+  if (field.type === 'boolean') {
+    if (typeof value === 'boolean') return ''
+    return [...trueWords, ...falseWords].includes(String(value).toLowerCase()) ? '' : 'enter true or false'
+  }
   if (field.type !== 'integer' && field.type !== 'pin') return ''
   if (!/^-?\d+$/.test(String(value))) return 'enter an integer'
   const number = Number(value)

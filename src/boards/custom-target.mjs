@@ -27,6 +27,14 @@ function integer(value, label, { min = 0, max = 48 } = {}) {
   return value
 }
 
+function boolean(value, label, fallback) {
+  if (value === undefined || value === null) return fallback
+  if (typeof value === 'boolean') return value
+  if (value === 'true' || value === 1 || value === '1' || value === 'yes') return true
+  if (value === 'false' || value === 0 || value === '0' || value === 'no') return false
+  throw new Error(`${label} must be true or false.`)
+}
+
 function pin(value, label, { optional = false } = {}) {
   if (optional && (value === null || value === undefined || value === 'none')) return -1
   return integer(value, label)
@@ -70,7 +78,10 @@ function selectedChip(chips, role, category, adapter, mcu, catalog) {
     driver,
     interface: interfaceName,
     nativeSources: Array.isArray(descriptor.sources) ? descriptor.sources : [],
-    bindingSources: Array.isArray(adapterInfo.bindingSources) ? adapterInfo.bindingSources : []
+    bindingSources: Array.isArray(adapterInfo.bindingSources) ? adapterInfo.bindingSources : [],
+    // ESP-IDF components the binding includes headers from beyond what the
+    // base already links (the LEDC driver for a PWM backlight, say).
+    requires: Array.isArray(adapterInfo.requires) ? adapterInfo.requires : []
   }
 }
 
@@ -122,6 +133,10 @@ export function normalizeCustomTarget(raw, catalog) {
   const power = optionalChip(chips, 'power', 'power', adapter, mcu, catalog)
   const imu = optionalChip(chips, 'imu', 'imu', adapter, mcu, catalog)
   const audio = optionalChip(chips, 'audio', 'audio', adapter, mcu, catalog)
+  // An I/O expander is not a peripheral of its own: it is where a board puts
+  // the slow control lines (backlight enable, touch reset, panel reset) it ran
+  // out of GPIOs for. The chips that need those lines look them up here.
+  const expander = optionalChip(chips, 'expander', 'expander', adapter, mcu, catalog)
   const buses = absent(definition.buses) ? {} : object(definition.buses, 'buses')
   const storage = absent(definition.storage) ? {} : object(definition.storage, 'storage')
   const controls = absent(definition.controls) ? {} : object(definition.controls, 'controls')
@@ -133,7 +148,8 @@ export function normalizeCustomTarget(raw, catalog) {
   const i2cChips = [
     [touch, 'chips.touch'],
     [power, 'chips.power'],
-    [imu, 'chips.imu']
+    [imu, 'chips.imu'],
+    [expander, 'chips.expander']
   ].filter(([chip]) => chip && chip.interface === 'i2c')
   if (absent(buses.i2c) && i2cChips.length > 0) {
     throw new Error(`buses.i2c is required because ${i2cChips.map(([, label]) => label).join(', ')} ${i2cChips.length > 1 ? 'are' : 'is'} on the I2C bus.`)
@@ -141,12 +157,21 @@ export function normalizeCustomTarget(raw, catalog) {
   const i2c = absent(buses.i2c) ? null : object(buses.i2c, 'buses.i2c')
 
   const displayPins = display ? object(display.pins, 'chips.display.pins') : null
-  const touchPins = touch ? object(touch.pins, 'chips.touch.pins') : null
+  const touchPins = touch ? (absent(touch.pins) ? {} : object(touch.pins, 'chips.touch.pins')) : null
   const audioPins = audio ? object(audio.pins, 'chips.audio.pins') : null
   const storagePins = microSD ? object(microSD.pins, 'storage.microSD.pins') : null
 
-  const spiHost = display ? String(display.spiHost).toLowerCase() : 'spi2'
-  if (display && !['spi2', 'spi3'].includes(spiHost)) throw new Error("chips.display.spiHost must be 'spi2' or 'spi3'.")
+  // Two kinds of panel: a controller-driven QSPI AMOLED (the base's own kind)
+  // and a bare parallel RGB panel scanned out by the S3's LCD peripheral. They
+  // share nothing but a size, so each carries its own pins and parameters.
+  const displayInterface = display ? display.interface : ''
+  if (display && !['qspi', 'rgb'].includes(displayInterface)) {
+    throw new Error(`chips.display.interface '${displayInterface}' is not supported by the ${supportedBase} base. Supported values: qspi, rgb.`)
+  }
+  const spiHost = display && displayInterface === 'qspi' ? String(display.spiHost ?? 'spi2').toLowerCase() : 'spi2'
+  if (display && displayInterface === 'qspi' && !['spi2', 'spi3'].includes(spiHost)) throw new Error("chips.display.spiHost must be 'spi2' or 'spi3'.")
+  const expanderOutputs = expander ? (absent(expander.outputs) ? {} : object(expander.outputs, 'chips.expander.outputs')) : null
+  const expanderPin = (value, label) => (absent(value) ? -1 : integer(value, label, { min: 0, max: 15 }))
 
   // Flash size and the partition table are board geometry, not app policy: a
   // module with 16MB of flash cannot borrow its base's 32MB layout, and every
@@ -201,14 +226,40 @@ export function normalizeCustomTarget(raw, catalog) {
     // No panel: the board draws into an offscreen canvas and transmits nothing.
     canvas: display ? null : headlessCanvas(definition),
     chips: {
-      display: display === null ? null : {
+      display: display === null ? null : displayInterface === 'rgb' ? {
         driver: display.driver,
-        interface: exact(display.interface, 'qspi', 'chips.display.interface'),
+        interface: 'rgb',
+        width: integer(display.width, 'chips.display.width', { min: 1, max: 4096 }),
+        height: integer(display.height, 'chips.display.height', { min: 1, max: 4096 }),
+        pclkHz: integer(display.pclkHz ?? 16000000, 'chips.display.pclkHz', { min: 1000000, max: 40000000 }),
+        hsyncPulseWidth: integer(display.hsyncPulseWidth ?? 4, 'chips.display.hsyncPulseWidth', { min: 1, max: 1024 }),
+        hsyncBackPorch: integer(display.hsyncBackPorch ?? 8, 'chips.display.hsyncBackPorch', { min: 0, max: 1024 }),
+        hsyncFrontPorch: integer(display.hsyncFrontPorch ?? 8, 'chips.display.hsyncFrontPorch', { min: 0, max: 1024 }),
+        vsyncPulseWidth: integer(display.vsyncPulseWidth ?? 4, 'chips.display.vsyncPulseWidth', { min: 1, max: 1024 }),
+        vsyncBackPorch: integer(display.vsyncBackPorch ?? 8, 'chips.display.vsyncBackPorch', { min: 0, max: 1024 }),
+        vsyncFrontPorch: integer(display.vsyncFrontPorch ?? 8, 'chips.display.vsyncFrontPorch', { min: 0, max: 1024 }),
+        pclkActiveNeg: boolean(display.pclkActiveNeg, 'chips.display.pclkActiveNeg', true),
+        nativeSources: display.nativeSources,
+        bindingSources: display.bindingSources,
+        requires: display.requires,
+        pins: {
+          de: pin(displayPins.de, 'chips.display.pins.de'),
+          hsync: pin(displayPins.hsync, 'chips.display.pins.hsync'),
+          vsync: pin(displayPins.vsync, 'chips.display.pins.vsync'),
+          pclk: pin(displayPins.pclk, 'chips.display.pins.pclk'),
+          data: Array.from({ length: 16 }, (_, index) => pin(displayPins[`data${index}`], `chips.display.pins.data${index}`)),
+          disp: pin(displayPins.disp, 'chips.display.pins.disp', { optional: true }),
+          backlight: pin(displayPins.backlight, 'chips.display.pins.backlight', { optional: true })
+        }
+      } : {
+        driver: display.driver,
+        interface: 'qspi',
         width: integer(display.width, 'chips.display.width', { min: 1, max: 4096 }),
         height: integer(display.height, 'chips.display.height', { min: 1, max: 4096 }),
         spiHost,
         nativeSources: display.nativeSources,
         bindingSources: display.bindingSources,
+        requires: display.requires,
         pins: {
           cs: pin(displayPins.cs, 'chips.display.pins.cs'),
           pclk: pin(displayPins.pclk, 'chips.display.pins.pclk'),
@@ -225,28 +276,47 @@ export function normalizeCustomTarget(raw, catalog) {
         interface: exact(touch.interface, 'i2c', 'chips.touch.interface'),
         nativeSources: touch.nativeSources,
         bindingSources: touch.bindingSources,
+        requires: touch.requires,
+        // Both lines are optional: a board may route reset through its I/O
+        // expander and leave INT unwired, in which case the binding polls.
         pins: {
-          reset: pin(touchPins.reset, 'chips.touch.pins.reset'),
-          interrupt: pin(touchPins.interrupt, 'chips.touch.pins.interrupt')
+          reset: pin(touchPins.reset, 'chips.touch.pins.reset', { optional: true }),
+          interrupt: pin(touchPins.interrupt, 'chips.touch.pins.interrupt', { optional: true })
+        }
+      },
+      expander: expander === null ? null : {
+        driver: expander.driver,
+        interface: exact(expander.interface, 'i2c', 'chips.expander.interface'),
+        nativeSources: expander.nativeSources,
+        bindingSources: expander.bindingSources,
+        requires: expander.requires,
+        initialOutputs: integer(expander.initialOutputs ?? 255, 'chips.expander.initialOutputs', { min: 0, max: 255 }),
+        outputs: {
+          backlight: expanderPin(expanderOutputs.backlight, 'chips.expander.outputs.backlight'),
+          touchReset: expanderPin(expanderOutputs.touchReset, 'chips.expander.outputs.touchReset'),
+          displayReset: expanderPin(expanderOutputs.displayReset, 'chips.expander.outputs.displayReset')
         }
       },
       power: power === null ? null : {
         driver: power.driver,
         interface: exact(power.interface, 'i2c', 'chips.power.interface'),
         nativeSources: power.nativeSources,
-        bindingSources: power.bindingSources
+        bindingSources: power.bindingSources,
+        requires: power.requires
       },
       imu: imu === null ? null : {
         driver: imu.driver,
         interface: exact(imu.interface, 'i2c', 'chips.imu.interface'),
         nativeSources: imu.nativeSources,
-        bindingSources: imu.bindingSources
+        bindingSources: imu.bindingSources,
+        requires: imu.requires
       },
       audio: audio === null ? null : {
         driver: audio.driver,
         interface: exact(audio.interface, 'i2s', 'chips.audio.interface'),
         nativeSources: audio.nativeSources,
         bindingSources: audio.bindingSources,
+        requires: audio.requires,
         pins: {
           mclk: pin(audioPins.mclk, 'chips.audio.pins.mclk'),
           bclk: pin(audioPins.bclk, 'chips.audio.pins.bclk'),
@@ -287,7 +357,16 @@ function validatePinAssignments(target) {
   // role owns no GPIO and so can never collide with one.
   const pins = [
     ...(i2c ? [['I2C SDA', i2c.sda], ['I2C SCL', i2c.scl]] : []),
-    ...(display ? [
+    ...(display && display.interface === 'rgb' ? [
+      ['display DE', display.pins.de],
+      ['display HSYNC', display.pins.hsync],
+      ['display VSYNC', display.pins.vsync],
+      ['display PCLK', display.pins.pclk],
+      ...display.pins.data.map((value, index) => [`display DATA${index}`, value]),
+      ['display DISP', display.pins.disp],
+      ['display backlight', display.pins.backlight]
+    ] : []),
+    ...(display && display.interface === 'qspi' ? [
       ['display CS', display.pins.cs],
       ['display PCLK', display.pins.pclk],
       ['display DATA0', display.pins.data0],
@@ -337,7 +416,9 @@ const noPins = new Proxy({}, { get: () => -1 })
 
 export function renderBoardHeader(target) {
   const i2c = target.buses.i2c || noPins
-  const { display, touch, audio } = target.chips
+  const { display, touch, audio, expander } = target.chips
+  const rgb = display && display.interface === 'rgb' ? display : null
+  const qspi = display && display.interface === 'qspi' ? display : null
   const displayPins = display ? display.pins : noPins
   const touchPins = touch ? touch.pins : noPins
   const audioPins = audio ? audio.pins : noPins
@@ -350,7 +431,7 @@ export function renderBoardHeader(target) {
   const includes = [
     '#include "driver/gpio.h"',
     audio ? '#include "driver/i2s_types.h"' : '',
-    display ? '#include "driver/spi_master.h"' : ''
+    qspi ? '#include "driver/spi_master.h"' : ''
   ].filter(Boolean).join('\n')
   return `#pragma once
 
@@ -366,6 +447,7 @@ ${includes}
 #define GEA_BOARD_HAS_AUDIO ${audio ? 1 : 0}
 #define GEA_BOARD_HAS_MICROSD ${target.storage.microSD ? 1 : 0}
 #define GEA_BOARD_HAS_LAUNCHER_BUTTON ${target.controls.launcherButton ? 1 : 0}
+#define GEA_BOARD_HAS_EXPANDER ${expander ? 1 : 0}
 
 namespace gea::platform::board {
 
@@ -378,18 +460,31 @@ namespace gea::platform::board {
 struct I2cBusConfig { gpio_num_t sda; gpio_num_t scl; };
 struct SdMmcConfig { gpio_num_t clk; gpio_num_t cmd; gpio_num_t data0; };
 struct LauncherButtonConfig { gpio_num_t pin; int activeLevel; };
-${display ? 'struct Co5300DisplayConfig { spi_host_device_t spiHost; gpio_num_t cs; gpio_num_t pclk; gpio_num_t data0; gpio_num_t data1; gpio_num_t data2; gpio_num_t data3; gpio_num_t reset; gpio_num_t te; };' : ''}${touch ? '\nstruct Ft3168TouchConfig { gpio_num_t reset; gpio_num_t interrupt; };' : ''}${audio ? '\nstruct Es8311AudioConfig { int i2sPort; gpio_num_t mclk; gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t din; gpio_num_t powerAmplifier; };' : ''}
+${qspi ? 'struct Co5300DisplayConfig { spi_host_device_t spiHost; gpio_num_t cs; gpio_num_t pclk; gpio_num_t data0; gpio_num_t data1; gpio_num_t data2; gpio_num_t data3; gpio_num_t reset; gpio_num_t te; };' : ''}${rgb ? `// A bare parallel RGB panel: no controller, the LCD peripheral scans the
+// framebuffer out with these timings. data[0..4] are blue, [5..10] green,
+// [11..15] red (RGB565 lane order). backlight is a PWM-capable GPIO, or
+// GPIO_NUM_NC when the expander drives it.
+struct RgbPanelDisplayConfig { gpio_num_t de; gpio_num_t hsync; gpio_num_t vsync; gpio_num_t pclk; gpio_num_t disp; gpio_num_t backlight; gpio_num_t data[16]; int pclkHz; int hsyncPulseWidth; int hsyncBackPorch; int hsyncFrontPorch; int vsyncPulseWidth; int vsyncBackPorch; int vsyncFrontPorch; bool pclkActiveNeg; };` : ''}${touch ? '\nstruct Ft3168TouchConfig { gpio_num_t reset; gpio_num_t interrupt; };' : ''}${expander ? '\n// Expander pin numbers (0-based, the chip\'s own), -1 where a line is not routed through it.\nstruct IoExpanderConfig { int initialOutputs; int backlight; int touchReset; int displayReset; };' : ''}${audio ? '\nstruct Es8311AudioConfig { int i2sPort; gpio_num_t mclk; gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t din; gpio_num_t powerAmplifier; };' : ''}
 
 inline constexpr I2cBusConfig i2c{ .sda = ${gpio(i2c.sda)}, .scl = ${gpio(i2c.scl)} };
 inline constexpr SdMmcConfig storage{ .clk = ${gpio(sdPins.clk)}, .cmd = ${gpio(sdPins.cmd)}, .data0 = ${gpio(sdPins.data0)} };
 inline constexpr LauncherButtonConfig launcherButton{ .pin = ${gpio(launcher.pin)}, .activeLevel = ${launcher.activeLevel} };
-${display ? `inline constexpr Co5300DisplayConfig display{
+${rgb ? `inline constexpr RgbPanelDisplayConfig display{
+  .de = ${gpio(rgb.pins.de)}, .hsync = ${gpio(rgb.pins.hsync)}, .vsync = ${gpio(rgb.pins.vsync)}, .pclk = ${gpio(rgb.pins.pclk)},
+  .disp = ${gpio(rgb.pins.disp)}, .backlight = ${gpio(rgb.pins.backlight)},
+  .data = { ${rgb.pins.data.map(gpio).join(', ')} },
+  .pclkHz = ${rgb.pclkHz},
+  .hsyncPulseWidth = ${rgb.hsyncPulseWidth}, .hsyncBackPorch = ${rgb.hsyncBackPorch}, .hsyncFrontPorch = ${rgb.hsyncFrontPorch},
+  .vsyncPulseWidth = ${rgb.vsyncPulseWidth}, .vsyncBackPorch = ${rgb.vsyncBackPorch}, .vsyncFrontPorch = ${rgb.vsyncFrontPorch},
+  .pclkActiveNeg = ${rgb.pclkActiveNeg ? 'true' : 'false'}
+};` : ''}${qspi ? `inline constexpr Co5300DisplayConfig display{
   .spiHost = ${display.spiHost === 'spi3' ? 'SPI3_HOST' : 'SPI2_HOST'}, .cs = ${gpio(displayPins.cs)}, .pclk = ${gpio(displayPins.pclk)},
   .data0 = ${gpio(displayPins.data0)}, .data1 = ${gpio(displayPins.data1)},
   .data2 = ${gpio(displayPins.data2)}, .data3 = ${gpio(displayPins.data3)},
   .reset = ${gpio(displayPins.reset)}, .te = ${gpio(displayPins.te)}
 };` : ''}${touch ? `
-inline constexpr Ft3168TouchConfig touch{ .reset = ${gpio(touchPins.reset)}, .interrupt = ${gpio(touchPins.interrupt)} };` : ''}${audio ? `
+inline constexpr Ft3168TouchConfig touch{ .reset = ${gpio(touchPins.reset)}, .interrupt = ${gpio(touchPins.interrupt)} };` : ''}${expander ? `
+inline constexpr IoExpanderConfig expander{ .initialOutputs = ${expander.initialOutputs}, .backlight = ${expander.outputs.backlight}, .touchReset = ${expander.outputs.touchReset}, .displayReset = ${expander.outputs.displayReset} };` : ''}${audio ? `
 inline constexpr Es8311AudioConfig audio{
   .i2sPort = I2S_NUM_AUTO, .mclk = ${gpio(audioPins.mclk)}, .bclk = ${gpio(audioPins.bclk)},
   .ws = ${gpio(audioPins.ws)}, .dout = ${gpio(audioPins.dout)}, .din = ${gpio(audioPins.din)},
@@ -405,7 +500,7 @@ function cmakeQuote(value) {
 }
 
 export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
-  const { display, touch, power, imu, audio } = target.chips
+  const { display, touch, power, imu, audio, expander } = target.chips
   const chipSource = (source) => `    "\${GEA_CHIPS}/${source}"`
   const bindingSource = (source) => `    "\${GEA_EMBEDDED_ROOT}/targets/esp32/${source}"`
   const sourcesFor = (chip) => (chip ? [...chip.nativeSources.map(chipSource), ...chip.bindingSources.map(bindingSource)] : [])
@@ -423,8 +518,10 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     ...(power ? sourcesFor(power) : absentBinding('power_absent.cpp')),
     ...(imu ? sourcesFor(imu) : absentBinding('imu_absent.cpp')),
     ...(touch ? sourcesFor(touch) : absentBinding('touch_absent.cpp')),
-    ...sourcesFor(audio)
+    ...sourcesFor(audio),
+    ...sourcesFor(expander)
   ]
+  const requires = [...new Set([display, touch, power, imu, audio, expander].flatMap((chip) => (chip ? chip.requires : [])))]
   const surface = display || target.canvas
   const hasSurface = Boolean(surface)
   // An app that declares a display size has said something more specific than
@@ -445,12 +542,19 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     // module that has no such chip. board.h says the same thing, but only board
     // sources include it; this reaches the app's own sources, which is where
     // the board-specific configuration actually lives.
-    boardDefine('GEA_BOARD_HAS_POWER', power ? 1 : 0)
+    boardDefine('GEA_BOARD_HAS_POWER', power ? 1 : 0),
+    // The QSPI panels take byte-swapped RGB565 over the wire and the base
+    // stores it that way; an RGB panel's DMA reads the framebuffer as-is, so
+    // it stores native order -- exactly what the Elecrow rotary target does.
+    display && display.interface === 'rgb' ? boardDefine('GEA_EMBEDDED_PIXEL_PANEL_ENDIAN', 0) : ''
   ].join('')
   return `set(GEA_CUSTOM_TARGET_ACTIVE 1)
 set(GEA_CUSTOM_TARGET_INCLUDE_DIR ${cmakeQuote(includeDir)})
 set(GEA_CUSTOM_TARGET_HAS_DISPLAY ${display ? 1 : 0})
 set(GEA_CUSTOM_TARGET_HAS_TOUCH ${touch ? 1 : 0})
+set(GEA_CUSTOM_TARGET_DISPLAY_INTERFACE "${display ? display.interface : ''}")
+set(GEA_CUSTOM_TARGET_TOUCH_DRIVER "${touch ? touch.driver : ''}")
+set(GEA_CUSTOM_TARGET_HAS_EXPANDER ${expander ? 1 : 0})
 set(GEA_CUSTOM_TARGET_HAS_MICROSD ${target.storage.microSD ? 1 : 0})
 set(GEA_CUSTOM_TARGET_DISPLAY_SOURCES
 ${displaySources.join('\n')}
@@ -458,6 +562,7 @@ ${displaySources.join('\n')}
 set(GEA_CUSTOM_TARGET_PERIPHERAL_SOURCES
 ${peripheralSources.join('\n')}
 )
+set(GEA_CUSTOM_TARGET_REQUIRES${requires.map((name) => ` ${name}`).join('')})
 set(GEA_CUSTOM_TARGET_COMPILE_DEFINITIONS${displayDefines}
 )
 `

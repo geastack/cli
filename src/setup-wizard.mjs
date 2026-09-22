@@ -194,12 +194,15 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
   }
 
   const catalog = loadChipCatalog(ctx)
+  // The third field marks a role the review never reports as missing: an I/O
+  // expander is wiring a board may or may not have, not a capability it lacks.
   const roles = [
     ['display', 'Display controller'],
     ['touch', 'Touch controller'],
     ['power', 'Power-management controller'],
     ['imu', 'Inertial measurement unit'],
-    ['audio', 'Audio codec']
+    ['audio', 'Audio codec'],
+    ['expander', 'I/O expander (backlight, reset lines)', true]
   ]
   renderStep(io, 'Chips', ['Choose each controller from @geastack/chips. Pin questions come from the installed catalog.'])
   for (const [role, label] of roles) {
@@ -260,7 +263,7 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
       usbSerial: compactObject(usbIdentity)
     })
   })
-  const requiredRoles = roles.map(([role]) => role)
+  const requiredRoles = roles.filter(([, , optional]) => !optional).map(([role]) => role)
   const missingRoles = requiredRoles.filter((role) => !definition.chips[role])
   validateGpioAssignments(definition)
   renderCustomBoardReview(io, { alias, definition, definitionPath, configPath, entry, missingRoles })
@@ -316,6 +319,7 @@ function renderCustomBoardReview(io, { alias, definition, definitionPath, config
     ['Power', describeObject(definition.chips.power)],
     ['IMU', describeObject(definition.chips.imu)],
     ['Audio', describeObject(definition.chips.audio)],
+    ['Expander', describeObject(definition.chips.expander)],
     ['I2C', describeObject(definition.buses.i2c)],
     ['USB identity', usbIdentityLabel(entry, 'auto / pass --port')],
     ['Missing roles', missingRoles.join(', ') || 'none'],

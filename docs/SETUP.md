@@ -333,6 +333,63 @@ at call time, so never record a port path.
 - `targetDefinition` points at a custom target composed by `gea setup` /
   `gea chips`, relative to the file the alias lives in.
 
+### Composed targets
+
+A composed target is a JSON definition that extends the `esp32-s3` base and
+picks its chips from the `@geastack/chips` catalog (`gea chips list`). Every
+role is optional, so the definition describes the hardware that is there:
+`display`, `touch`, `power`, `imu`, `audio` and `expander`. Some boards are
+shipped composed in `@geastack/targets` and need no definition of your own,
+for example `esp32-s3-devkit-n16r8` (a bare module) and
+`esp32-s3-waveshare-touch-lcd-7`.
+
+Two kinds of display are understood. A QSPI controller (`co5300`) takes the
+`spiHost` and `cs`/`pclk`/`data0-3`/`reset`/`te` pins. A bare parallel RGB
+panel (`rgb_panel`) has no controller: it takes the panel geometry, the pixel
+clock and sync timings, and the `de`/`hsync`/`vsync`/`pclk` plus sixteen
+`data0-15` pins (blue in 0-4, green in 5-10, red in 11-15). The Waveshare
+7-inch board is the reference:
+
+```json
+{
+  "id": "my-rgb-board",
+  "extends": "esp32-s3",
+  "adapter": "esp32-idf",
+  "mcu": "esp32s3",
+  "flashSize": "16MB",
+  "psram": { "mode": "octal", "speed": 80 },
+  "buses": { "i2c": { "sda": 8, "scl": 9 } },
+  "chips": {
+    "display": {
+      "driver": "rgb_panel", "interface": "rgb",
+      "width": 800, "height": 480, "pclkHz": 16000000,
+      "hsyncPulseWidth": 4, "hsyncBackPorch": 8, "hsyncFrontPorch": 8,
+      "vsyncPulseWidth": 4, "vsyncBackPorch": 8, "vsyncFrontPorch": 8,
+      "pclkActiveNeg": true,
+      "pins": {
+        "de": 5, "hsync": 46, "vsync": 3, "pclk": 7,
+        "data0": 14, "data1": 38, "data2": 18, "data3": 17, "data4": 10,
+        "data5": 39, "data6": 0, "data7": 45, "data8": 48, "data9": 47, "data10": 21,
+        "data11": 1, "data12": 2, "data13": 42, "data14": 41, "data15": 40
+      }
+    },
+    "touch": { "driver": "gt911", "interface": "i2c", "pins": { "interrupt": 4 } },
+    "expander": {
+      "driver": "ch422g", "interface": "i2c",
+      "initialOutputs": 30,
+      "outputs": { "touchReset": 1, "backlight": 2, "displayReset": 3 }
+    }
+  }
+}
+```
+
+The `expander` role is for boards that route slow control lines through an
+I2C I/O expander instead of GPIOs. `outputs` names the expander pin that
+carries each line; a display with no `pins.backlight` lights up through
+`outputs.backlight`, and a touch controller with no `pins.reset` is reset
+through `outputs.touchReset`. `initialOutputs` is the level mask latched at
+boot.
+
 ## Common Verification Flow
 
 After installing tools:

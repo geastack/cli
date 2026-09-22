@@ -337,6 +337,19 @@ function chipCatalog() {
           { path: 'pins.interrupt', label: 'Touch interrupt pin', type: 'pin' }
         ]
       },
+      ch422g: {
+        label: 'CH422G I2C I/O expander',
+        category: 'expander',
+        interfaces: ['i2c'],
+        sources: ['expanders/ch422g/ch422g.cpp'],
+        adapters: { 'esp32-idf': { mcus: ['esp32s3'], bindingSources: ['chip_bindings/expanders/ch422g.cpp'] } },
+        configuration: [
+          { path: 'initialOutputs', label: 'IO0-IO7 levels latched at boot (bit mask)', type: 'integer', min: 0, max: 255, default: 255 },
+          { path: 'outputs.backlight', label: 'Expander pin driving the display backlight', type: 'integer', min: 0, max: 11, optional: true },
+          { path: 'outputs.touchReset', label: 'Expander pin driving the touch controller reset', type: 'integer', min: 0, max: 11, optional: true },
+          { path: 'outputs.displayReset', label: 'Expander pin driving the display reset', type: 'integer', min: 0, max: 11, optional: true }
+        ]
+      },
       axp2101: {
         label: 'AXP2101 power-management controller',
         category: 'power',

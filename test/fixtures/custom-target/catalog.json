@@ -1,11 +1,412 @@
 {
   "schemaVersion": 1,
   "chips": {
-    "co5300": { "category": "display", "interfaces": ["qspi"], "sources": ["displays/co5300/co5300.cpp"], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/displays/co5300.cpp"] } } },
-    "ft3168": { "category": "touch", "interfaces": ["i2c"], "sources": ["touch/ft3168/ft3168.cpp"], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/touch/ft3168.cpp"] } } },
-    "axp2101": { "category": "power", "interfaces": ["i2c"], "sources": ["power/axp2101/axp2101.cpp"], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/power/axp2101.cpp"] } } },
-    "qmi8658": { "category": "imu", "interfaces": ["i2c"], "sources": ["imu/qmi8658/qmi8658.cpp"], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/imu/qmi8658.cpp"] } } },
-    "es8311": { "category": "audio", "interfaces": ["i2s"], "sources": [], "adapters": { "esp32-idf": { "mcus": ["esp32s3"], "bindingSources": ["chip_bindings/audio/es8311.cpp"] } } },
-    "unknown-panel": { "category": "display", "interfaces": ["qspi"], "sources": [], "adapters": {} }
+    "co5300": {
+      "category": "display",
+      "interfaces": [
+        "qspi"
+      ],
+      "sources": [
+        "displays/co5300/co5300.cpp"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/displays/co5300.cpp"
+          ]
+        }
+      }
+    },
+    "ft3168": {
+      "category": "touch",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "touch/ft3168/ft3168.cpp"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/touch/ft3168.cpp"
+          ]
+        }
+      }
+    },
+    "axp2101": {
+      "category": "power",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "power/axp2101/axp2101.cpp"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/power/axp2101.cpp"
+          ]
+        }
+      }
+    },
+    "qmi8658": {
+      "category": "imu",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "imu/qmi8658/qmi8658.cpp"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/imu/qmi8658.cpp"
+          ]
+        }
+      }
+    },
+    "es8311": {
+      "category": "audio",
+      "interfaces": [
+        "i2s"
+      ],
+      "sources": [],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/audio/es8311.cpp"
+          ]
+        }
+      }
+    },
+    "unknown-panel": {
+      "category": "display",
+      "interfaces": [
+        "qspi"
+      ],
+      "sources": [],
+      "adapters": {}
+    },
+    "rgb_panel": {
+      "label": "Parallel RGB (DPI) TFT panel on the LCD peripheral",
+      "category": "display",
+      "interfaces": [
+        "rgb"
+      ],
+      "sources": [],
+      "headers": [],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/displays/rgb_panel.cpp"
+          ],
+          "requires": [
+            "esp_driver_ledc"
+          ]
+        }
+      },
+      "configuration": [
+        {
+          "path": "width",
+          "label": "Display width",
+          "type": "integer",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "path": "height",
+          "label": "Display height",
+          "type": "integer",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "path": "pclkHz",
+          "label": "Pixel clock (Hz)",
+          "type": "integer",
+          "min": 1000000,
+          "max": 40000000,
+          "default": 16000000
+        },
+        {
+          "path": "hsyncPulseWidth",
+          "label": "HSYNC pulse width (pixel clocks)",
+          "type": "integer",
+          "min": 1,
+          "max": 1024,
+          "default": 4
+        },
+        {
+          "path": "hsyncBackPorch",
+          "label": "HSYNC back porch (pixel clocks)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 8
+        },
+        {
+          "path": "hsyncFrontPorch",
+          "label": "HSYNC front porch (pixel clocks)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 8
+        },
+        {
+          "path": "vsyncPulseWidth",
+          "label": "VSYNC pulse width (lines)",
+          "type": "integer",
+          "min": 1,
+          "max": 1024,
+          "default": 4
+        },
+        {
+          "path": "vsyncBackPorch",
+          "label": "VSYNC back porch (lines)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 8
+        },
+        {
+          "path": "vsyncFrontPorch",
+          "label": "VSYNC front porch (lines)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 8
+        },
+        {
+          "path": "pclkActiveNeg",
+          "label": "Latch data on the falling pixel-clock edge",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "path": "pins.de",
+          "label": "Data-enable pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.hsync",
+          "label": "HSYNC pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.vsync",
+          "label": "VSYNC pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.pclk",
+          "label": "Pixel-clock pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data0",
+          "label": "RGB565 data 0 pin (B3)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data1",
+          "label": "RGB565 data 1 pin (B4)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data2",
+          "label": "RGB565 data 2 pin (B5)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data3",
+          "label": "RGB565 data 3 pin (B6)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data4",
+          "label": "RGB565 data 4 pin (B7)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data5",
+          "label": "RGB565 data 5 pin (G2)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data6",
+          "label": "RGB565 data 6 pin (G3)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data7",
+          "label": "RGB565 data 7 pin (G4)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data8",
+          "label": "RGB565 data 8 pin (G5)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data9",
+          "label": "RGB565 data 9 pin (G6)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data10",
+          "label": "RGB565 data 10 pin (G7)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data11",
+          "label": "RGB565 data 11 pin (R3)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data12",
+          "label": "RGB565 data 12 pin (R4)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data13",
+          "label": "RGB565 data 13 pin (R5)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data14",
+          "label": "RGB565 data 14 pin (R6)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data15",
+          "label": "RGB565 data 15 pin (R7)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.disp",
+          "label": "Display-enable pin",
+          "type": "pin",
+          "optional": true
+        },
+        {
+          "path": "pins.backlight",
+          "label": "Backlight PWM pin (leave unset when an I/O expander drives it)",
+          "type": "pin",
+          "optional": true
+        }
+      ]
+    },
+    "gt911": {
+      "label": "GT911 capacitive touch controller",
+      "category": "touch",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "touch/gt911/gt911.cpp"
+      ],
+      "headers": [
+        "touch/gt911/gt911.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/touch/gt911.cpp"
+          ]
+        }
+      },
+      "configuration": [
+        {
+          "path": "pins.reset",
+          "label": "Touch reset pin (leave unset when an I/O expander drives it)",
+          "type": "pin",
+          "optional": true
+        },
+        {
+          "path": "pins.interrupt",
+          "label": "Touch interrupt pin",
+          "type": "pin",
+          "optional": true
+        }
+      ]
+    },
+    "ch422g": {
+      "label": "CH422G I2C I/O expander",
+      "category": "expander",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "expanders/ch422g/ch422g.cpp"
+      ],
+      "headers": [
+        "expanders/ch422g/ch422g.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/expanders/ch422g.cpp"
+          ]
+        }
+      },
+      "configuration": [
+        {
+          "path": "initialOutputs",
+          "label": "IO0-IO7 levels latched at boot (bit mask)",
+          "type": "integer",
+          "min": 0,
+          "max": 255,
+          "default": 255
+        },
+        {
+          "path": "outputs.backlight",
+          "label": "Expander pin driving the display backlight",
+          "type": "integer",
+          "min": 0,
+          "max": 11,
+          "optional": true
+        },
+        {
+          "path": "outputs.touchReset",
+          "label": "Expander pin driving the touch controller reset",
+          "type": "integer",
+          "min": 0,
+          "max": 11,
+          "optional": true
+        },
+        {
+          "path": "outputs.displayReset",
+          "label": "Expander pin driving the display reset",
+          "type": "integer",
+          "min": 0,
+          "max": 11,
+          "optional": true
+        }
+      ]
+    }
   }
 }

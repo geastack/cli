@@ -1,0 +1,29 @@
+{
+  "id": "rgb-panel-board",
+  "extends": "esp32-s3",
+  "adapter": "esp32-idf",
+  "mcu": "esp32s3",
+  "flashSize": "16MB",
+  "psram": { "mode": "octal", "speed": 80 },
+  "buses": { "i2c": { "sda": 8, "scl": 9 } },
+  "chips": {
+    "display": {
+      "driver": "rgb_panel",
+      "interface": "rgb",
+      "width": 800,
+      "height": 480,
+      "pclkHz": 16000000,
+      "hsyncPulseWidth": 4, "hsyncBackPorch": 8, "hsyncFrontPorch": 8,
+      "vsyncPulseWidth": 4, "vsyncBackPorch": 8, "vsyncFrontPorch": 8,
+      "pclkActiveNeg": true,
+      "pins": {
+        "de": 5, "hsync": 46, "vsync": 3, "pclk": 7,
+        "data0": 14, "data1": 38, "data2": 18, "data3": 17, "data4": 10,
+        "data5": 39, "data6": 0, "data7": 45, "data8": 48, "data9": 47, "data10": 21,
+        "data11": 1, "data12": 2, "data13": 42, "data14": 41, "data15": 40
+      }
+    },
+    "touch": { "driver": "gt911", "interface": "i2c", "pins": { "interrupt": 4 } },
+    "expander": { "driver": "ch422g", "interface": "i2c", "initialOutputs": 30, "outputs": { "touchReset": 1, "backlight": 2, "displayReset": 3 } }
+  }
+}

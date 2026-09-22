@@ -347,6 +347,10 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     idfArgs.push(`-DGEA_BOARD_DEFINITION=${cmakeValue(selection.targetDefinition)}`, `-DGEA_CUSTOM_TARGET_DIR=${cmakeValue(outDir)}`)
     childEnv.GEA_BOARD_DEFINITION = selection.targetDefinition
     childEnv.GEA_CUSTOM_TARGET_DIR = outDir
+    // IDF's requirement-extraction pass (cmake -P) runs before the -D cache
+    // arguments exist, so the base target reads both from the environment
+    // there; otherwise a composed chip's extra REQUIRES never reach the build.
+    childEnv.GEA_BOARD_DEFINITION = selection.targetDefinition
     boardPartitionCsv = generated.partitionCsv
     boardConsole = generated.target.console
     boardPsram = generated.target.psram
