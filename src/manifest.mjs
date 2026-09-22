@@ -114,6 +114,9 @@ export function validateApp(app) {
   if (Number.isNaN(app.cssDevicePixelRatio)) {
     errors.push(`gea.cssDevicePixelRatio must be a positive number: ${JSON.stringify(app.manifest?.cssDevicePixelRatio)}`)
   }
+  if (Number.isNaN(app.designWidth)) {
+    errors.push(`gea.designWidth must be a positive number: ${JSON.stringify(app.manifest?.designWidth)}`)
+  }
   return errors
 }
 
@@ -221,6 +224,7 @@ export function appSummary(ctx, app) {
     compilerPlugins: app.compilerPlugins,
     defines: app.defines,
     cssDevicePixelRatio: app.cssDevicePixelRatio,
+    designWidth: app.designWidth,
     targetConfig: app.targetConfig,
     launcher: app.launcher
   }
@@ -358,6 +362,21 @@ export function normalizeCssDevicePixelRatio(raw) {
   return typeof ratio === 'number' && Number.isFinite(ratio) && ratio > 0 ? ratio : NaN
 }
 
+// The logical CSS width the app's stylesheets were authored against. Unlike
+// cssDevicePixelRatio -- a FIXED ratio a board declares -- this is the app's own
+// design width, and the targets that render at an arbitrary size (phone screens,
+// a resizable desktop window) derive their device pixel ratio from it:
+// dpr = viewportWidth / designWidth. That scales a fixed-px layout uniformly to
+// whatever panel it lands on, because the engine multiplies every CSS px by the
+// ratio (ui::cssPixelLength). Absent, each target keeps its own default ratio, so
+// an app that declares nothing builds exactly as before. NaN marks a malformed
+// value for validateApp to report; 0 means "not declared".
+export function normalizeDesignWidth(raw) {
+  if (raw === undefined || raw === null || raw === '') return 0
+  const width = typeof raw === 'string' ? Number(raw) : raw
+  return typeof width === 'number' && Number.isFinite(width) && width > 0 ? width : NaN
+}
+
 export function normalizeDefines(raw) {
   const entries = []
   if (Array.isArray(raw)) {
@@ -458,6 +477,7 @@ export function normalizeApp(root, packageJson) {
     compilerPlugins: normalizeStringList(gea.compilerPlugins).map(normalizeManifestRelativePath),
     defines: normalizeDefines(gea.defines),
     cssDevicePixelRatio: normalizeCssDevicePixelRatio(gea.cssDevicePixelRatio),
+    designWidth: normalizeDesignWidth(gea.designWidth),
     targetConfig: normalizeTargetConfig(gea.targets),
     launcher: normalizeLauncher(gea.launcher),
     manifest: gea,
