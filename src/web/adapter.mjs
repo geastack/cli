@@ -152,7 +152,7 @@ export function buildSimulatorApp({ app, env, dryRun = false, stdout }) {
 
 export async function runSimulate({ ctx, app, env, dryRun = false, stdout, port, open = true, view = {} }) {
   const { simulatorDir, paths } = buildSimulatorApp({ app, env, dryRun, stdout })
-  const url = await startSimulatorServer({ ctx, app, env, simulatorDir, paths, port, dryRun, stdout })
+  const url = await startSimulatorServer({ ctx, app, env, simulatorDir, paths, port, dryRun, stdout, view })
   if (dryRun) return 0
   stdout(`Simulating ${app.id}: ${url}`)
   if (open) openBrowser(url, env)
@@ -166,7 +166,7 @@ export async function runSimulate({ ctx, app, env, dryRun = false, stdout, port,
 // the relocated dist root be passed as inline config that vite merges over the
 // package's own vite.config.ts, instead of being smuggled through env vars the
 // config would have to read back.
-async function startSimulatorServer({ ctx, app, env, simulatorDir, paths, port, dryRun, stdout }) {
+async function startSimulatorServer({ ctx, app, env, simulatorDir, paths, port, dryRun, stdout, view = {} }) {
   const appRoot = path.join(simulatorDir, 'simulator')
   const configFile = path.join(appRoot, 'vite.config.ts')
   if (dryRun) {
@@ -182,7 +182,11 @@ async function startSimulatorServer({ ctx, app, env, simulatorDir, paths, port, 
     // Vite's default cacheDir is <root>/node_modules/.vite -- inside the
     // installed package, which may be read-only and is not this app's to dirty.
     cacheDir: paths.viteCache,
-    define: { __GEA_APP_INDEX__: JSON.stringify(appIndexFor(ctx, app)) },
+    publicDir: path.dirname(paths.public),
+    define: {
+      __GEA_APP_INDEX__: JSON.stringify(appIndexFor(ctx, app)),
+      __GEA_WEB_DIST_FS_ROOT__: JSON.stringify(paths.dist)
+    },
     server: {
       port,
       fs: { allow: [appRoot, paths.dist, paths.public] }
