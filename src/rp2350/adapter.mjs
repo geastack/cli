@@ -5,6 +5,7 @@ import path from 'node:path'
 
 import { resolvePicotoolSelection } from '../boards/usb.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
+import { envPath } from '../env-path.mjs'
 import { appCmakeMeta } from '../manifest.mjs'
 import { formatCommand } from '../run.mjs'
 
@@ -71,7 +72,7 @@ export function prepareArmToolchain(env, stderr = () => {}) {
 
 export function cmakeBinary(env) {
   if (env.CMAKE) return env.CMAKE
-  for (const dir of String(env.PATH || '').split(path.delimiter)) {
+  for (const dir of envPath(env).split(path.delimiter)) {
     if (dir && existsSync(path.join(dir, 'cmake'))) return path.join(dir, 'cmake')
   }
   for (const candidate of ['/opt/homebrew/bin/cmake', '/usr/local/bin/cmake', '/Applications/CMake.app/Contents/bin/cmake']) {

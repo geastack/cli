@@ -14,6 +14,7 @@ import { listAppSources } from './source-set.mjs'
 import { writeFlashPlan } from './partitions.mjs'
 import { generateWifiConfig } from './wifi-config.mjs'
 import { hint, warn } from '../report.mjs'
+import { envPath } from '../env-path.mjs'
 
 // The ESP-IDF build. Everything the old bash board script decided about a
 // build lives here: where the build directory is, what the app-local
@@ -80,7 +81,9 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
     unset('CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE')
     unset('CONFIG_PARTITION_TABLE_TWO_OTA')
     set('CONFIG_PARTITION_TABLE_CUSTOM', 'y')
-    set('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME', `"${partitionCsv}"`)
+    // sdkconfig is read by Kconfig and CMake, both of which treat a backslash
+    // as an escape; a Windows path loses every separator on the way through.
+    set('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME', `"${cmakeValue(partitionCsv)}"`)
   }
 
   // The console transport follows the board's wiring. A module reached over a
@@ -341,7 +344,7 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
       catalog: loadChipCatalogFromDir(ctx.chipsPackageDir),
       appDefines: new Set((app?.defines || []).map((define) => define.split('=')[0]))
     })
-    idfArgs.push(`-DGEA_BOARD_DEFINITION=${selection.targetDefinition}`, `-DGEA_CUSTOM_TARGET_DIR=${outDir}`)
+    idfArgs.push(`-DGEA_BOARD_DEFINITION=${cmakeValue(selection.targetDefinition)}`, `-DGEA_CUSTOM_TARGET_DIR=${cmakeValue(outDir)}`)
     childEnv.GEA_BOARD_DEFINITION = selection.targetDefinition
     childEnv.GEA_CUSTOM_TARGET_DIR = outDir
     boardPartitionCsv = generated.partitionCsv
@@ -438,9 +441,9 @@ function preparePartitions(app, config, buildDir, targetId) {
       // the native host functions its TSX calls.
       GEA_EMBEDDED_APP_GEATSC_PLUGINS: app.compilerPlugins.map((plugin) => path.join(app.root, plugin)).join(';')
     }
-    idfArgs.push(`-DGEA_EMBEDDED_APP=${app.id}`, `-DGEA_EMBEDDED_APP_META=${meta}`)
+    idfArgs.push(`-DGEA_EMBEDDED_APP=${app.id}`, `-DGEA_EMBEDDED_APP_META=${cmakeValue(meta)}`)
     if (cssDpr) idfArgs.push(`-DGEA_EMBEDDED_CSS_DEVICE_PIXEL_RATIO=${cssDpr}`)
-    for (const [name, value] of Object.entries(appNative)) if (value) idfArgs.push(`-D${name}=${value}`)
+    for (const [name, value] of Object.entries(appNative)) if (value) idfArgs.push(`-D${name}=${cmakeValue(value)}`)
     idfArgs.push(
       `-DGEA_EMBEDDED_CAPABILITY_NETWORK=${capabilities.network ? 1 : 0}`,
       `-DGEA_EMBEDDED_CAPABILITY_BLE=${capabilities.ble ? 1 : 0}`,
@@ -450,8 +453,8 @@ function preparePartitions(app, config, buildDir, targetId) {
     // CMake cache propagation; environment values stay visible there, so
     // conditional components such as bt enter the dependency graph.
     childEnv.GEA_EMBEDDED_APP = app.id
-    childEnv.GEA_EMBEDDED_APP_META = meta
-    for (const [name, value] of Object.entries(appNative)) if (value) childEnv[name] = value
+    childEnv.GEA_EMBEDDED_APP_META = cmakeValue(meta)
+    for (const [name, value] of Object.entries(appNative)) if (value) childEnv[name] = cmakeValue(value)
     childEnv.GEA_EMBEDDED_CAPABILITY_NETWORK = capabilities.network ? '1' : '0'
     childEnv.GEA_EMBEDDED_CAPABILITY_BLE = capabilities.ble ? '1' : '0'
     childEnv.GEA_EMBEDDED_CAPABILITY_AUDIO = capabilities.audio ? '1' : '0'
@@ -486,8 +489,18 @@ function executableNames(name, env) {
   return [name, ...extensions.map((extension) => name + extension)]
 }
 
+// A path handed to CMake on its command line, or through the environment
+// the component-requirements pass reads. Windows paths carry backslashes,
+// and ESP-IDF re-parses the registered sources as CMake code during that
+// pass, where `C:\Users` is an invalid character escape and configure
+// dies. CMake accepts forward slashes on every platform, so the CLI never
+// hands it a backslash.
+export function cmakeValue(value, platform = process.platform) {
+  return platform === 'win32' ? String(value).replace(/\\/g, '/') : String(value)
+}
+
 function commandExists(name, env) {
-  const dirs = String(env.PATH || '').split(path.delimiter).filter(Boolean)
+  const dirs = envPath(env).split(path.delimiter).filter(Boolean)
   const names = executableNames(name, env)
   return dirs.some((dir) => names.some((candidate) => existsSync(path.join(dir, candidate))))
 }
@@ -511,7 +524,7 @@ export function configureArguments(prepared, env) {
     }
     args.push('-G', generator)
   }
-  args.push('-B', prepared.buildDir, `-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`)
+  args.push('-B', cmakeValue(prepared.buildDir), `-DSDKCONFIG=${cmakeValue(prepared.sdkconfigFile)}`, `-DSDKCONFIG_DEFAULTS=${cmakeValue(prepared.defaultsArg || prepared.defaultsFile)}`)
   return args
 }
 

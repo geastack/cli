@@ -2,6 +2,8 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 
+import { envPath } from './env-path.mjs'
+
 export function nodeAtLeast(major, minor) {
   const [actualMajor, actualMinor] = process.versions.node.split('.').map((value) => Number.parseInt(value, 10))
   return actualMajor > major || (actualMajor === major && actualMinor >= minor)
@@ -21,7 +23,7 @@ export function commandVersion(command, args, env = process.env) {
 // it -- a toolchain a build needs is worth failing on before the build starts,
 // with the same answer doctor would have given.
 export function onPath(name, env = process.env) {
-  return String(env.PATH || '')
+  return envPath(env)
     .split(path.delimiter)
     .some((dir) => dir && existsSync(path.join(dir, name)))
 }

@@ -1,6 +1,6 @@
 {
   "name": "@geastack/cli",
-  "version": "0.1.78",
+  "version": "0.1.79",
   "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
   "license": "Apache-2.0",
   "repository": {

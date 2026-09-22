@@ -3,6 +3,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { envPath, withEnvPath } from '../env-path.mjs'
+
 // ESP-IDF activation without `source export.sh`. export.sh re-checks Python,
 // dependencies, outdated tools and shell completion on every invocation; the
 // installation itself already knows the exact tool paths (idf_tools.py
@@ -157,21 +159,24 @@ export function activateEspIdf({ env = process.env, home = os.homedir(), log = (
     activationCache.set(cacheKey, exported)
     log(`Using ESP-IDF ${espIdfVersion(idfDir)?.full || ''} at ${idfDir} (python env ${pythonEnv})`)
   }
-  const exportedPath = (exported.PATH || '').replace(/\$PATH|%PATH%/g, env.PATH || '')
+  const callerPath = envPath(env)
+  const exportedPath = (exported.PATH || '').replace(/\$PATH|%PATH%/g, callerPath)
   return {
     idfDir,
     version: espIdfVersion(idfDir),
     pythonEnv,
     python,
     idfPy: path.join(idfDir, 'tools', 'idf.py'),
-    env: {
-      ...env,
-      ...Object.fromEntries(Object.entries(exported).filter(([key]) => key !== 'PATH' && key !== 'IDF_DEACTIVATE_FILE_PATH')),
-      IDF_PATH: idfDir,
-      IDF_PYTHON_ENV_PATH: pythonEnv,
-      VIRTUAL_ENV: pythonEnv,
-      PATH: [path.join(pythonEnv, venvBin), exportedPath || env.PATH || ''].filter(Boolean).join(path.delimiter)
-    }
+    env: withEnvPath(
+      {
+        ...env,
+        ...Object.fromEntries(Object.entries(exported).filter(([key]) => key !== 'PATH' && key !== 'IDF_DEACTIVATE_FILE_PATH')),
+        IDF_PATH: idfDir,
+        IDF_PYTHON_ENV_PATH: pythonEnv,
+        VIRTUAL_ENV: pythonEnv
+      },
+      [path.join(pythonEnv, venvBin), exportedPath || callerPath].filter(Boolean).join(path.delimiter)
+    )
   }
 }
 

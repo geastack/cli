@@ -5,7 +5,7 @@ import test from 'node:test'
 
 import { parseArgs } from '../src/args.mjs'
 import { createContext } from '../src/context.mjs'
-import { applySdkconfigPolicy, esp32BuildDir, publishEsp32Output } from '../src/esp32/build.mjs'
+import { applySdkconfigPolicy, cmakeValue, esp32BuildDir, publishEsp32Output } from '../src/esp32/build.mjs'
 import { manifestRequestsBleOta, parseAnalysis, resolveAppCapabilities } from '../src/esp32/capabilities.mjs'
 import { activateEspIdf, esptoolCommand, findEspIdf, findIdfPythonEnv } from '../src/esp32/idf-env.mjs'
 import { DEFAULT_ESP_IDF_VERSION, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
@@ -15,6 +15,25 @@ import { Sdkconfig, prepareBuildLocalSdkconfig, withSdkconfigUnset, withSdkconfi
 import { quoteCString, wifiConfigContents } from '../src/esp32/wifi-config.mjs'
 import { findCurrentApp } from '../src/manifest.mjs'
 import { createFixture } from './helpers/fixture.mjs'
+
+test('CMake arguments carry forward slashes on Windows and are untouched elsewhere', () => {
+  assert.equal(cmakeValue('C:\\Users\\me\\app;src/native/main.cpp', 'win32'), 'C:/Users/me/app;src/native/main.cpp')
+  assert.equal(cmakeValue('/home/me/app;src/native/main.cpp', 'linux'), '/home/me/app;src/native/main.cpp')
+})
+
+test('ESP-IDF activation keeps a single PATH key when the environment spells it Path', (t) => {
+  // A Windows environment copied into a plain object carries `Path`, not
+  // `PATH`. The activated environment must extend that key rather than add a
+  // second one that the child process would pick over it with node and git
+  // missing.
+  const fixture = createFixture(t)
+  const { PATH, ...rest } = fixture.env
+  const idf = activateEspIdf({ env: { ...rest, Path: PATH } })
+  const pathKeys = Object.keys(idf.env).filter((key) => key.toUpperCase() === 'PATH')
+  assert.deepEqual(pathKeys, ['Path'])
+  assert.ok(idf.env.Path.startsWith(`${path.join(fixture.env.IDF_PYTHON_ENV_PATH, 'bin')}${path.delimiter}/fake/idf-tools/bin${path.delimiter}`))
+  assert.ok(idf.env.Path.endsWith(PATH), 'the caller PATH entries survive under the caller spelling')
+})
 
 test('ESP-IDF activation runs idf_tools export from the installed python env, never export.sh', (t) => {
   const fixture = createFixture(t)
