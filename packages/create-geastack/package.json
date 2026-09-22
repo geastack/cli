@@ -1,7 +1,7 @@
 {
-  "name": "@geastack/create-geastack",
-  "version": "0.1.14",
-  "description": "Project scaffolder for GeaStack apps.",
+  "name": "create-geastack",
+  "version": "0.1.15",
+  "description": "Project scaffolder for GeaStack apps: `npx create-geastack my-app` or `npm create geastack my-app`.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -22,6 +22,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@geastack/cli": "^0.1.78"
+    "@geastack/cli": "^0.1.80"
   }
 }

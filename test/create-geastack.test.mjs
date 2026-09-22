@@ -35,6 +35,7 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(packageJson.dependencies['@geastack/core'], expectedCoreDependency)
   assert.equal(packageJson.dependencies['@geastack/cli'], expectedCliDependency)
   assert.equal('@geastack/targets' in packageJson.dependencies, false, 'web and desktop apps do not need the targets package')
+  assert.equal(packageJson.dependencies['@geastack/apple'], cliPackage.starterDependencies['@geastack/apple'], 'a macOS app builds through @geastack/apple')
   assert.equal(fs.existsSync(path.join(tmp, 'src/index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'src/App.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
@@ -132,6 +133,17 @@ test('create-geastack uses explicit id, display name, and core dependency', asyn
   assert.equal(packageJson.dependencies['@geastack/core'], 'workspace:*')
   assert.equal(packageJson.dependencies['@geastack/cli'], 'workspace:*')
   assert.match(fs.readFileSync(path.join(tmp, 'src/index.tsx'), 'utf8'), /Factory Control/)
+})
+
+test('create-geastack gives an iOS app the Apple package and the iOS commands', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-ios-'))
+  await runCreateGeastack(['Phone', '--dir', tmp, '--targets=ios'], { cwd: tmp, stdout: () => {} })
+  const packageJson = JSON.parse(fs.readFileSync(path.join(tmp, 'package.json'), 'utf8'))
+  assert.equal(packageJson.gea.targets.ios, true)
+  assert.equal(packageJson.dependencies['@geastack/apple'], cliPackage.starterDependencies['@geastack/apple'])
+  assert.equal('@geastack/targets' in packageJson.dependencies, false)
+  assert.equal('@geastack/windows' in packageJson.dependencies, false)
+  assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /npx gea build --target ios/)
 })
 
 test('create-geastack always defaults to registry dependencies', async (t) => {

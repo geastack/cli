@@ -16,10 +16,11 @@ test('package metadata publishes scoped public npm packages with a local gea bin
   assert.ok(geaPackage.files.includes('starters/'))
   assert.ok(geaPackage.files.includes('examples/'))
 
-  assert.equal(createPackage.name, '@geastack/create-geastack')
+  assert.equal(createPackage.name, 'create-geastack')
   assert.equal(createPackage.private, undefined)
   assert.equal(createPackage.publishConfig.access, 'public')
   assert.equal(createPackage.bin['create-geastack'], 'bin/create-geastack.mjs')
-  assert.equal(createPackage.dependencies['@geastack/cli'], '^0.1.78')
+  // The scaffolder is a thin bin over the CLI; it pins the CLI it was released with.
+  assert.equal(createPackage.dependencies['@geastack/cli'], `^${geaPackage.version}`)
   assert.ok(createPackage.files.includes('bin/'))
 })

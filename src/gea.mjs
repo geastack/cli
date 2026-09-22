@@ -95,10 +95,23 @@ export async function runGea(argv, io = {}) {
     // this host is not (a Windows-only app on a Mac, a Mac-only app on Linux)
     // has nothing to select: falling into board selection would report a
     // missing --board for an app that declares no board at all.
-    if (command === 'build' && !target && app && !declaresBoardTarget(app) && (app.targets?.macos || app.targets?.windows)) {
-      const desktop = ['macos', 'windows'].filter((platform) => app.targets?.[platform])
+    if (command === 'build' && !target && app && !declaresBoardTarget(app) && (app.targets?.macos || app.targets?.windows || app.targets?.ios)) {
+      const desktop = ['macos', 'windows', 'ios'].filter((platform) => app.targets?.[platform])
       fail(`'${app.id}' declares no target that builds on this host by default. Pass --target ${desktop.join(' or --target ')}.`, ExitCode.usage)
     }
+  }
+  // iOS is the third platform driven by one script inside @geastack/apple,
+  // resolved like macOS from the app's own dependencies. It never has a host
+  // default: a bare `gea build` cannot know simulator from device, so the iOS
+  // build is always the documented `gea build --target ios [--mode simulator|device]`,
+  // and `gea run --target ios` builds, installs and launches it.
+  if ((command === 'build' || command === 'run') && target === 'ios') {
+    const app = parsed.options.app || rest[0] ? findAppById(ctx, String(parsed.options.app || rest[0])) : findCurrentApp(cwd)
+    if (!app?.targets?.ios) {
+      fail(app ? `'${app.id}' does not declare gea.targets.ios.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
+    }
+    const { runIos } = await import('./ios/adapter.mjs')
+    return runIos({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, mode: option(parsed, 'mode', ''), run: command === 'run' })
   }
   // `web` names two targets, and both are driven by gea, so it leaves the
   // refusal below the way macos does above. `gea simulate` is the WASM device
@@ -216,6 +229,12 @@ ${heading('Run on this machine (no board needed):')}
   gea simulate [app] [--port N]                  build to WASM + open the device simulator  [--no-open] [--width W --height H --dpr D --zoom Z]
   gea dev [app] [--port N]                       real DOM + CSS dev server with HMR  (same as --target web)
   gea build --target web [app] [--out-dir d]     build the app as a real web app
+
+${heading('Native desktop and mobile apps (scripts ship in @geastack/apple and @geastack/windows):')}
+  gea build --target macos [app]                 build a Mac .app (a bare gea build does this on a Mac for a Mac-only app)
+  gea build --target ios [app] [--mode simulator|device]   generate the Xcode project and build the iOS .app
+  gea run --target ios [app] [--mode simulator|device]     build, then install and launch on a simulator or iPhone
+  gea build|run --target windows [app]           build (and launch) the Windows executable
 
 ${heading('Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):')}
   gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)  [--verbose] [--output file.bin]

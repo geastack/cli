@@ -14,7 +14,7 @@ npx gea doctor
 ## Minimum Setup
 
 ```sh
-npx @geastack/create-geastack my-app
+npx create-geastack my-app
 cd my-app
 npx gea setup
 ```

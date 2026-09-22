@@ -296,6 +296,57 @@ test('a bare `gea build` only means macOS for an app with no board to pick', asy
   }
 })
 
+test('`gea build --target ios` runs the iOS target script from @geastack/apple', async (t) => {
+  const fixture = createFixture(t)
+  const iosApp = path.join(fixture.root, 'apps/phone')
+  fs.mkdirSync(iosApp, { recursive: true })
+  fs.writeFileSync(path.join(iosApp, 'index.tsx'), 'export const value = 1\n')
+  writeJson(path.join(iosApp, 'package.json'), {
+    name: '@fixture/phone',
+    private: true,
+    gea: { id: 'phone', name: 'Phone', entry: 'index.tsx', runtime: 'gea', targets: { ios: true } }
+  })
+
+  // The package is resolved from the app, so an app without it is told to
+  // install it rather than handed a path inside somebody else's node_modules.
+  await assert.rejects(
+    gea(['build', '--target', 'ios', '--dry-run'], fixture, { cwd: iosApp }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.missingDependency && /@geastack\/apple is not installed/.test(error.message)
+  )
+  installFakeApple(iosApp)
+
+  // The simulator is the default destination; --mode picks the device build.
+  const simulator = await gea(['build', '--target', 'ios', '--dry-run'], fixture, { cwd: iosApp })
+  assert.equal(simulator.code, 0, simulator.err)
+  assert.match(simulator.out, /build-ios\.sh phone simulator$/m)
+  const device = await gea(['build', '--target', 'ios', '--mode', 'device', '--dry-run'], fixture, { cwd: iosApp })
+  assert.equal(device.code, 0, device.err)
+  assert.match(device.out, /build-ios\.sh phone device$/m)
+  await assert.rejects(
+    gea(['build', '--target', 'ios', '--mode', 'watch', '--dry-run'], fixture, { cwd: iosApp }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /--mode watch/.test(error.message)
+  )
+
+  // `gea run --target ios` is the same script without the skip-launch switch.
+  const run = await gea(['run', '--target', 'ios', '--dry-run'], fixture, { cwd: iosApp })
+  assert.equal(run.code, 0, run.err)
+  assert.match(run.out, /build-ios\.sh phone simulator$/m)
+  const built = await gea(['build', '--target', 'ios'], fixture, { cwd: iosApp })
+  assert.equal(built.code, 0, built.err)
+
+  // A bare `gea build` has no default for an iOS-only app: simulator or device
+  // is the user's choice, so the command names the target it needs.
+  await assert.rejects(
+    gea(['build', '--dry-run'], fixture, { cwd: iosApp }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /--target ios/.test(error.message)
+  )
+  // An app that does not declare the target is refused the same way as macOS.
+  await assert.rejects(
+    gea(['build', '--target', 'ios', '--dry-run'], fixture, { cwd: path.join(fixture.root, 'apps/web-only') }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /does not declare gea.targets.ios/.test(error.message)
+  )
+})
+
 test('`gea build --target windows` runs the Windows target script from @geastack/windows', async (t) => {
   const fixture = createFixture(t)
   // `watch` declares windows alongside its boards; the explicit target is how
@@ -353,6 +404,7 @@ function installFakeApple(appDir) {
   const root = path.join(appDir, 'node_modules', '@geastack', 'apple')
   writeJson(path.join(root, 'package.json'), { name: '@geastack/apple', version: '0.1.0' })
   writeExecutable(path.join(root, 'targets', 'macos', 'build-macos.sh'), '#!/usr/bin/env bash\nexit 0\n')
+  writeExecutable(path.join(root, 'targets', 'ios', 'build-ios.sh'), '#!/usr/bin/env bash\nexit 0\n')
 }
 
 test('flash writes bootloader, app, partition table and otadata over USB and then monitors', async (t) => {
@@ -622,12 +674,12 @@ test('build rejects invalid manifests, incompatible boards, and platform names',
     gea(['ota', '--board', 'amoled', '--transport', 'serial'], fixture),
     (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /transport/.test(error.message)
   )
-  // web and macos are driven by gea; the platforms whose build lives in their
-  // own target project still say so. (The web commands have their own tests in
-  // web-target.test.mjs.)
+  // web, macos, ios and windows are driven by gea; the platforms whose build
+  // lives in their own target project still say so. (The web commands have
+  // their own tests in web-target.test.mjs.)
   await assert.rejects(
-    gea(['build', '--target', 'ios', '--dry-run'], fixture),
-    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /ios build is not driven by gea/.test(error.message)
+    gea(['build', '--target', 'android', '--dry-run'], fixture),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /android build is not driven by gea/.test(error.message)
   )
   await assert.rejects(
     gea(['build', '--board', 'amoled', '--dry-run'], fixture, { env: { ...fixture.env, IDF_PATH: '', IDF_PYTHON_ENV_PATH: '', HOME: fixture.root } }),

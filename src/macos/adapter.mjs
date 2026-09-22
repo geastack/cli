@@ -13,23 +13,8 @@ import { formatCommand } from '../run.mjs'
 // app's own module resolution is what finds it. An app declares `targets.macos`
 // and nothing else; the script reads the rest from the same manifest.
 export function runMacos({ app, env, dryRun = false, stdout }) {
-  const require = createRequire(path.join(app.root, 'package.json'))
-  let appleRoot = ''
-  try {
-    appleRoot = path.dirname(require.resolve('@geastack/apple/package.json'))
-  } catch {
-    fail(`'${app.id}' targets macOS but @geastack/apple is not installed in ${app.root} — run npm install there.`, ExitCode.missingDependency)
-  }
-  const script = path.join(appleRoot, 'targets', 'macos', 'build-macos.sh')
-  if (!existsSync(script)) fail(`macOS build script not found: ${script}`, ExitCode.missingDependency)
-  // The script resolves the app through this CLI again. It is spawned with the
-  // app's own folder as its cwd and that is the whole handoff: `createContext`
-  // resolves a project from cwd, and a root's own package.json is one of the
-  // places discovery looks, so an app outside the examples workspace resolves
-  // like any other. Nothing announces the path a second time.
-  const childEnv = { ...env }
-  const plugins = geatscPluginsOf(app, require)
-  if (plugins.length > 0) childEnv.GEA_EXTRA_GEATSC_PLUGINS = plugins.join(path.delimiter)
+  const { script, require } = appleTargetScript(app, 'macos', 'build-macos.sh')
+  const childEnv = appleChildEnv(app, env, require)
   if (dryRun) {
     stdout(formatCommand(['bash', script, app.id]))
     return 0
@@ -38,6 +23,38 @@ export function runMacos({ app, env, dryRun = false, stdout }) {
   if (result.error) throw result.error
   if (result.status !== 0) throw new CliError(`macOS build failed (${result.status ?? 1}).`, ExitCode.deployFailed)
   return 0
+}
+
+// Both Apple targets ship as one script each inside @geastack/apple, and both
+// resolve it the same way: through the app's own dependencies. iOS reuses this
+// from src/ios/adapter.mjs rather than restating the resolution.
+export function appleTargetScript(app, platform, scriptName) {
+  const require = createRequire(path.join(app.root, 'package.json'))
+  let appleRoot = ''
+  try {
+    appleRoot = path.dirname(require.resolve('@geastack/apple/package.json'))
+  } catch {
+    fail(`'${app.id}' targets ${platformLabel(platform)} but @geastack/apple is not installed in ${app.root} — run npm install there.`, ExitCode.missingDependency)
+  }
+  const script = path.join(appleRoot, 'targets', platform, scriptName)
+  if (!existsSync(script)) fail(`${platformLabel(platform)} build script not found: ${script}`, ExitCode.missingDependency)
+  return { script, require }
+}
+
+// The script resolves the app through this CLI again. It is spawned with the
+// app's own folder as its cwd and that is the whole handoff: `createContext`
+// resolves a project from cwd, and a root's own package.json is one of the
+// places discovery looks, so an app outside the examples workspace resolves
+// like any other. Nothing announces the path a second time.
+export function appleChildEnv(app, env, require) {
+  const childEnv = { ...env }
+  const plugins = geatscPluginsOf(app, require)
+  if (plugins.length > 0) childEnv.GEA_EXTRA_GEATSC_PLUGINS = plugins.join(path.delimiter)
+  return childEnv
+}
+
+function platformLabel(platform) {
+  return platform === 'ios' ? 'iOS' : 'macOS'
 }
 
 // Compiler plugins come from the packages the app depends on.

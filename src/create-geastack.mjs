@@ -348,7 +348,8 @@ function packageJson({ appId, displayName, targets, entry, coreDependency, cliDe
       '@geastack/core': coreDependency,
       '@geastack/cli': cliDependency,
       ...(needsTargetsPackage(targets) ? { '@geastack/targets': sourcePackage.dependencies?.['@geastack/targets'] || targetsDependencyDefault } : {}),
-      ...(targets.windows ? { '@geastack/windows': sourcePackage.dependencies?.['@geastack/windows'] || windowsDependencyDefault } : {})
+      ...(targets.windows ? { '@geastack/windows': sourcePackage.dependencies?.['@geastack/windows'] || windowsDependencyDefault } : {}),
+      ...(targets.macos || targets.ios ? { '@geastack/apple': sourcePackage.dependencies?.['@geastack/apple'] || appleDependencyDefault } : {})
     },
     devDependencies: {
       ...(sourcePackage.devDependencies || {}),
@@ -369,6 +370,11 @@ function needsTargetsPackage(targets) {
 // The Windows target ships inside @geastack/windows, resolved from the app's
 // own dependencies by `gea build --target windows`.
 const windowsDependencyDefault = '^0.1.0'
+
+// The macOS and iOS targets ship inside @geastack/apple, resolved the same way
+// by `gea build --target macos` and `gea build --target ios`. An app that
+// declares either target without the package has nothing to build with.
+const appleDependencyDefault = starterDependencies['@geastack/apple'] || '^0.2.9'
 
 function indexTsx(displayName) {
   return `import { ReactiveComponent, mount } from '@geastack/core'
@@ -509,7 +515,11 @@ npx gea flash --monitor`
         ? `npx gea setup
 npx gea build --target windows
 npx gea run --target windows`
-        : `npx gea setup
+        : targets.ios && !targets.macos
+          ? `npx gea setup
+npx gea build --target ios
+npx gea run --target ios`
+          : `npx gea setup
 npx gea build`
   return `# ${displayName}
 
