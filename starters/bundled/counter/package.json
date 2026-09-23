@@ -8,7 +8,7 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@geajs/core": "latest"
+    "@geajs/core": "1.4.2"
   },
   "devDependencies": {
     "typescript": "latest"
