@@ -39,7 +39,7 @@ test('gea simulate builds to wasm and serves the simulator', async (t) => {
   const env = envWith(fixture.root, ['emcc', 'em++'])
   const out = capture()
 
-  assert.equal(await runGea(['simulate', 'watch', '--dry-run'], { ...out.io, cwd: fixture.root, env }), 0)
+  assert.equal(await runGea(['simulate', 'watch', '--renderer', 'wasm', '--dry-run'], { ...out.io, cwd: fixture.root, env }), 0)
 
   const printed = out.out.join('\n')
   assert.match(printed, /targets\/web\/build-web\.sh watch/)
@@ -90,7 +90,7 @@ test('gea simulate names the Emscripten SDK when emcc is missing', async (t) => 
   const out = capture()
 
   await assert.rejects(
-    runGea(['simulate', 'watch', '--dry-run'], { ...out.io, cwd: fixture.root, env }),
+    runGea(['simulate', 'watch', '--renderer', 'wasm', '--dry-run'], { ...out.io, cwd: fixture.root, env }),
     (error) => {
       assert.equal(error.exitCode, ExitCode.missingDependency)
       assert.match(error.message, /emcc and em\+\+ not on PATH/)
@@ -144,4 +144,22 @@ test('web build output is the app\'s, and the object cache is the machine\'s', (
   // The object cache is hash-keyed by toolchain and flags, so sharing it across
   // apps is safe -- and it is the expensive half worth not duplicating.
   assert.ok(!paths.objcache.startsWith(app.root), paths.objcache)
+})
+
+test('simulate defaults to DOM with viewport options and no Emscripten', async (t) => {
+  const fixture = createFixture(t)
+  const env = envWith(fixture.root, [])
+  const out = capture()
+  await runGea(['simulate', 'watch', '--no-open', '--width', '320', '--height', '480', '--dpr', '2', '--zoom', '1.5', '--dry-run'], { ...out.io, cwd: fixture.root, env })
+  assert.match(out.out.join('\n'), /dev-web\.mjs .*--emulator --width 320 --height 480 --dpr 2 --zoom 1.5/)
+  assert.doesNotMatch(out.out.join('\n'), /--open|build-web\.sh/)
+})
+
+test('simulate rejects unknown renderers and invalid viewport values', async (t) => {
+  const fixture = createFixture(t)
+  const env = envWith(fixture.root, [])
+  for (const args of [['--renderer', 'other'], ['--width', '-1']]) {
+    const out = capture()
+    await assert.rejects(runGea(['simulate', 'watch', ...args, '--dry-run'], { ...out.io, cwd: fixture.root, env }), (error) => error.exitCode === ExitCode.usage)
+  }
 })

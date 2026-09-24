@@ -113,11 +113,8 @@ export async function runGea(argv, io = {}) {
     const { runIos } = await import('./ios/adapter.mjs')
     return runIos({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, mode: option(parsed, 'mode', ''), run: command === 'run' })
   }
-  // `web` names two targets, and both are driven by gea, so it leaves the
-  // refusal below the way macos does above. `gea simulate` is the WASM device
-  // simulator; `gea {dev,build} --target web` is a real DOM/CSS web app. A bare
-  // `gea dev` means the latter -- it is the only target with a dev server, and
-  // it is what `gea create` scaffolds into a new app's package.json.
+  // DOM is the default web development and emulator runtime. The embedded
+  // framebuffer simulator remains available through simulate --renderer wasm.
   if ((command === 'dev' || command === 'build') && (target === 'web' || (!target && command === 'dev'))) {
     const app = webApp(ctx, parsed, rest, cwd)
     const { runWebBuild, runWebDev } = await import('./web/adapter.mjs')
@@ -127,15 +124,24 @@ export async function runGea(argv, io = {}) {
   }
   if (command === 'simulate') {
     const app = webApp(ctx, parsed, rest, cwd)
+    const renderer = option(parsed, 'renderer', 'dom')
+    if (!['dom', 'wasm'].includes(renderer)) fail(`Unknown renderer '${renderer}'. Use dom or wasm.`, ExitCode.usage)
+    for (const key of ['width', 'height', 'dpr', 'zoom']) {
+      const value = option(parsed, key)
+      if (value !== undefined && (typeof value === 'boolean' || !Number.isFinite(Number(value)) || Number(value) <= 0)) {
+        fail(`--${key} must be a positive number.`, ExitCode.usage)
+      }
+    }
     const { runSimulate } = await import('./web/adapter.mjs')
     return runSimulate({
+      renderer,
       ctx,
       app,
       env,
       dryRun: flag(parsed, 'dry-run'),
       stdout,
       port: option(parsed, 'port', ''),
-      open: !flag(parsed, 'no-open'),
+      open: option(parsed, 'open', true) !== false,
       view: {
         width: option(parsed, 'width', ''),
         height: option(parsed, 'height', ''),
@@ -226,7 +232,7 @@ ${heading('Usage:')}
   gea doctor [--json] [--strict]                 check packages and toolchains
 
 ${heading('Run on this machine (no board needed):')}
-  gea simulate [app] [--port N]                  build to WASM + open the device simulator  [--no-open] [--width W --height H --dpr D --zoom Z]
+  gea simulate [app] [--port N]                  DOM emulator with HMR [--renderer dom|wasm] [--no-open] [--width W --height H --dpr D --zoom Z]
   gea dev [app] [--port N]                       real DOM + CSS dev server with HMR  (same as --target web)
   gea build --target web [app] [--out-dir d]     build the app as a real web app
 
