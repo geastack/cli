@@ -1,6 +1,6 @@
 {
   "name": "@geastack/cli",
-  "version": "0.1.82",
+  "version": "0.1.83",
   "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
   "license": "Apache-2.0",
   "repository": {
@@ -37,13 +37,13 @@
   ],
   "dependencies": {
     "@clack/prompts": "^1.8.0",
-    "@geastack/simulator": "^0.1.6",
+    "@geastack/simulator": "^0.1.9",
     "@geastack/targets": "^0.1.80",
     "picocolors": "^1.1.1",
     "serialport": "^13.0.0"
   },
   "starterDependencies": {
-    "@geastack/core": "^0.1.24",
+    "@geastack/core": "^0.1.26",
     "@geastack/targets": "^0.1.77",
     "@geastack/apple": "^0.2.9"
   },
