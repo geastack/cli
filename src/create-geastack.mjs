@@ -97,7 +97,7 @@ export async function runCreateGeastack(argv, io = {}) {
   writeJson(path.join(targetDir, '.gea', 'boards.json'), {})
   ensureJson(path.join(targetDir, 'tsconfig.json'), () => tsconfigJson(targets))
   ensureFile(path.join(targetDir, '.gitignore'), gitignore)
-  if (targets.web) ensureFile(path.join(targetDir, 'vite.config.ts'), viteConfigTs)
+  if (targets.web) ensureFile(path.join(targetDir, 'vite.web.config.ts'), viteConfigTs)
   fs.writeFileSync(path.join(targetDir, 'README.md'), readme({ appId, displayName, starter, targets }))
 
   const installDependencies = shouldInstallDependencies(parsed, io)
@@ -472,7 +472,7 @@ function tsconfigJson(targets) {
       types: []
     },
     include: ['**/*.ts', '**/*.tsx', '**/*.d.ts'],
-    exclude: ['node_modules', 'dist', '.gea', 'vite.config.ts']
+    exclude: ['node_modules', 'dist', '.gea', 'vite.config.ts', 'vite.web.config.ts']
   }
 }
 
@@ -488,11 +488,7 @@ function viteConfigTs() {
   return `import { defineConfig } from 'vite'
 
 export default defineConfig({
-  root: __dirname,
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true
-  }
+  // Gea adds the DOM runtime and JSX transforms. Add web-only options here.
 })
 `
 }

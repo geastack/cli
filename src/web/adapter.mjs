@@ -10,29 +10,9 @@ import { appSummary, discoverApps } from '../manifest.mjs'
 import { formatCommand } from '../run.mjs'
 import { onPath } from '../toolchain.mjs'
 
-// `web` is two targets wearing one name, and the CLI keeps them apart.
-//
-//   gea simulate            the SIMULATOR. The app's C++ is generated with the
-//                           same geatsc flags an ESP32 firmware uses -- same
-//                           board profile, same font DPR, same renderer -- and
-//                           only the final compile differs (emcc/WASM + an
-//                           RGB565 framebuffer on a canvas, instead of clang +
-//                           a QSPI panel). Gea's own layout engine does layout,
-//                           so what you see is what the board will show.
-//
-//   gea {dev,build} --target web
-//                           a REAL WEB APP. The same TSX compiled onto the
-//                           @geajs/core reactive DOM runtime: real DOM nodes,
-//                           the browser's own CSSOM, native HMR. Faster to
-//                           iterate on, and deployable -- but the *browser*
-//                           does layout, so it drifts from the device exactly
-//                           where a simulator would need to be trusted.
-//
-// Both live in @geastack/simulator. Unlike the Apple targets -- where the app
-// depends on @geastack/apple and the app's own resolution finds the script --
-// nothing here is declared by the app: a gea app is simulatable because it is
-// buildable, so the CLI owns the dependency and resolves it from its own
-// installation.
+// Web development and the default emulator use Gea's DOM/CSS runtime.
+// `gea simulate --renderer wasm` retains the embedded renderer compiled with
+// Emscripten for framebuffer/device-rendering comparisons.
 
 const require = createRequire(import.meta.url)
 
@@ -150,7 +130,8 @@ export function buildSimulatorApp({ app, env, dryRun = false, stdout }) {
   return { simulatorDir, paths }
 }
 
-export async function runSimulate({ ctx, app, env, dryRun = false, stdout, port, open = true, view = {} }) {
+export async function runSimulate({ ctx, app, env, dryRun = false, stdout, port, open = true, view = {}, renderer = 'dom' }) {
+  if (renderer === 'dom') return runWebDev({ app, env, dryRun, stdout, port, emulator: true, open, view })
   const { simulatorDir, paths } = buildSimulatorApp({ app, env, dryRun, stdout })
   const url = await startSimulatorServer({ ctx, app, env, simulatorDir, paths, port, dryRun, stdout, view })
   if (dryRun) return 0
@@ -235,13 +216,22 @@ function openBrowser(url, env) {
 // The DOM target resolves the app from the directory itself rather than from an
 // id looked up under an apps root, so `gea dev --target web` works in any app
 // folder on disk.
-export function runWebDev({ app, env, dryRun = false, stdout, port }) {
+export function runWebDev({ app, env, dryRun = false, stdout, port, emulator = false, open = false, view = {} }) {
   requireWebTarget(app)
   const simulatorDir = resolveSimulatorDir(env)
   const script = path.join(simulatorDir, 'targets', 'web', 'dev-web.mjs')
   if (!existsSync(script)) fail(`Web dev server not found: ${script}`, ExitCode.missingDependency)
   const args = [script, '--app-dir', app.root]
   if (port) args.push('--port', String(port))
+  if (emulator) args.push('--emulator')
+  if (open) args.push('--open')
+  for (const key of ['width', 'height', 'dpr', 'zoom']) {
+    if (view[key] !== undefined && view[key] !== '') {
+      const value = Number(view[key])
+      if (!Number.isFinite(value) || value <= 0) fail(`--${key} must be a positive number.`, ExitCode.usage)
+      args.push(`--${key}`, String(value))
+    }
+  }
   return runScript('node', args, {
     cwd: app.root,
     env,

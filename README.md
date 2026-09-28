@@ -192,3 +192,25 @@ built on it. The only GeaStack code under a different license is
 the embedded board support (`targets` and `@geastack/chips`, GPL-3.0-only):
 shipping closed-source firmware through those needs a commercial license.
 Contact [contact@geastack.com](mailto:contact@geastack.com) for commercial terms, support and hosted builds.
+
+## Browser development and emulation
+
+`gea dev` (equivalently `gea dev --target web`) runs the Gea DOM/CSS app with
+Vite HMR. `gea simulate` uses that same pipeline inside a device viewport and
+opens the browser. Use `--no-open` to suppress opening, and `--width`, `--height`,
+`--zoom`, and `--dpr` to configure the preview. DPR is a simulated Display API
+value; it does not override the browser's pixel ratio.
+
+The default for `simulate` changed from WASM to DOM. To retain the embedded
+renderer and framebuffer workflow, use `gea simulate --renderer wasm`; this
+explicit mode still requires Emscripten. Unknown renderer values are rejected.
+
+`gea build --target web` emits HTML/JS/CSS into `.gea/build/web/site` (override
+with `--out-dir`). The app's `index.html` is honored. Web-only Vite customization
+belongs in `vite.web.config.ts`; new web apps scaffold this file. Existing
+`vite.config.*` files remain dedicated to their previous build pipeline.
+
+Compatible component edits and CSS changes update without reloading the page;
+reactive state is preserved for compatible component edits. Incompatible edits
+reload. Browser previews use simulated device APIs and browser layout; use the
+WASM renderer or a physical device to validate embedded rendering.

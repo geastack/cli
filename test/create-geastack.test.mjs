@@ -39,6 +39,7 @@ test('create-geastack scaffolds a valid app manifest', async () => {
   assert.equal(fs.existsSync(path.join(tmp, 'src/index.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'src/App.tsx')), true)
   assert.equal(fs.existsSync(path.join(tmp, 'tsconfig.json')), true)
+  assert.equal(fs.existsSync(path.join(tmp, 'vite.web.config.ts')), true)
   assert.match(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8'), /^\.env$/m)
   assert.deepEqual(readJson(path.join(tmp, '.gea/boards.json')), {})
   assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /bundled starter: `Component Counter`/)
