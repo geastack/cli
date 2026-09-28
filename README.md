@@ -165,6 +165,9 @@ expose stable command contracts.
 
 ## Documentation
 
+- [docs/PEBBLE-QUICKSTART.md](docs/PEBBLE-QUICKSTART.md): install the Pebble SDK,
+  enable a TSX app, build a `.pbw`, and run on Pebble Time 2 or its emulator.
+
 - [docs/SPEC.md](docs/SPEC.md): command surface, manifest expectations, and
   backend contract for the first implementation.
 - [docs/SETUP.md](docs/SETUP.md): toolchains per target, the ESP-IDF version

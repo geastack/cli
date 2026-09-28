@@ -113,6 +113,18 @@ export async function runGea(argv, io = {}) {
     const { runIos } = await import('./ios/adapter.mjs')
     return runIos({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, mode: option(parsed, 'mode', ''), run: command === 'run' })
   }
+  // Pebble is driven by one script inside @geastack/pebble, like iOS inside
+  // @geastack/apple, and like iOS it is never a host default. `gea build
+  // --target pebble` produces the .pbw; `gea run --target pebble` installs it on
+  // the emery emulator, or on a watch through the phone at `--phone <ip>`.
+  if ((command === 'build' || command === 'run') && target === 'pebble') {
+    const app = parsed.options.app || rest[0] ? findAppById(ctx, String(parsed.options.app || rest[0])) : findCurrentApp(cwd)
+    if (!app?.targets?.pebble) {
+      fail(app ? `'${app.id}' does not declare gea.targets.pebble.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
+    }
+    const { runPebble } = await import('./pebble/adapter.mjs')
+    return runPebble({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, phone: option(parsed, 'phone', ''), run: command === 'run' })
+  }
   // DOM is the default web development and emulator runtime. The embedded
   // framebuffer simulator remains available through simulate --renderer wasm.
   if ((command === 'dev' || command === 'build') && (target === 'web' || (!target && command === 'dev'))) {
@@ -236,11 +248,13 @@ ${heading('Run on this machine (no board needed):')}
   gea dev [app] [--port N]                       real DOM + CSS dev server with HMR  (same as --target web)
   gea build --target web [app] [--out-dir d]     build the app as a real web app
 
-${heading('Native desktop and mobile apps (scripts ship in @geastack/apple and @geastack/windows):')}
+${heading('Native desktop, mobile and watch apps (scripts ship in @geastack/apple, @geastack/windows and @geastack/pebble):')}
   gea build --target macos [app]                 build a Mac .app (a bare gea build does this on a Mac for a Mac-only app)
   gea build --target ios [app] [--mode simulator|device]   generate the Xcode project and build the iOS .app
   gea run --target ios [app] [--mode simulator|device]     build, then install and launch on a simulator or iPhone
   gea build|run --target windows [app]           build (and launch) the Windows executable
+  gea build --target pebble [app]                build a Pebble Time 2 app (.pbw); needs the Pebble SDK
+  gea run --target pebble [app] [--phone <ip>]   build, then install on the emery emulator or a watch via its phone
 
 ${heading('Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):')}
   gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)  [--verbose] [--output file.bin]
