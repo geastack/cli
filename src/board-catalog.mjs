@@ -1,5 +1,21 @@
 export const knownBoards = Object.freeze([
   {
+    id: 'waveshare-amoled-241',
+    label: 'Waveshare ESP32-S3 Touch AMOLED 2.41 (V1)',
+    alias: 'amoled-241',
+    target: 'esp32-s3-touch-amoled-2.41',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3',
+    capabilities: {
+      display: '2.41 inch AMOLED touch panel (RM69080)',
+      touch: 'FT6336 capacitive touch',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM'],
+      audio: [],
+      gps: false
+    }
+  },
+  {
     id: 'waveshare-amoled-206',
     label: 'Waveshare ESP32-S3 Touch AMOLED 2.06',
     alias: 'amoled',
