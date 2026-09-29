@@ -6,7 +6,7 @@ import { loadChipCatalogFromDir, writeCustomTarget } from '../boards/custom-targ
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { appCmakeMeta, appCmakeDefines, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
 import { quietSteps, runQuiet } from '../run.mjs'
-import { resolveAppCapabilities } from './capabilities.mjs'
+import { resolveAppCapabilities, withRendererFeatureDefines } from './capabilities.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
 import { writePartitionTable } from './partitions-from-manifest.mjs'
@@ -416,7 +416,7 @@ function preparePartitions(app, config, buildDir, targetId) {
     // `set(... CACHE STRING ...)`, so a -D of the same name, which exists before
     // the board's CMakeLists runs, wins without the board knowing about apps.
     const cssDpr = cssDevicePixelRatioLiteral(app.cssDevicePixelRatio)
-    const appDefines = [appCmakeDefines(app), cssDpr && `GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=${cssDpr}`]
+    const appDefines = [withRendererFeatureDefines(appCmakeDefines(app), capabilities.features, { devicePixelRatio: cssDpr ? Number(cssDpr) : undefined }), cssDpr && `GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=${cssDpr}`]
       .filter(Boolean)
       .join(';')
     const esp32Config = appEsp32Config
