@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import fs from 'node:fs'
 import { withRendererFeatureDefines } from '../src/esp32/capabilities.mjs'
 
 test('analyzed apps automatically prune all unused renderer storage, despite size knobs', () => {
@@ -32,7 +33,7 @@ test('app-defined CSS overrides cannot contradict compiler reachability', () => 
 })
 
 
-import { nativeCssSourceNeedsSupport, withNativeCssFeatures } from '../src/esp32/native-css-features.mjs'
+import { nativeCircleSourceNeedsSupport, nativeCssSourceNeedsSupport, withNativeCssFeatures } from '../src/esp32/native-css-features.mjs'
 
 test('native UI mutation conservatively retains CSS without app switches', () => {
   for (const source of [
@@ -292,4 +293,181 @@ test('generated pseudo-element pruning requires v15 proof and ignores manual ove
   for (let version=1;version<15;++version) assert.ok(!withRendererFeatureDefines(`${macro}=0`, [`css-analysis-v${version}`]).includes(`${macro}=`))
   const opaque = withNativeCssFeatures({root:'/missing-app',nativeSources:['opaque.cpp']}, ['css-analysis-v15'])
   assert.ok(withRendererFeatureDefines('',opaque).includes(`${macro}=1`))
+})
+
+
+test('class overflow is removed only with complete versioned bounds', () => {
+  const capacity = n => `node-class-capacity-v1-${n}`
+  const storage = n => `node-class-storage-v1-${n}`
+  const compact = features => withRendererFeatureDefines('', features).includes('GEA_UI_CLASS_OVERFLOW=0')
+  assert.equal(withRendererFeatureDefines('GEA_UI_CLASS_OVERFLOW=0;APP=1', []), 'APP=1')
+  for (const n of [1, 2, 3]) assert.ok(compact([capacity(n), storage(n)]))
+  assert.ok(compact([capacity(1), storage(1), capacity(3), storage(3)]))
+  for (const features of [[capacity(1)], [storage(1)], [capacity(1), storage(2)],
+    [capacity(1), storage(1), capacity(3)], [capacity(1), storage(1), 'node-class-storage-v2-1'],
+    [capacity(1), storage(1), 'node-inputs'], [capacity(1), storage(1), 'node-images']])
+    assert.ok(!compact(features), features.join(','))
+  const native = withNativeCssFeatures({ root: '/missing-app', nativeSources: ['opaque.cpp'] }, [capacity(1), storage(1)])
+  assert.ok(!native.some(feature => feature.startsWith('node-class-')))
+  assert.ok(!compact(native))
+})
+
+
+test('v16 base-style fields require current complete proofs and preserve opaque native code', () => {
+  const families = ['flex-direction', 'justify-content', 'align-items', 'box-sizing', 'margin-auto', 'line-height-multiplier', 'width-expressions', 'min-height', 'max-width', 'active-background']
+  const opaque = withNativeCssFeatures({ root: '/missing-app', nativeSources: ['opaque.cpp'] }, ['css-analysis-v16'])
+  for (const family of families) {
+    const macro = `GEA_CSS_${family.toUpperCase().replaceAll('-', '_')}`
+    assert.ok(withRendererFeatureDefines(`${macro}=1`, ['css-analysis-v16']).includes(`${macro}=0`))
+    assert.ok(withRendererFeatureDefines(`${macro}=0`, ['css-analysis-v16', `css-${family}`]).includes(`${macro}=1`))
+    for (const features of [[], ['css-analysis-v15'], ['css-analysis-v20']])
+      assert.ok(!withRendererFeatureDefines(`${macro}=0`, features).includes(`${macro}=`))
+    assert.ok(withRendererFeatureDefines('', opaque).includes(`${macro}=1`))
+  }
+})
+
+test('v17 default-style fields need whole-source proof and preserve native fallbacks', () => {
+  const families = ['margins', 'padding', 'flex-factors', 'gap', 'border-widths', 'border-colors', 'font-weight', 'text-align', 'white-space', 'text-overflow']
+  const opaque = withNativeCssFeatures({ root: '/missing-app', nativeSources: ['opaque.cpp'] }, ['css-analysis-v17'])
+  for (const family of families) {
+    const macro = `GEA_CSS_${family.toUpperCase().replaceAll('-', '_')}`
+    assert.ok(withRendererFeatureDefines(`${macro}=1`, ['css-analysis-v17']).includes(`${macro}=0`))
+    assert.ok(withRendererFeatureDefines(`${macro}=0`, ['css-analysis-v17', `css-${family}`]).includes(`${macro}=1`))
+    for (const features of [[], ['css-analysis-v16'], ['css-analysis-v20']])
+      assert.ok(!withRendererFeatureDefines(`${macro}=0`, features).includes(`${macro}=`))
+    assert.ok(withRendererFeatureDefines('', opaque).includes(`${macro}=1`))
+  }
+})
+
+
+test('v18 custom-property storage requires a whole-source proof and retains opaque native code', () => {
+  const macro = 'GEA_CSS_CUSTOM_PROPERTIES'
+  assert.ok(withRendererFeatureDefines(`${macro}=1`, ['css-analysis-v18']).includes(`${macro}=0`))
+  assert.ok(withRendererFeatureDefines(`${macro}=0`, ['css-analysis-v18', 'css-custom-properties']).includes(`${macro}=1`))
+  for (let version = 1; version < 18; ++version)
+    assert.ok(!withRendererFeatureDefines(`${macro}=0`, [`css-analysis-v${version}`]).includes(`${macro}=`))
+  for (const features of [[], ['css-analysis-v20']])
+    assert.ok(!withRendererFeatureDefines(`${macro}=0`, features).includes(`${macro}=`))
+  const opaque = withNativeCssFeatures({ root: '/missing-app', nativeSources: ['opaque.cpp'] }, ['css-analysis-v18'])
+  assert.ok(withRendererFeatureDefines('', opaque).includes(`${macro}=1`))
+})
+
+
+const circleProof = (raw = 8, px = 0) => ['renderer-analysis-v1', 'renderer-circles', 'css-analysis-v18', 'css-circle-cache-v1', ...rangeProof('radius', raw, px)]
+const circleDefines = (features, ratio) => withRendererFeatureDefines('', features, {devicePixelRatio:ratio}).split(';').filter(value => value.startsWith('GEA_EMBEDDED_CANVAS_CIRCLE_'))
+test('circle caches use automatic radius and target-DPR bounds', () => {
+  assert.deepEqual(circleDefines(circleProof(), 1), ['GEA_EMBEDDED_CANVAS_CIRCLE_RADIUS_MAX=8', 'GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_MAX=19', 'GEA_EMBEDDED_CANVAS_CIRCLE_SPAN_MAX=16', 'GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_SLOTS=4'])
+  assert.deepEqual(circleDefines(circleProof(0, 8), 2.5), ['GEA_EMBEDDED_CANVAS_CIRCLE_RADIUS_MAX=20', 'GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_MAX=43', 'GEA_EMBEDDED_CANVAS_CIRCLE_SPAN_MAX=32', 'GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_SLOTS=16'])
+  assert.deepEqual(circleDefines(circleProof(300, 0), 1), ['GEA_EMBEDDED_CANVAS_CIRCLE_RADIUS_MAX=63', 'GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_MAX=128', 'GEA_EMBEDDED_CANVAS_CIRCLE_SPAN_MAX=32', 'GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_SLOTS=16'])
+  assert.equal(circleDefines(circleProof(0, 1), 1.1)[0], 'GEA_EMBEDDED_CANVAS_CIRCLE_RADIUS_MAX=2')
+  for (let radius=0;radius<=63;++radius) {
+    const defs=Object.fromEntries(circleDefines(circleProof(radius,0),1).map(x=>x.split('=')));
+    const sides=Math.max(1,Math.min(16,Number(defs.GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_MAX)-15));
+    assert.equal(Number(defs.GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_SLOTS),sides);
+  }
+})
+test('old, incomplete, dynamic, native and effect paths retain full circle caches', () => {
+  for (const remove of ['css-circle-cache-v1', 'css-ranges-v1', 'css-analysis-v18', 'renderer-analysis-v1', 'css-range-radius-raw-8'])
+    assert.deepEqual(circleDefines(circleProof().filter(feature => feature !== remove), 1), [], remove)
+  for (const feature of ['css-circle-cache-v2', 'css-circle-cache-unbounded', 'css-ranges-unknown', 'renderer-transforms', 'css-box-shadow', 'css-border-widths', 'css-border-relief', 'css-filters', 'css-text-decoration', 'css-range-radius-px-2'])
+    assert.deepEqual(circleDefines([...circleProof(), feature], 1), [], feature)
+  for (const ratio of [0, -1, NaN, Infinity]) assert.deepEqual(circleDefines(circleProof(), ratio), [])
+  const native = withNativeCssFeatures({root:'/missing-app', nativeSources:['opaque.cpp']}, circleProof())
+  assert.deepEqual(circleDefines(native, 1), [])
+  assert.equal(withRendererFeatureDefines('GEA_EMBEDDED_CANVAS_CIRCLE_RADIUS_MAX=1;GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_MAX=1;GEA_EMBEDDED_CANVAS_CIRCLE_SPAN_MAX=2;GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_SLOTS=1;APP=1', []), 'APP=1')
+})
+
+
+test('native drawing retains full circle caches without retaining unused CSS', t => {
+  const root='/virtual-circle-native';
+  let source='';
+  t.mock.method(fs, 'existsSync', file => file === `${root}/draw.cpp`);
+  t.mock.method(fs, 'accessSync', file => { if (file !== `${root}/draw.cpp`) throw new Error('missing virtual file'); });
+  t.mock.method(fs, 'readdirSync', () => [{name:'draw.cpp',isDirectory:()=>false}]);
+  t.mock.method(fs, 'readFileSync', () => source);
+  const app={root,nativeSources:['draw.cpp']};
+  for (source of ['#include "canvas.h"', '#include <graphics/display.h>',
+    'Display::canvas()->fillCircle(x,y,r,color);', 'surface.drawImageRounded(data,alpha,w,h,x,y,r);']) {
+    assert.ok(nativeCircleSourceNeedsSupport(source), source);
+    const result=withNativeCssFeatures(app,circleProof());
+    assert.deepEqual(circleDefines(result,1),[],source);
+    assert.ok(result.includes('renderer-circles'));
+    assert.ok(!result.includes('css-grid'));
+  }
+  source='#include "audio/effects.h"\nprocess(samples,count);';
+  assert.ok(!nativeCircleSourceNeedsSupport(source));
+  assert.deepEqual(circleDefines(withNativeCssFeatures(app,circleProof()),1),circleDefines(circleProof(),1));
+});
+
+
+test('triangle occlusion scratch requires its own known proof and ignores manual switches', () => {
+  const macro='GEA_EMBEDDED_RENDERER_TRIANGLE_OCCLUSION'
+  const version='renderer-occlusion-v1'
+  assert.equal(withRendererFeatureDefines(`${macro}=1`,[version]),`${macro}=0`)
+  assert.equal(withRendererFeatureDefines(`${macro}=0`,[version,'renderer-occlusion-triangles']),`${macro}=1`)
+  for (const features of [[],['renderer-analysis-v1'],['renderer-occlusion-v2'],[version,'renderer-occlusion-v2']])
+    assert.ok(!withRendererFeatureDefines(`${macro}=0`,features).includes(`${macro}=`))
+  const opaque=withNativeCssFeatures({root:'/missing',nativeSources:['unknown.cpp']},[version])
+  assert.equal(withRendererFeatureDefines('',opaque).split(';').find(s=>s.startsWith(macro)),`${macro}=1`)
+})
+
+test('native sources retain triangle scratch without claiming a C++ call-graph proof', t => {
+  const root='/virtual-triangles-native'
+  let source=''
+  t.mock.method(fs,'existsSync',file=>file===`${root}/draw.cpp`)
+  t.mock.method(fs,'accessSync',file=>{if(file!==`${root}/draw.cpp`) throw new Error('missing virtual file')})
+  t.mock.method(fs,'readdirSync',()=>[{name:'draw.cpp',isDirectory:()=>false}])
+  t.mock.method(fs,'readFileSync',()=>source)
+  for(source of ['#include "canvas.h"','Canvas output;','TriangleEntry triangles[3];','p->fillTrianglesOpaqueOccluded(tris,count,0,0);','#include <opaque_external.h>\nregister_callback(draw_scene);','#include <audio/effects.h>\nprocess(samples,count);']) {
+    const features=withNativeCssFeatures({root,nativeSources:['draw.cpp']},['renderer-occlusion-v1'])
+    assert.ok(features.includes('renderer-occlusion-triangles'),source)
+    assert.ok(!features.includes('css-grid'))
+  }
+})
+
+
+test('v19 size percentage storage is automatic and older/unknown proofs cannot disable it', () => {
+  for (const [feature, macro] of [['css-width-percent', 'GEA_CSS_WIDTH_PERCENT'], ['css-height-percent', 'GEA_CSS_HEIGHT_PERCENT']]) {
+    assert.ok(withRendererFeatureDefines(`${macro}=1`, ['css-analysis-v19']).includes(`${macro}=0`))
+    assert.ok(withRendererFeatureDefines(`${macro}=0`, ['css-analysis-v19', feature]).includes(`${macro}=1`))
+    for (let version=1; version<19; ++version)
+      assert.ok(!withRendererFeatureDefines(`${macro}=0`, [`css-analysis-v${version}`]).includes(`${macro}=`))
+    for (const features of [[], ['css-analysis-v20']])
+      assert.ok(!withRendererFeatureDefines(`${macro}=0`, features).includes(`${macro}=`))
+    for (const features of [['css-analysis-v18','css-analysis-v19'], ['css-analysis-v19','css-analysis-v20'], ['css-analysis-v19','css-analysis-unknown']])
+      assert.ok(!withRendererFeatureDefines(`${macro}=0`, features).includes(`${macro}=`))
+    for (const node of ['node-inputs', 'node-images'])
+      assert.ok(withRendererFeatureDefines('', ['css-analysis-v19', node]).includes(`${macro}=1`))
+    const native = withNativeCssFeatures({root:'/missing', nativeSources:['opaque.cpp']}, ['css-analysis-v19'])
+    assert.ok(withRendererFeatureDefines('', native).includes(`${macro}=1`))
+  }
+  const merged = withRendererFeatureDefines('', ['css-analysis-v19', 'css-width-percent'])
+  assert.ok(merged.includes('GEA_CSS_WIDTH_PERCENT=1'))
+  assert.ok(merged.includes('GEA_CSS_HEIGHT_PERCENT=0'))
+})
+
+test('compact auxiliary owners require a complete matching proof and reject manual overrides', () => {
+  const knobs = 'GEA_UI_NODE_LISTENERS=0;GEA_UI_NODE_ATTRIBUTES=0;GEA_UI_DEFAULT_STYLES=0'
+  assert.equal(withRendererFeatureDefines(knobs, []), '')
+  for (const features of [['node-aux-v2'], ['node-aux-v1', 'node-aux-v2']])
+    assert.equal(withRendererFeatureDefines(knobs, features), '')
+  const proven = withRendererFeatureDefines('', ['node-aux-v1'])
+  for (const owner of ['NODE_LISTENERS', 'NODE_ATTRIBUTES', 'DEFAULT_STYLES']) assert.ok(proven.includes(`GEA_UI_${owner}=0`))
+  const used = withRendererFeatureDefines(knobs, ['node-aux-v1', 'node-listeners', 'node-attributes', 'node-default-styles'])
+  for (const owner of ['NODE_LISTENERS', 'NODE_ATTRIBUTES', 'DEFAULT_STYLES']) assert.ok(used.includes(`GEA_UI_${owner}=1`))
+  const native = withNativeCssFeatures({ root: '/nonexistent-app', nativeSources: ['missing.cpp'] }, ['node-aux-v1'])
+  const conservative = withRendererFeatureDefines(knobs, native)
+  for (const owner of ['NODE_LISTENERS', 'NODE_ATTRIBUTES', 'DEFAULT_STYLES']) assert.ok(conservative.includes(`GEA_UI_${owner}=1`))
+})
+
+
+test('compact default fields require a current proof and survive native mutations', () => {
+  const empty=withRendererFeatureDefines('GEA_CSS_LINE_HEIGHT=1;GEA_CSS_DISPLAY_EXPLICIT=1',['css-storage-v1'])
+  assert.match(empty,/GEA_CSS_LINE_HEIGHT=0/); assert.match(empty,/GEA_CSS_DISPLAY_EXPLICIT=0/)
+  const used=withRendererFeatureDefines('', ['css-storage-v1','css-line-height','css-display-explicit'])
+  assert.match(used,/GEA_CSS_LINE_HEIGHT=1/); assert.match(used,/GEA_CSS_DISPLAY_EXPLICIT=1/)
+  for(const features of [[],['css-storage-v2'],['css-storage-v1','css-storage-v2']])
+    assert.doesNotMatch(withRendererFeatureDefines('GEA_CSS_LINE_HEIGHT=0;GEA_CSS_DISPLAY_EXPLICIT=0',features),/GEA_CSS_(LINE_HEIGHT|DISPLAY_EXPLICIT)=/)
+  const native=withNativeCssFeatures({root:'/missing',nativeSources:['missing.cpp']},['css-storage-v1'])
+  assert.ok(native.includes('css-line-height')); assert.ok(native.includes('css-display-explicit'))
 })

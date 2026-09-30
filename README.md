@@ -125,6 +125,14 @@ These commands update the app-local target definition. They do not copy native
 sources into the application; the target adapter compiles the selected drivers
 directly from the installed `@geastack/chips` package.
 
+## Wi-Fi updates for offline apps
+
+An ESP32 app with no network API calls normally omits networking. Set
+`gea.ota.wifi` to `true` in the app's `package.json` to retain Wi-Fi OTA and
+remote diagnostics. Supply the usual `GEA_WIFI_SSID` and `GEA_WIFI_PASSWORD`
+settings at build time. This declaration keeps networking available without
+adding a network call to the app; it does not supply credentials.
+
 ## Development
 
 ```sh

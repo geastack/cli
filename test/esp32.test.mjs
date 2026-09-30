@@ -341,6 +341,22 @@ test('app capabilities come from the compiler analysis plus the manifest', (t) =
   assert.equal(call, `compiler analyze ${path.join(fixture.appDir, 'index.tsx')} --plugin ${path.join(fixture.installed('geatsc-plugin-gea'), 'dist', 'index.js')}`)
 })
 
+test('Wi-Fi OTA keeps an offline app reachable without adding network bindings', (t) => {
+  const fixture = createFixture(t)
+  const ctx = createContext(parseArgs([]), fixture.env, fixture.appDir)
+  const app = findCurrentApp(fixture.appDir)
+  const compiler = path.join(fixture.installed('compiler'), 'dist', 'cli.js')
+  writeFileSync(compiler, readFileSync(compiler, 'utf8').replace('bindings=audio;fetch', 'bindings='))
+  app.packageJson.gea.ota = { wifi: true }
+  assert.deepEqual(resolveAppCapabilities(ctx, app, { env: fixture.env }), {
+    network: true, ble: false, bleApi: false, audio: false, bindings: [], features: []
+  })
+  for (const wifi of [false, undefined, 'true']) {
+    app.packageJson.gea.ota = { wifi }
+    assert.equal(resolveAppCapabilities(ctx, app, { env: fixture.env }).network, false)
+  }
+})
+
 test('wifi config is generated from the app .env as C string literals', () => {
   assert.equal(quoteCString('a"b\\c\n'), '"a\\"b\\\\c\\n"')
   const generated = wifiConfigContents({ GEA_WIFI_SSID: 'test network', GEA_WIFI_PASSWORD: 'secret' })

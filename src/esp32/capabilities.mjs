@@ -76,7 +76,11 @@ const cssV12FeatureDefines = [['css-position-top', 'GEA_CSS_POSITION_TOP'], ['cs
 const cssV13FeatureDefines = [['css-animations', 'GEA_CSS_ANIMATIONS']]
 const cssV14FeatureDefines = [['css-text-alpha', 'GEA_CSS_TEXT_ALPHA'], ['css-border-alpha', 'GEA_CSS_BORDER_ALPHA']]
 const cssV15FeatureDefines = [['css-pseudo-elements', 'GEA_CSS_PSEUDO_ELEMENTS']]
-const cssFeatureVersions = [cssFeatureDefines, cssV2FeatureDefines, cssV3FeatureDefines, cssV4FeatureDefines, cssV5FeatureDefines, cssV6FeatureDefines, cssV7FeatureDefines, cssV8FeatureDefines, cssV9FeatureDefines, cssV10FeatureDefines, cssV11FeatureDefines, cssV12FeatureDefines, cssV13FeatureDefines, cssV14FeatureDefines, cssV15FeatureDefines]
+const cssV16FeatureDefines = [['css-flex-direction', 'GEA_CSS_FLEX_DIRECTION'], ['css-justify-content', 'GEA_CSS_JUSTIFY_CONTENT'], ['css-align-items', 'GEA_CSS_ALIGN_ITEMS'], ['css-box-sizing', 'GEA_CSS_BOX_SIZING'], ['css-margin-auto', 'GEA_CSS_MARGIN_AUTO'], ['css-line-height-multiplier', 'GEA_CSS_LINE_HEIGHT_MULTIPLIER'], ['css-width-expressions', 'GEA_CSS_WIDTH_EXPRESSIONS'], ['css-min-height', 'GEA_CSS_MIN_HEIGHT'], ['css-max-width', 'GEA_CSS_MAX_WIDTH'], ['css-active-background', 'GEA_CSS_ACTIVE_BACKGROUND']]
+const cssV17FeatureDefines = [['css-margins', 'GEA_CSS_MARGINS'], ['css-padding', 'GEA_CSS_PADDING'], ['css-flex-factors', 'GEA_CSS_FLEX_FACTORS'], ['css-gap', 'GEA_CSS_GAP'], ['css-border-widths', 'GEA_CSS_BORDER_WIDTHS'], ['css-border-colors', 'GEA_CSS_BORDER_COLORS'], ['css-font-weight', 'GEA_CSS_FONT_WEIGHT'], ['css-text-align', 'GEA_CSS_TEXT_ALIGN'], ['css-white-space', 'GEA_CSS_WHITE_SPACE'], ['css-text-overflow', 'GEA_CSS_TEXT_OVERFLOW']]
+const cssV18FeatureDefines = [['css-custom-properties', 'GEA_CSS_CUSTOM_PROPERTIES']]
+const cssV19FeatureDefines = [['css-width-percent', 'GEA_CSS_WIDTH_PERCENT'], ['css-height-percent', 'GEA_CSS_HEIGHT_PERCENT']]
+const cssFeatureVersions = [cssFeatureDefines, cssV2FeatureDefines, cssV3FeatureDefines, cssV4FeatureDefines, cssV5FeatureDefines, cssV6FeatureDefines, cssV7FeatureDefines, cssV8FeatureDefines, cssV9FeatureDefines, cssV10FeatureDefines, cssV11FeatureDefines, cssV12FeatureDefines, cssV13FeatureDefines, cssV14FeatureDefines, cssV15FeatureDefines, cssV16FeatureDefines, cssV17FeatureDefines, cssV18FeatureDefines, cssV19FeatureDefines]
 
 const rendererFeatureDefines = [
   ['renderer-circles', 'GEA_EMBEDDED_RENDERER_CIRCLES'],
@@ -85,30 +89,57 @@ const rendererFeatureDefines = [
   ['renderer-radial-gradients', 'GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS']
 ]
 
+const triangleOcclusionMacro = 'GEA_EMBEDDED_RENDERER_TRIANGLE_OCCLUSION'
+const circleCacheMacros = ['GEA_EMBEDDED_CANVAS_CIRCLE_RADIUS_MAX', 'GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_MAX', 'GEA_EMBEDDED_CANVAS_CIRCLE_SPAN_MAX', 'GEA_EMBEDDED_CANVAS_CIRCLE_BOX_SPAN_SLOTS']
 const rangeFamilies = ['padding', 'gap', 'border', 'radius', 'font', 'line-height', 'flex']
+const compactStyleDefines = [['css-line-height', 'GEA_CSS_LINE_HEIGHT'], ['css-display-explicit', 'GEA_CSS_DISPLAY_EXPLICIT']]
+const nodeAuxFeatureDefines = [['node-listeners', 'GEA_UI_NODE_LISTENERS'], ['node-attributes', 'GEA_UI_NODE_ATTRIBUTES'], ['node-default-styles', 'GEA_UI_DEFAULT_STYLES']]
 const nodeFeatureDefines = [['node-images', 'GEA_UI_IMAGE_NODES'], ['node-inputs', 'GEA_UI_INPUT_NODES']]
 const rangeMacro = family => `GEA_CSS_U8_${family.replaceAll('-', '_').toUpperCase()}`
 
 export function withRendererFeatureDefines(defines, features, { devicePixelRatio } = {}) {
   // An older plugin knows nothing about renderer features. Absence without the
   // version marker is not proof of unreachability: retain engine defaults.
-  const generatedNames = new Set([...rendererFeatureDefines, ...cssFeatureVersions.flat(), ...nodeFeatureDefines].map(([, name]) => name).concat(rangeFamilies.map(rangeMacro), ['GEA_UI_CLASS_INLINE_TOKENS']))
+  const generatedNames = new Set([...rendererFeatureDefines, ...cssFeatureVersions.flat(), ...nodeFeatureDefines, ...nodeAuxFeatureDefines, ...compactStyleDefines].map(([, name]) => name).concat(triangleOcclusionMacro, circleCacheMacros, rangeFamilies.map(rangeMacro), ['GEA_UI_CLASS_INLINE_TOKENS', 'GEA_UI_CLASS_OVERFLOW']))
   const result = defines.split(';').filter((define) => define && !generatedNames.has(define.split('=')[0]))
   if (features.includes('node-analysis-v1')) {
     for (const [feature, name] of nodeFeatureDefines) result.push(`${name}=${features.includes(feature) ? 1 : 0}`)
   }
+  const storageProofs = features.filter(feature => feature.startsWith('css-storage-'))
+  if (storageProofs.length && storageProofs.every(proof => proof === 'css-storage-v1')) {
+    for (const [feature, name] of compactStyleDefines)
+      result.push(`${name}=${features.includes(feature) || features.includes('node-inputs') || features.includes('node-images') ? 1 : 0}`)
+  }
+  const auxiliaryProofs = features.filter(feature => feature.startsWith('node-aux-'))
+  if (auxiliaryProofs.length && auxiliaryProofs.every(proof => proof === 'node-aux-v1')) {
+    for (const [feature, name] of nodeAuxFeatureDefines)
+      result.push(`${name}=${features.includes(feature) || features.includes('node-inputs') || features.includes('node-images') ? 1 : 0}`)
+  }
   const classBounds = features.filter(feature => feature.startsWith('node-class-capacity-v1-')).map(feature => feature.slice('node-class-capacity-v1-'.length))
-  if (!features.includes('node-inputs') && !features.includes('node-images') && classBounds.length && classBounds.every(bound => /^[123]$/.test(bound))) result.push(`GEA_UI_CLASS_INLINE_TOKENS=${Math.max(...classBounds.map(Number))}`)
+  if (!features.includes('node-inputs') && !features.includes('node-images') && classBounds.length && classBounds.every(bound => /^[123]$/.test(bound))) {
+    result.push(`GEA_UI_CLASS_INLINE_TOKENS=${Math.max(...classBounds.map(Number))}`)
+    const storageProofs = features.filter(feature => feature.startsWith('node-class-storage-'))
+    const complete = classBounds.every(bound => storageProofs.includes(`node-class-storage-v1-${bound}`))
+    if (complete && storageProofs.every(proof => /^node-class-storage-v1-[123]$/.test(proof)) &&
+        storageProofs.every(proof => classBounds.includes(proof.slice('node-class-storage-v1-'.length))))
+      result.push('GEA_UI_CLASS_OVERFLOW=0')
+  }
+  const occlusionProofs = features.filter(feature => /^renderer-occlusion-v/.test(feature))
+  if (occlusionProofs.length && occlusionProofs.every(feature => feature === 'renderer-occlusion-v1'))
+    result.push(`${triangleOcclusionMacro}=${features.includes('renderer-occlusion-triangles') ? 1 : 0}`)
   if (features.includes('renderer-analysis-v1')) {
     for (const [feature, name] of rendererFeatureDefines) result.push(`${name}=${features.includes(feature) ? 1 : 0}`)
   }
   // Each marker proves only families known to that analyzer. Future/unknown
   // markers retain defaults until this CLI explicitly understands them.
   const version = cssFeatureVersions.reduce((known, _, index) => features.includes(`css-analysis-v${index + 1}`) ? index + 1 : known, 0)
+  const sizePercentProofs = features.filter(feature => feature.startsWith('css-analysis-'))
+  const completeSizePercentProof = sizePercentProofs.length > 0 && sizePercentProofs.every(feature => feature === 'css-analysis-v19')
   for (const families of cssFeatureVersions.slice(0, version)) {
+    if (families === cssV19FeatureDefines && !completeSizePercentProof) continue
     for (const [feature, name] of families) {
-      const nativeAlpha = /^(?:GEA_CSS_TEXT_ALPHA|GEA_CSS_BORDER_ALPHA)$/.test(name) && (features.includes('node-inputs') || features.includes('node-images'))
-      result.push(`${name}=${features.includes(feature) || nativeAlpha ? 1 : 0}`)
+      const nativeDefaults = /^(?:GEA_CSS_TEXT_ALPHA|GEA_CSS_BORDER_ALPHA|GEA_CSS_WIDTH_PERCENT|GEA_CSS_HEIGHT_PERCENT)$/.test(name) && (features.includes('node-inputs') || features.includes('node-images'))
+      result.push(`${name}=${features.includes(feature) || nativeDefaults ? 1 : 0}`)
     }
   }
   // Width selection needs a positive whole-program range proof as well as
@@ -125,6 +156,23 @@ export function withRendererFeatureDefines(defines, features, { devicePixelRatio
       }
       const maximum = Math.max(bound('raw'), bound('px') * ratio)
       result.push(`${rangeMacro(family)}=${known && maximum <= 255 ? 1 : 0}`)
+      // Bound all circle paths only with the separate imperative-drawing proof.
+      // Effects/borders may expand a painted radius beyond its CSS border box.
+      const unboundedEffects = ['renderer-transforms', 'css-box-shadow', 'css-border-widths', 'css-border-relief', 'css-filters', 'css-text-decoration']
+      if (family === 'radius' && version >= 18 && known && Number.isFinite(maximum) &&
+          features.includes('renderer-analysis-v1') && features.includes('css-circle-cache-v1') &&
+          !features.includes('css-circle-cache-unbounded') &&
+          features.filter(feature => feature.startsWith('css-circle-cache-')).every(feature => feature === 'css-circle-cache-v1') && !unboundedEffects.some(feature => features.includes(feature))) {
+        const radius = Math.max(1, Math.ceil(maximum))
+        result.push(`${circleCacheMacros[0]}=${Math.min(63, radius)}`)
+        // roundedRectIsCircleLike accepts floor(side / 2) - 1 <= radius,
+        // so the largest square using the box cache is 2 * radius + 3.
+        result.push(`${circleCacheMacros[1]}=${Math.min(128, radius * 2 + 3)}`)
+        result.push(`${circleCacheMacros[2]}=${Math.min(32, radius * 2)}`)
+        // The box shortcut starts at side 16. Retain one slot for every
+        // possible cached side, up to the existing capacity of sixteen.
+        result.push(`${circleCacheMacros[3]}=${Math.max(1, Math.min(16, radius * 2 + 3 - 15))}`)
+      }
     }
   }
   return result.join(';')
@@ -164,7 +212,7 @@ export function resolveAppCapabilities(ctx, app, options = {}) {
   const features = new Set(withNativeCssFeatures(app, analysis.features))
   const manifestBleOta = manifestRequestsBleOta(app.packageJson)
   return {
-    network: networkBindings.some((binding) => bindings.has(binding)) || features.has('https'),
+    network: networkBindings.some((binding) => bindings.has(binding)) || features.has('https') || app.packageJson?.gea?.ota?.wifi === true,
     ble: bindings.has('ble') || manifestBleOta,
     bleApi: bindings.has('ble'),
     audio: bindings.has('audio'),
