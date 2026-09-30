@@ -207,7 +207,7 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
   const dry = await gea(['build', '--board', 'amoled', '--dry-run'], fixture)
   assert.equal(dry.code, 0)
   const python = path.join(fixture.env.IDF_PYTHON_ENV_PATH, 'bin/python')
-  assert.match(dry.out, new RegExp(`^${escapeRegex(python)} ${escapeRegex(fixture.env.IDF_PATH)}/tools/idf.py -G Ninja -B ${escapeRegex(buildDir)} -DSDKCONFIG=${escapeRegex(buildDir)}/sdkconfig -DSDKCONFIG_DEFAULTS=${escapeRegex(fixture.esp32Target)}/sdkconfig.defaults -DIDF_TARGET=esp32s3 -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=${escapeRegex(fixture.appDir)};index.tsx;gea' -DGEA_EMBEDDED_CAPABILITY_NETWORK=1 -DGEA_EMBEDDED_CAPABILITY_BLE=0 -DGEA_EMBEDDED_CAPABILITY_AUDIO=1 reconfigure$`, 'm'))
+  assert.match(dry.out, new RegExp(`^${escapeRegex(python)} ${escapeRegex(fixture.env.IDF_PATH)}/tools/idf.py -G Ninja -B ${escapeRegex(buildDir)} -DSDKCONFIG=${escapeRegex(buildDir)}/sdkconfig -DSDKCONFIG_DEFAULTS=${escapeRegex(fixture.esp32Target)}/sdkconfig.defaults -DIDF_TARGET=esp32s3 -DGEA_BUILD_CONFIG_FILE=${escapeRegex(buildDir)}/gea-build-config.cmake -DGEA_BUILD_CONFIG_JSON=${escapeRegex(buildDir)}/gea-build-config.json -DGEA_BUILD_CONFIG_HASH=[a-f0-9]{64} -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=${escapeRegex(fixture.appDir)};index.tsx;gea' -DGEA_EMBEDDED_CAPABILITY_NETWORK=1 -DGEA_EMBEDDED_CAPABILITY_BLE=0 -DGEA_EMBEDDED_CAPABILITY_AUDIO=1 reconfigure$`, 'm'))
   assert.match(dry.out, new RegExp(`^cmake --build ${escapeRegex(buildDir)} --parallel 8$`, 'm'))
   assert.doesNotMatch(dry.out, /--ccache/, 'ccache is only passed when it is on PATH')
   assert.equal(fs.existsSync(path.join(buildDir, 'CMakeCache.txt')), false, 'dry-run never configures')
@@ -595,7 +595,7 @@ test('setup builds a known target in configure-only mode and can write a local b
   // known board, amoled, alias, connected over USB (the one detected device
   // is taken without asking for its serial), no OTA host, save, no ESP-IDF install.
   // "y" is not a host, so the wizard asks again before accepting an empty answer.
-  const prompt = scriptedPrompt(['1', '1', 'desk-amoled', 'y', 'y', '', 'y', 'n'])
+  const prompt = scriptedPrompt(['1', 'waveshare-amoled-206', 'desk-amoled', 'y', 'y', '', 'y', 'n'])
   await runGea(['setup', '--dry-run'], {
     ...out.io,
     prompt,
@@ -797,7 +797,7 @@ test('an ESP32 board cannot be configured without an app, and the wizard picks o
   // From the project root the wizard cannot infer an app; `watch` is the
   // only one targeting the new board, so it is configured without asking.
   const out = capture()
-  const prompt = scriptedPrompt(['1', '1', 'root-amoled', 'y', '', 'y', 'n'])
+  const prompt = scriptedPrompt(['1', 'waveshare-amoled-206', 'root-amoled', 'y', '', 'y', 'n'])
   const code = await runGea(['setup', '--dry-run'], {
     ...out.io,
     prompt,
