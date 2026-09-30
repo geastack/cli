@@ -87,6 +87,17 @@ function ratio(value, where) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) fail(`${where} must be a positive number`)
   return value
 }
+function boardDefines(raw, where) {
+  if (raw === undefined) return []
+  if (!isObject(raw)) fail(`${where} must be an object`)
+  return Object.entries(raw).map(([name, value]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ||
+        !['string', 'number', 'boolean'].includes(typeof value) ||
+        (typeof value === 'number' && !Number.isFinite(value)) ||
+        /[;\n\r]/.test(String(value))) fail(`${where}.${name} must be a valid native define`)
+    return `${name}=${typeof value === 'boolean' ? Number(value) : value}`
+  })
+}
 export function validateBuildManifest(manifest) {
   flatten(manifest.build, 'gea.build')
   for (const [platform, target] of Object.entries(manifest.targets || {})) {
@@ -98,7 +109,8 @@ export function validateBuildManifest(manifest) {
     if (!isObject(target.boards)) fail(where + '.boards must be an object')
     for (const [id, board] of Object.entries(target.boards)) {
       if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(id) || !isObject(board)) fail(where + '.boards must contain board IDs mapped to objects')
-      for (const key of Object.keys(board)) if (!['build', 'cssDevicePixelRatio'].includes(key)) fail(`Unknown setting ${where}.boards.${id}.${key}`)
+      for (const key of Object.keys(board)) if (!['build', 'cssDevicePixelRatio', 'defines'].includes(key)) fail(`Unknown setting ${where}.boards.${id}.${key}`)
+      boardDefines(board.defines, where + '.boards.' + id + '.defines')
       flatten(board.build, where + '.boards.' + id + '.build')
       if (board.cssDevicePixelRatio !== undefined) ratio(board.cssDevicePixelRatio, where + '.boards.' + id + '.cssDevicePixelRatio')
     }
@@ -162,7 +174,10 @@ export function resolveBuildConfig({ app, platform, board = '', targetsRoot = ''
   apply(boardOverride.build, 'gea.targets.' + platform + '.boards.' + board + '.build', true)
   const passthroughDefines = []
   const seenLegacy = new Set()
-  for (const define of app?.defines || []) {
+  const overrides = boardDefines(boardOverride.defines, 'gea.targets.' + platform + '.boards.' + board + '.defines')
+  const overridden = new Set(overrides.map(define => define.split('=')[0]))
+  const selectedDefines = [...(app?.defines || []).filter(define => !overridden.has(define.split('=')[0])), ...overrides]
+  for (const define of selectedDefines) {
     const [name, ...rest] = define.split('=')
     if (name === 'GEA_CPP_MINIMAL_GLOBAL_OBJECT' || name === 'GEA_EMBEDDED_NUMBER_F32') fail(`${name} is obsolete and has no active consumer; remove it from gea.defines`)
     if (['GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT', 'GEA_EMBEDDED_FULL_BOOT_SERVICES'].includes(name)) fail(`${name} is inferred from app capabilities; remove it from gea.defines`)

@@ -313,3 +313,25 @@ test('inference changes the configuration fingerprint when source requirements c
   assert.equal(JSON.parse(fs.readFileSync(full.json)).inferred.runtime.mode, 'full')
   assert.doesNotMatch(fs.readFileSync(full.cmake, 'utf8'), /CANVAS_ONLY "1"/)
 })
+
+test('board native defines replace root values only for the selected target', () => {
+  const manifest = {
+    defines: { PANEL_WIDTH: 502, HAS_POWER: 1 },
+    cssDevicePixelRatio: 2,
+    targets: { esp32: { boards: { [board]: {
+      defines: { PANEL_WIDTH: 480, HAS_POWER: false }, cssDevicePixelRatio: 1.5
+    } } } }
+  }
+  const selected = resolve(manifest)
+  assert.ok(selected.defines.includes('PANEL_WIDTH=480'))
+  assert.ok(selected.defines.includes('HAS_POWER=0'))
+  assert.equal(selected.defines.filter(d => d.startsWith('PANEL_WIDTH=')).length, 1)
+  assert.equal(selected.cssDevicePixelRatio, 1.5)
+  const other = resolve(manifest, { board: 'esp32-s3-touch-amoled-2.06' })
+  assert.ok(other.defines.includes('PANEL_WIDTH=502'))
+  assert.ok(other.defines.includes('HAS_POWER=1'))
+  assert.equal(other.cssDevicePixelRatio, 2)
+  for (const defines of [[], { 'BAD-NAME': 1 }, { PANEL_WIDTH: '480;INJECT=1' }]) {
+    assert.throws(() => validateBuildManifest({ targets: { esp32: { boards: { [board]: { defines } } } } }), /define|object/)
+  }
+})

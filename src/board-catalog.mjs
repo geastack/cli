@@ -1,5 +1,21 @@
 export const knownBoards = Object.freeze([
   {
+    id: 'waveshare-lcd-35b',
+    label: 'Waveshare ESP32-S3 Touch LCD 3.5B / 3.5B-C',
+    alias: 'lcd-35b',
+    target: 'esp32-s3-touch-lcd-3.5b',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3',
+    capabilities: {
+      display: '320 × 480 IPS LCD (AXS15231B QSPI)',
+      touch: 'AXS15231B capacitive touch',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM', 'microSD'],
+      audio: [],
+      gps: false
+    }
+  },
+  {
     id: 'waveshare-amoled-241',
     label: 'Waveshare ESP32-S3 Touch AMOLED 2.41 (V1)',
     alias: 'amoled-241',
