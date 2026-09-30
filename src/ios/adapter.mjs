@@ -1,3 +1,4 @@
+import { nativeScriptBuildEnv } from '../build-config.mjs'
 import { spawnSync } from 'node:child_process'
 
 import { CliError, ExitCode, fail } from '../errors.mjs'
@@ -17,7 +18,7 @@ export function runIos({ app, env, dryRun = false, stdout, mode = '', run = fals
     fail(`--mode ${mode} is not an iOS destination; expected simulator or device.`, ExitCode.usage)
   }
   const { script, require } = appleTargetScript(app, 'ios', 'build-ios.sh')
-  const childEnv = appleChildEnv(app, env, require)
+  const childEnv = appleChildEnv(app, nativeScriptBuildEnv(app, 'ios', env, { dryRun }), require)
   if (!run && childEnv.GEA_IOS_SKIP_LAUNCH === undefined) childEnv.GEA_IOS_SKIP_LAUNCH = '1'
   if (dryRun) {
     stdout(formatCommand(['bash', script, app.id, destination]))

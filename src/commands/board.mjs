@@ -189,7 +189,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   }
 
   let image = explicitImage ? path.resolve(ctx.cwd, explicitImage) : images.app
-  if (!explicitImage && !flag(parsed, 'no-build')) {
+  if (!explicitImage && option(parsed, 'build') !== false) {
     await buildEsp32Firmware({ ctx, selection, app, env, bleOta: bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr, output: option(parsed, 'output', '') })
   }
   const appLabel = app?.id || 'prebuilt image'
@@ -246,7 +246,7 @@ export async function otaCommand(ctx, parsed, rest, options) {
     }
     const base = io(parsed, options)
     const env = createChildEnv(ctx, base.env)
-    if (flag(parsed, 'no-build')) env.W87_NO_BUILD = '1'
+    if (option(parsed, 'build') === false) env.W87_NO_BUILD = '1'
     if (option(parsed, 'image')) env.W87_APP_IMAGE = path.resolve(ctx.cwd, option(parsed, 'image'))
     return runGeaos({ ctx, selection, action: 'ota', positionals: rest, env, dryRun: base.dryRun, stdout: base.stdout })
   }
@@ -267,7 +267,7 @@ export async function otaCommand(ctx, parsed, rest, options) {
 
   let image = explicitImage ? path.resolve(ctx.cwd, explicitImage) : ''
   if (!explicitImage) {
-    const prepared = flag(parsed, 'no-build')
+    const prepared = option(parsed, 'build') === false
       ? { images: buildImages(buildDir) }
       : await buildEsp32Firmware({ ctx, selection, app, env, bleOta: transport === 'ble' || bleOtaRequested(parsed, app, env), dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr, output: option(parsed, 'output', '') })
     image = prepared.images.app

@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { configCommand } from './commands/config.mjs'
 
 import { flag, option, parseArgs } from './args.mjs'
 import { runChips } from './chips.mjs'
@@ -170,6 +171,8 @@ export async function runGea(argv, io = {}) {
   }
 
   switch (command) {
+    case 'config':
+      return configCommand(ctx, parsed, rest, options)
     case 'doctor':
       return doctorCommand(ctx, parsed, rest, options)
     case 'setup':
@@ -257,6 +260,7 @@ ${heading('Native desktop, mobile and watch apps (scripts ship in @geastack/appl
   gea run --target pebble [app] [--phone <ip>]   build, then install on the emery emulator or a watch via its phone
 
 ${heading('Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):')}
+  gea config --board <alias> [--app <id>]        effective build settings and their origins (JSON)
   gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)  [--verbose] [--output file.bin]
   gea flash --board <alias> [--app <id>]         build + flash over USB   [--monitor] [--manual-boot] [--no-reset] [--flash-baud N]
       --slot ota_N [--image file]                stage an app image into an OTA slot only

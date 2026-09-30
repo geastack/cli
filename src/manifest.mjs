@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { validateBuildManifest } from './build-config.mjs'
 import { createRequire } from 'node:module'
 
 import { loadBoardConfig, normalizeBoardConfig } from './boards/config.mjs'
@@ -73,6 +74,7 @@ export function findCurrentApp(cwd) {
 
 export function validateApp(app) {
   const errors = []
+  try { validateBuildManifest(app.manifest || {}) } catch (error) { errors.push(error.message) }
   if (!app.id) errors.push('gea.id is required')
   if (!app.entry) errors.push('gea.entry is required')
   if (app.entry && !exists(path.join(app.root, app.entry))) errors.push(`gea.entry does not exist: ${app.entry}`)

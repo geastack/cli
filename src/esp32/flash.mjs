@@ -82,6 +82,7 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
     const { command, args: fullArgs } = esptoolCommand(idf, ['-p', flashPort, ...args])
     // Retries append to one log; the summary reads the last attempt only.
     const logFile = path.join(logDir, 'gea-flash.log')
+    const attemptLogOffset = attempt > 1 && existsSync(logFile) ? statSync(logFile).size : 0
     const step = await runStep(command, fullArgs, {
       cwd: selection.targetDir,
       env,
@@ -104,7 +105,7 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
     // A completed write that only failed on esptool's own teardown is a
     // success: the images are on the board and it has been reset. Report it
     // as one, so the retry loop does not re-flash and re-reboot for minutes.
-    if (flashCompleted(logFile)) {
+    if (flashCompleted(logFile, args, attemptLogOffset)) {
       warn(stderr, `esptool exited ${status} after resetting the board; the flash itself completed.`)
       if (step.quiet) stdout(flashSummary(logFile))
       return 0
@@ -118,25 +119,52 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
   }
 }
 
-// esptool resets the board as its LAST act, and on a USB-Serial/JTAG chip that
-// reset detaches the device from USB. esptool then tries to restore the port it
-// no longer has and dies with pySerial's "Cannot configure port" -- after every
-// image has already been written and verified. Retrying that re-flashes a board
-// that was already flashed, and resets it again, for the whole retrySeconds
-// window: 300 seconds and thirteen reboots for a flash that succeeded the first
-// time, which is what "the board keeps restarting" turned out to be. esptool
-// prints the reset banner only once every write has been verified, so finding
-// it in the last attempt means the flash is done and there is nothing to retry.
-function flashCompleted(logFile) {
+// esptool also prints its reset banner from error cleanup after an incomplete
+// write. Accept a teardown failure only when every requested image was written
+// in full and verified during the last attempt, before the reset banner.
+export function flashCompleted(logFile, args = [], logOffset = 0) {
   let text
+  const expected = new Map()
   try {
-    text = readFileSync(logFile, 'utf8')
+    text = readFileSync(logFile).subarray(logOffset).toString('utf8').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r\n?/g, '\n')
+    const command = args.findIndex((arg) => arg === 'write-flash' || arg === 'write_flash')
+    if (command < 0) return false
+    for (let i = command + 1; i < args.length - 1; i += 1) {
+      if (!/^(?:0x[\da-f]+|\d+)$/i.test(args[i])) continue
+      expected.set(Number(args[i]), statSync(args[++i]).size)
+    }
   } catch {
     return false
   }
+  if (!expected.size) return false
   const attempts = text.split(/^(?=esptool v)/m)
-  const last = attempts[attempts.length - 1].replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
-  return /^(Hard resetting|Staying in bootloader|Resetting with a watchdog)/m.test(last)
+  const lines = attempts.at(-1).split('\n')
+  const verified = new Set()
+  let pending = null
+  for (const line of lines) {
+    const writing = line.match(/^Writing .+ at (0x[\da-f]+)\.\.\./i)
+    if (writing) {
+      verified.delete(Number(writing[1]))
+      pending = null
+    }
+    const wrote = line.match(/^Wrote (\d+) bytes .* at (0x[\da-f]+)\b/i)
+    if (wrote) {
+      const offset = Number(wrote[2])
+      pending = expected.has(offset) && Number(wrote[1]) >= expected.get(offset) ? offset : null
+    }
+    if (/^Hash of data verified\.?$/.test(line) && pending !== null) {
+      verified.add(pending)
+      pending = null
+    }
+    if (/^Lost connection/.test(line)) {
+      verified.clear()
+      pending = null
+    }
+    if (/^(Hard resetting|Staying in bootloader|Resetting with a watchdog)/.test(line)) {
+      return verified.size === expected.size
+    }
+  }
+  return false
 }
 
 // esptool prints one "Wrote N bytes ... at 0x... in T seconds" line per

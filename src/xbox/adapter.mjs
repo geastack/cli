@@ -1,3 +1,4 @@
+import { nativeScriptBuildEnv } from '../build-config.mjs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -7,6 +8,7 @@ import { formatCommand } from '../run.mjs'
 export function runXbox({ app, action, env, host = '', noBuild = false, dryRun = false, stdout }) {
   const configuration = app?.packageJson?.gea?.xbox
   if (!app || !configuration) fail('This app must declare gea.xbox buildScript and deployScript.', ExitCode.usage)
+  if (action === 'build' || !noBuild) env = nativeScriptBuildEnv(app, 'xbox', env, { dryRun })
   const commands = []
   const script = key => {
     const entry = configuration[key]

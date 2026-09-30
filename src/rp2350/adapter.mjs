@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { resolveBuildConfig, writeBuildConfig } from '../build-config.mjs'
 import { existsSync, readdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -102,10 +103,13 @@ export function rp2350BuildDir(ctx, selection) {
 }
 
 export function buildRp2350({ ctx, selection, app = null, env, dryRun = false, stdout, stderr, configureOnly = false }) {
+  const resolvedBuild = resolveBuildConfig({ app, platform: 'rp2350', board: selection.target, targetBase: selection.targetBase, targetsRoot: ctx.targetsRoot, env })
   const toolEnv = prepareArmToolchain(env, stderr)
   const cmake = cmakeBinary(toolEnv)
   const buildDir = rp2350BuildDir(ctx, selection)
-  const configure = ['-S', selection.targetDir, '-B', buildDir]
+  const buildConfig = writeBuildConfig(buildDir, resolvedBuild)
+  const configure = ['-S', selection.targetDir, '-B', buildDir, `-DGEA_BUILD_CONFIG_FILE=${buildConfig.cmake}`, `-DGEA_BUILD_CONFIG_JSON=${buildConfig.json}`, `-DGEA_BUILD_CONFIG_HASH=${buildConfig.hash}`, `-DGEA_EMBEDDED_APP_DEFINES=${resolvedBuild.defines.join(';')}`]
+  if (resolvedBuild.cssDevicePixelRatio) configure.push(`-DGEA_EMBEDDED_CSS_DEVICE_PIXEL_RATIO=${resolvedBuild.cssDevicePixelRatio}`)
   const buildEnv = { ...toolEnv }
   if (app) {
     const meta = appCmakeMeta(ctx, app)

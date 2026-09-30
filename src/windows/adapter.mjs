@@ -1,3 +1,4 @@
+import { nativeScriptBuildEnv } from '../build-config.mjs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -27,7 +28,7 @@ export function runWindows({ app, env, dryRun = false, stdout, run = false }) {
   // The script resolves the app through this CLI again; it is spawned with the
   // app's own folder as cwd, which is what createContext resolves a project
   // from, so an app outside a workspace resolves like any other.
-  const childEnv = { ...env }
+  const childEnv = nativeScriptBuildEnv(app, 'windows', env, { dryRun })
   const plugins = geatscPluginsOf(app, require)
   if (plugins.length > 0) childEnv.GEA_EXTRA_GEATSC_PLUGINS = plugins.join(path.delimiter)
   const scriptArgs = [script, app.id, ...(run ? ['--run'] : [])]

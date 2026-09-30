@@ -147,6 +147,7 @@ export function resolveBoardSelection({
 
   const selection = {
     boardName,
+    targetBase,
     target,
     adapter,
     bootMode: targetInfo.bootMode || '',

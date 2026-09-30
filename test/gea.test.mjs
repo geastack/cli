@@ -428,7 +428,9 @@ test('flash writes bootloader, app, partition table and otadata over USB and the
   const manual = await gea(['flash', '--board', 'amoled-manual', '--dry-run'], fixture)
   assert.match(manual.err, /power-cycle/i)
 
+  const beforeFlash = fixture.calls().length
   const real = await gea(['flash', '--board', 'amoled', '--port', fixture.fakePort, '--no-build'], fixture)
+  assert.doesNotMatch(fixture.calls().slice(beforeFlash).join('\n'), /(?:^|\n)(?:compiler|ninja|cmake) /, '--no-build must flash the existing image without rebuilding')
   assert.equal(real.code, 0, real.err)
   const call = fixture.calls().find((line) => line.includes('-m esptool'))
   assert.ok(call, fixture.calls().join('\n'))
@@ -573,7 +575,11 @@ test('rp2350 boards build with the Pico SDK toolchain and flash a UF2', async (t
   const fixture = createFixture(t)
   const dry = await gea(['build', '--board', 'tufty', '--dry-run'], fixture, { env: { ...fixture.env, PICO_SDK_PATH: '/pico-sdk', PICO_TOOLCHAIN_PATH: '/arm' } })
   assert.equal(dry.code, 0, dry.err)
-  assert.match(dry.out, new RegExp(`^${escapeRegex(fixture.env.PATH.split(path.delimiter)[0])}/cmake -S ${escapeRegex(fixture.installed('targets'))}/targets/rp2350-tufty-2350 -B ${escapeRegex(fixture.appDir)}/.gea/build/rp2350-tufty-2350 -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=${escapeRegex(fixture.appDir)};index.tsx;gea'$`, 'm'))
+  const buildDir = escapeRegex(path.join(fixture.appDir, '.gea/build/rp2350-tufty-2350'))
+  assert.match(dry.out, new RegExp(`^${escapeRegex(fixture.env.PATH.split(path.delimiter)[0])}/cmake -S ${escapeRegex(fixture.installed('targets'))}/targets/rp2350-tufty-2350 -B ${buildDir} -DGEA_BUILD_CONFIG_FILE=${buildDir}/gea-build-config.cmake -DGEA_BUILD_CONFIG_JSON=${buildDir}/gea-build-config.json -DGEA_BUILD_CONFIG_HASH=[a-f0-9]{64} -DGEA_EMBEDDED_APP_DEFINES= -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=${escapeRegex(fixture.appDir)};index.tsx;gea'$`, 'm'))
+  const config = JSON.parse(fs.readFileSync(path.join(fixture.appDir, '.gea/build/rp2350-tufty-2350/gea-build-config.json')))
+  assert.equal(config.platform, 'rp2350')
+  assert.equal(config.board, 'rp2350-tufty-2350')
   assert.match(dry.out, /cmake --build .*rp2350-tufty-2350 --target gea_rp2350_tufty_2350_app$/m)
 })
 

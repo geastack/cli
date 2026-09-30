@@ -9,7 +9,7 @@ import { applySdkconfigPolicy, cmakeValue, esp32BuildDir, publishEsp32Output } f
 import { manifestRequestsBleOta, parseAnalysis, resolveAppCapabilities } from '../src/esp32/capabilities.mjs'
 import { activateEspIdf, esptoolCommand, findEspIdf, findIdfPythonEnv } from '../src/esp32/idf-env.mjs'
 import { DEFAULT_ESP_IDF_VERSION, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
-import { flashOptions } from '../src/esp32/flash.mjs'
+import { flashCompleted, flashOptions } from '../src/esp32/flash.mjs'
 import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from '../src/esp32/partitions.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig, withSdkconfigUnset, withSdkconfigValue } from '../src/esp32/sdkconfig.mjs'
 import { quoteCString, wifiConfigContents } from '../src/esp32/wifi-config.mjs'
@@ -404,3 +404,35 @@ test('a USB-Serial-JTAG board is restarted by its watchdog, not by the reset pin
   assert.equal(held.after, 'no-reset')
 })
 
+
+test('USB teardown errors count as success only after every requested image verifies', (t) => {
+  const fixture = createFixture(t)
+  const images = [[0, 32], [0x20000, 64], [0x8000, 16], [0xf000, 16]]
+  const args = ['--chip', 'esp32s3', '-b', '921600', 'write-flash', '--flash-size', '16MB']
+  for (const [offset, bytes] of images) {
+    const file = path.join(fixture.root, `${offset}.bin`)
+    writeFileSync(file, Buffer.alloc(bytes))
+    args.push('0x' + offset.toString(16), file)
+  }
+  const logFile = path.join(fixture.root, 'gea-flash.log')
+  const wrote = ([offset, bytes]) => `Wrote ${bytes} bytes (8 compressed) at 0x${offset.toString(16)} in 0.1 seconds.\nVerifying written data...\nHash of data verified.\n`
+  const header = 'esptool v5.3\n'
+  const reset = 'Hard resetting with a watchdog...\n'
+  const check = (log) => { writeFileSync(logFile, log); return flashCompleted(logFile, args) }
+  const complete = header + images.map(wrote).join('') + reset
+  assert.equal(check(complete + "Could not configure port: (6, 'Device not configured')\n"), true)
+
+  // Observed hardware failure: only the bootloader verifies, the app stops at
+  // 14.7%, and esptool still prints a reset banner from its error cleanup.
+  const incomplete = header + wrote(images[0]) + "Writing 'app.bin' at 0x00020000...\nWriting at 0x000bd8f8 14.7%\nLost connection, retrying...\nA serial exception error occurred: Device not configured\n" + reset
+  assert.equal(check(incomplete), false)
+  assert.equal(check(complete + incomplete), false, 'an earlier successful attempt cannot hide the latest failure')
+  assert.equal(check(header + images.slice(0, -1).map(wrote).join('') + reset), false)
+  assert.equal(check(complete.replaceAll('Hash of data verified.\n', '')), false)
+  assert.equal(check(complete.replace('Wrote 64 bytes', 'Wrote 8 bytes')), false)
+  assert.equal(check(complete.replace('at 0x20000', 'at 0x30000')), false)
+  assert.equal(check(complete.replaceAll('\n', '\r\n')), true)
+  assert.equal(check(complete + incomplete.replace('esptool v5.3', '\x1b[31mesptool v5.3\x1b[0m')), false)
+  writeFileSync(logFile, complete + 'Cannot open port\n' + reset)
+  assert.equal(flashCompleted(logFile, args, Buffer.byteLength(complete)), false, 'current invocation cannot reuse prior verification even without a version banner')
+})

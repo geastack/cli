@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
+import { resolveBuildConfig, writeBuildConfig } from '../build-config.mjs'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { loadChipCatalogFromDir, writeCustomTarget } from '../boards/custom-target.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
-import { appCmakeMeta, appCmakeDefines, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
+import { appCmakeMeta, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
 import { quietSteps, runQuiet } from '../run.mjs'
 import { resolveAppCapabilities, withRendererFeatureDefines } from './capabilities.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
@@ -317,6 +318,9 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   if (!selection.targetDir || !existsSync(path.join(selection.targetDir, 'CMakeLists.txt'))) {
     fail(`ESP32 target '${selection.target}' has no project directory (${selection.targetDir || 'unset'}). Is @geastack/targets installed?`, ExitCode.missingDependency)
   }
+  const capabilities = app ? resolveAppCapabilities(ctx, app, { env }) : { network: false, ble: false, bleApi: false, audio: false, bindings: [], features: [] }
+  if (bleOta) capabilities.ble = true
+  const resolvedBuild = resolveBuildConfig({ app, platform: 'esp32', board: selection.target, targetBase: selection.targetBase, targetsRoot: ctx.targetsRoot, env, capabilities })
   const idfTarget = selection.idfTarget || 'esp32s3'
   const buildDir = esp32BuildDir(ctx, selection, app?.id, env)
   // gea.targets.esp32.sdkconfig: the app's own Kconfig defaults, layered over
@@ -329,7 +333,10 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   log(`Using ESP32 target '${selection.target}' at ${selection.targetDir} (idf=${idfTarget} chip=${selection.esptoolChip || idfTarget} flash=${selection.flashSize})`)
 
   const childEnv = { ...env }
-  const idfArgs = [`-DIDF_TARGET=${idfTarget}`]
+  const buildConfig = writeBuildConfig(buildDir, resolvedBuild)
+  const idfArgs = [`-DIDF_TARGET=${idfTarget}`, `-DGEA_BUILD_CONFIG_FILE=${cmakeValue(buildConfig.cmake)}`, `-DGEA_BUILD_CONFIG_JSON=${cmakeValue(buildConfig.json)}`, `-DGEA_BUILD_CONFIG_HASH=${buildConfig.hash}`]
+  childEnv.GEA_BUILD_CONFIG_FILE = cmakeValue(buildConfig.cmake)
+  childEnv.GEA_BUILD_CONFIG_JSON = cmakeValue(buildConfig.json)
   let boardPartitionCsv = ''
   let boardConsole = null
   let boardPsram = null
@@ -404,10 +411,11 @@ function preparePartitions(app, config, buildDir, targetId) {
 }
 
   let appPartitionCsv = ''
-  let capabilities = { network: false, ble: false, bleApi: false, audio: false, bindings: [], features: [] }
   if (app) {
-    capabilities = resolveAppCapabilities(ctx, app, { env })
-    if (bleOta) capabilities.ble = true
+    if (resolvedBuild.settings.services?.wifi === 'disabled') {
+      if (capabilities.network) fail('services.wifi=disabled conflicts with the app network capabilities', ExitCode.usage)
+      capabilities.network = false
+    }
     const meta = appCmakeMeta(ctx, app)
     // gea.cssDevicePixelRatio lands in two places that have to agree. The
     // layout ratio travels with the app's own defines, because those go on the
@@ -415,8 +423,8 @@ function preparePartitions(app, config, buildDir, targetId) {
     // font ratio is a cache variable each board declares with a plain
     // `set(... CACHE STRING ...)`, so a -D of the same name, which exists before
     // the board's CMakeLists runs, wins without the board knowing about apps.
-    const cssDpr = cssDevicePixelRatioLiteral(app.cssDevicePixelRatio)
-    const appDefines = [withRendererFeatureDefines(appCmakeDefines(app), capabilities.features, { devicePixelRatio: cssDpr ? Number(cssDpr) : undefined }), cssDpr && `GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=${cssDpr}`]
+    const cssDpr = cssDevicePixelRatioLiteral(resolvedBuild.cssDevicePixelRatio)
+    const appDefines = [withRendererFeatureDefines(resolvedBuild.defines.join(';'), capabilities.features, { devicePixelRatio: cssDpr ? Number(cssDpr) : undefined }), cssDpr && `GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=${cssDpr}`]
       .filter(Boolean)
       .join(';')
     const esp32Config = appEsp32Config

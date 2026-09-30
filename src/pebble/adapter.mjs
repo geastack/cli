@@ -1,3 +1,4 @@
+import { nativeScriptBuildEnv } from '../build-config.mjs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -29,6 +30,7 @@ export function runPebble({ app, env, dryRun = false, stdout, phone = '', run = 
   }
   const script = path.join(pebbleRoot, 'targets', 'pebble', 'build-pebble.sh')
   if (!existsSync(script)) fail(`Pebble build script not found: ${script}`, ExitCode.missingDependency)
+  env = nativeScriptBuildEnv(app, 'pebble', env, { dryRun })
   const args = pebbleBuildArgs(script, { app, phone, run })
   if (dryRun) {
     stdout(formatCommand(['bash', ...args]))

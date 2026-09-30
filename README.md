@@ -225,3 +225,5 @@ Compatible component edits and CSS changes update without reloading the page;
 reactive state is preserved for compatible component edits. Incompatible edits
 reload. Browser previews use simulated device APIs and browser layout; use the
 WASM renderer or a physical device to validate embedded rendering.
+
+Native compiler, UI, renderer, and display settings belong in the app manifest. See [Native build settings](docs/NATIVE-BUILD-CONFIG.md) for precedence, board overrides, and `gea config --board <alias>`.

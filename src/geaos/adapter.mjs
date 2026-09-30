@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { nativeScriptBuildEnv } from '../build-config.mjs'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 
@@ -74,6 +75,7 @@ function run(command, args, { cwd, env, dryRun, stdout, failureCode }) {
 }
 
 export function runGeaos({ ctx, selection, action, app = null, positionals = [], env, dryRun = false, stdout }) {
+  if (app && ['build', 'flash', 'flash-monitor'].includes(action)) env = nativeScriptBuildEnv(app, 'geaos', env, { dryRun, board: selection.target, targetsRoot: ctx.targetsRoot })
   const childEnv = geaosEnv(ctx, selection, env)
   const targetDir = selection.targetDir
   const appId = app?.id || positionals[0] || ''

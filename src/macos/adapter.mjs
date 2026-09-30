@@ -1,3 +1,4 @@
+import { nativeScriptBuildEnv } from '../build-config.mjs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -14,7 +15,7 @@ import { formatCommand } from '../run.mjs'
 // and nothing else; the script reads the rest from the same manifest.
 export function runMacos({ app, env, dryRun = false, stdout }) {
   const { script, require } = appleTargetScript(app, 'macos', 'build-macos.sh')
-  const childEnv = appleChildEnv(app, env, require)
+  const childEnv = appleChildEnv(app, nativeScriptBuildEnv(app, 'macos', env, { dryRun }), require)
   if (dryRun) {
     stdout(formatCommand(['bash', script, app.id]))
     return 0

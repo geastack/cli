@@ -1,3 +1,4 @@
+import { nativeScriptBuildEnv } from '../build-config.mjs'
 import path from 'node:path'
 import os from 'node:os'
 import { spawnSync } from 'node:child_process'
@@ -122,7 +123,7 @@ export function buildSimulatorApp({ app, env, dryRun = false, stdout }) {
   const paths = webPaths(app, env)
   runScript('bash', [script, app.id], {
     cwd: app.root,
-    env: buildEnv(app, env, paths),
+    env: buildEnv(app, nativeScriptBuildEnv(app, 'web', env, { dryRun, buildDir: paths.root }), paths),
     dryRun,
     stdout,
     failureMessage: `Web build failed for '${app.id}'`
