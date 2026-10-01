@@ -130,7 +130,7 @@ function normalizeDevice(input) {
   }
 }
 
-function serialFromLinuxById(name) {
+export function serialFromLinuxById(name) {
   const cleaned = name.replace(/-if\d+.*$/i, '')
   const parts = cleaned.split('_').map((part) => part.trim()).filter(Boolean)
   return parts.at(-1) || ''

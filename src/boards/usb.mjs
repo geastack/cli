@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 
-import { detectSerialDevices } from '../serial-devices.mjs'
+import { detectSerialDevices, serialFromLinuxById } from '../serial-devices.mjs'
 
 // A board is identified by its USB SERIAL, never by a /dev path: enumerated
 // paths change on every plug-in and identical boards routinely share one.
@@ -59,7 +59,10 @@ function linuxSerialByIdCandidates(serial) {
   if (!existsSync(dir)) return []
   const needle = normalizedSerial(serial)
   return readdirSync(dir)
-    .filter((name) => normalizedSerial(name).includes(needle))
+    .filter((name) => {
+      const deviceSerial = serialFromLinuxById(name)
+      return normalizedSerial(deviceSerial) === needle
+    })
     .map((name) => path.join(dir, name))
 }
 
@@ -96,10 +99,6 @@ function macUsbDeviceForSerial(serial, ioreg = runIoreg) {
       return value && normalizedSerial(value) === needle
     })
   ) || null
-}
-
-function locationDigits(locationHex) {
-  return locationHex.toLowerCase().replace(/^0+/, '').replace(/0+$/, '').replace(/[^0-9a-f]/g, '')
 }
 
 function macUsbCalloutPortsForSerial(serial, ioreg = runIoreg) {
@@ -173,21 +172,13 @@ function runIoreg(args, options = {}) {
 }
 
 function resolveMacUsbSerialPort(serial, ioreg = runIoreg) {
-  const candidates = serialPortCandidates().filter((candidate) => path.basename(candidate).startsWith('cu.'))
-  const needle = normalizedSerial(serial)
-  const serialMatches = candidates.filter((candidate) => normalizedSerial(path.basename(candidate)).includes(needle))
-  if (serialMatches.length === 1) return serialMatches[0]
-
-  const location = macUsbDeviceForSerial(serial, ioreg)?.locationHex || ''
-  const digits = locationDigits(location)
-  if (digits) {
-    const locationMatches = candidates.filter((candidate) => normalizedSerial(path.basename(candidate)).includes(digits))
-    if (locationMatches.length === 1) return locationMatches[0]
-    const registryMatches = macUsbCalloutPortsForSerial(serial, ioreg)
-    if (registryMatches.length === 1) return registryMatches[0]
-    if (registryMatches.length > 1) {
-      throw new Error([`USB serial ${serial} maps to multiple /dev/cu.* ports:`, ...registryMatches.map((c) => `  ${c}`)].join('\n'))
-    }
+  // A location fragment is not an identity: "1" also matches usbmodem21301.
+  // During re-enumeration that heuristic selected a different connected board.
+  // Only accept the callout inherited from this exact serial in IORegistry.
+  const registryMatches = macUsbCalloutPortsForSerial(serial, ioreg)
+  if (registryMatches.length === 1) return registryMatches[0]
+  if (registryMatches.length > 1) {
+    throw new Error([`USB serial ${serial} maps to multiple /dev/cu.* ports:`, ...registryMatches.map((c) => `  ${c}`)].join('\n'))
   }
   throw new Error(`Could not map USB serial ${serial} to a /dev/cu.* port. Check that the board is attached.`)
 }
@@ -233,17 +224,25 @@ export async function waitForSerialPort({
   label = 'USB serial port',
   pollSeconds = 1,
   log = (line) => process.stderr.write(`${line}\n`),
-  resolver = resolveUsbSerialPort
+  resolver = resolveUsbSerialPort,
+  portPresent = serialPortPresent
 } = {}) {
   const startedAt = Date.now()
   let nextLog = startedAt
   while (true) {
     if (port) {
-      if (serialPortPresent(port)) return port
+      if (portPresent(port)) {
+        if (!serial) return port
+        try {
+          if (resolver({ serial }) === port) return port
+        } catch {
+          // An explicit path does not override the registered board identity.
+        }
+      }
     } else if (serial) {
       try {
         const resolved = resolver({ serial })
-        if (resolved && serialPortPresent(resolved)) return resolved
+        if (resolved && portPresent(resolved)) return resolved
       } catch {
         // not attached yet
       }

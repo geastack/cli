@@ -6,6 +6,7 @@ dist/
 build/
 .vite/
 *.tsbuildinfo
+*.tgz
 
 # Logs
 *.log
