@@ -101,7 +101,9 @@ export function withRendererFeatureDefines(defines, features, { devicePixelRatio
   // An older plugin knows nothing about renderer features. Absence without the
   // version marker is not proof of unreachability: retain engine defaults.
   const generatedNames = new Set([...rendererFeatureDefines, ...cssFeatureVersions.flat(), ...nodeFeatureDefines, ...nodeAuxFeatureDefines, ...compactStyleDefines].map(([, name]) => name).concat(triangleOcclusionMacro, circleCacheMacros, rangeFamilies.map(rangeMacro), ['GEA_UI_CLASS_INLINE_TOKENS', 'GEA_UI_CLASS_OVERFLOW']))
+  generatedNames.add('GEA_RUNTIME_REALMS')
   const result = defines.split(';').filter((define) => define && !generatedNames.has(define.split('=')[0]))
+  if (features.includes('worker-realms')) result.push('GEA_RUNTIME_REALMS=1')
   if (features.includes('node-analysis-v1')) {
     for (const [feature, name] of nodeFeatureDefines) result.push(`${name}=${features.includes(feature) ? 1 : 0}`)
   }

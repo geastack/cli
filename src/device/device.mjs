@@ -36,7 +36,7 @@ export async function openDevice({ selection, transport, host = '', port = '', e
   if (!selection.usbSerial && !port) {
     fail(`Board '${selection.boardName || selection.target}' has no transports.usbSerial.serial; use --transport wifi or add the USB serial.`, ExitCode.usage)
   }
-  const devicePath = await waitForSerialPort({ port, serial: selection.usbSerial, timeoutSeconds: waitSeconds, label: 'USB serial port', log: stderr })
+  const devicePath = await waitForSerialPort({ port, serial: selection.usbSerial, timeoutSeconds: waitSeconds, label: 'USB serial port', log: stderr, env })
   const serial = await SerialDevice.open({ path: devicePath, baudRate: serialBaudRate(selection, env), trace, stderr })
   return new UsbDevice(serial, { stderr })
 }

@@ -70,7 +70,7 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
     }
     const flashPort = dryRun
       ? port || `<usb serial ${selection.usbSerial}>`
-      : await waitForSerialPort({ port, serial: selection.usbSerial, timeoutSeconds: remaining, label: 'ESP32 USB flash port', log: stderr })
+      : await waitForSerialPort({ port, serial: selection.usbSerial, timeoutSeconds: remaining, label: 'ESP32 USB flash port', log: stderr, env })
     if (options.before === 'no-reset') {
       stdout('Manual boot mode: hold BOOT/IO0, reset or power-cycle the board, then keep BOOT held until esptool connects.')
       stdout('Manual boot mode: esptool will not toggle reset before connecting.')

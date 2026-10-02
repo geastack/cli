@@ -148,6 +148,34 @@ function fakePort(replies) {
   return port
 }
 
+test('serial writes reject on USB removal during drain and do not retain lifecycle listeners', async () => {
+  const port = fakePort(() => null)
+  port.drain = () => {}
+  const device = new SerialDevice(port, { path: '/dev/fake' })
+  const pending = device.writeLine('GEADEV TAP 184 386')
+  port.emit('close')
+  await assert.rejects(pending, /closed during write/)
+  assert.equal(port.listenerCount('close'), 1)
+  assert.equal(port.listenerCount('error'), 1)
+  await assert.rejects(device.writeRaw(Buffer.from('late')), /is closed/)
+})
+
+test('serial writes reject transport and drain errors even when write callbacks never arrive', async () => {
+  const port = fakePort(() => null)
+  port.write = () => {}
+  const device = new SerialDevice(port, { path: '/dev/fake' })
+  const pending = device.writeRaw(Buffer.from('request'))
+  const error = new Error('USB removed')
+  port.emit('error', error)
+  await assert.rejects(pending, (received) => received === error)
+  assert.equal(port.listenerCount('error'), 1)
+  await assert.rejects(device.writeRaw(Buffer.from('late')), (received) => received === error)
+
+  const failedDrain = fakePort(() => null)
+  failedDrain.drain = (callback) => callback(new Error('drain failed'))
+  await assert.rejects(new SerialDevice(failedDrain, { path: '/dev/fake' }).writeLine('request'), /drain failed/)
+})
+
 test('GEADEV replies are located inside log lines and parsed as key=value', () => {
   assert.equal(geadevFragment('I (1234) diag: GEADEV:APP id=watch'), 'GEADEV:APP id=watch')
   assert.deepEqual(parseKeyValues('GEADEV:STATE nodes=12 width=410 height=502'), { nodes: '12', width: '410', height: '502' })

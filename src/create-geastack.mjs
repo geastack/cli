@@ -22,6 +22,9 @@ const cliVersion = cliPackage.version
 const starterDependencies = cliPackage.starterDependencies || {}
 const coreDependencyDefault = starterDependencies['@geastack/core'] || 'latest'
 const targetsDependencyDefault = starterDependencies['@geastack/targets'] || 'latest'
+// The native tooling uses the TypeScript 5 compiler API. Do not let a
+// floating version in an older example select an incompatible major.
+const typescriptDependencyDefault = '^5.9.3'
 const starterFontPath = fileURLToPath(new URL('../starters/fonts/Inter-Regular.ttf', import.meta.url))
 
 export async function runCreateGeastack(argv, io = {}) {
@@ -82,7 +85,7 @@ export async function runCreateGeastack(argv, io = {}) {
     : starter.kind === 'empty'
       ? targetManifest(starter.targets || ['web'])
       : targetManifestFromObject(sourceManifest.targets)
-  writeJson(path.join(targetDir, 'package.json'), packageJson({
+  const projectPackage = packageJson({
     appId,
     displayName,
     targets,
@@ -91,11 +94,20 @@ export async function runCreateGeastack(argv, io = {}) {
     cliDependency,
     sourcePackage,
     sourceManifest
-  }))
+  })
+  writeJson(path.join(targetDir, 'package.json'), projectPackage)
   if (targets.web) ensureFile(path.join(targetDir, 'index.html'), () => indexHtml(displayName, entry))
   fs.mkdirSync(path.join(targetDir, '.gea'), { recursive: true })
   writeJson(path.join(targetDir, '.gea', 'boards.json'), {})
   ensureJson(path.join(targetDir, 'tsconfig.json'), () => tsconfigJson(targets))
+  if (/^(?:\^|~)?5\./.test(projectPackage.devDependencies.typescript)) {
+    const configPath = path.join(targetDir, 'tsconfig.json')
+    const config = readJson(configPath)
+    if (config.compilerOptions?.ignoreDeprecations === '6.0') {
+      config.compilerOptions.ignoreDeprecations = '5.0'
+      writeJson(configPath, config)
+    }
+  }
   ensureFile(path.join(targetDir, '.gitignore'), gitignore)
   if (targets.web) ensureFile(path.join(targetDir, 'vite.web.config.ts'), viteConfigTs)
   fs.writeFileSync(path.join(targetDir, 'README.md'), readme({ appId, displayName, starter, targets }))
@@ -353,7 +365,9 @@ function packageJson({ appId, displayName, targets, entry, coreDependency, cliDe
     },
     devDependencies: {
       ...(sourcePackage.devDependencies || {}),
-      typescript: sourcePackage.devDependencies?.typescript || 'latest',
+      typescript: !sourcePackage.devDependencies?.typescript || ['latest', '*'].includes(sourcePackage.devDependencies.typescript)
+        ? typescriptDependencyDefault
+        : sourcePackage.devDependencies.typescript,
       ...(targets.web ? { vite: sourcePackage.devDependencies?.vite || 'latest' } : {})
     },
     gea: geaManifest,

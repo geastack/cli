@@ -259,7 +259,7 @@ test('a parallel RGB panel board composes with a GT911 and an I/O expander', (t)
   // Touch lines are optional: reset goes through the expander here.
   assert.equal(target.chips.touch.pins.reset, -1)
   assert.equal(target.chips.touch.pins.interrupt, 4)
-  assert.deepEqual(target.chips.expander.outputs, { backlight: 2, touchReset: 1, displayReset: 3 })
+  assert.deepEqual(target.chips.expander.outputs, { backlight: 2, touchReset: 1, displayReset: 3, powerAmplifier: -1 })
   assert.equal(target.chips.expander.initialOutputs, 30)
 
   const header = renderBoardHeader(target)
@@ -268,7 +268,7 @@ test('a parallel RGB panel board composes with a GT911 and an I/O expander', (t)
   assert.match(header, /\.data = \{ GPIO_NUM_14, GPIO_NUM_38/)
   assert.match(header, /\.pclkActiveNeg = true/)
   assert.match(header, /\.backlight = GPIO_NUM_NC/)
-  assert.match(header, /IoExpanderConfig expander\{ \.initialOutputs = 30, \.backlight = 2, \.touchReset = 1, \.displayReset = 3 \}/)
+  assert.match(header, /IoExpanderConfig expander\{ \.initialOutputs = 30, \.backlight = 2, \.touchReset = 1, \.displayReset = 3, \.address = 32, \.initialDirections = 255, \.powerAmplifier = -1 \}/)
   assert.doesNotMatch(header, /Co5300DisplayConfig/)
   assert.doesNotMatch(header, /spi_master\.h/)
 
@@ -397,4 +397,36 @@ test("an app's own display size silences the board's canvas defines", () => {
   assert.match(unchanged, /GEA_EMBEDDED_DISPLAY_WIDTH=240/)
   assert.match(unchanged, /GEA_EMBEDDED_DISPLAY_HEIGHT=240/)
   assert.match(unchanged, /GEA_EMBEDDED_DISPLAY_HEADLESS=1/)
+})
+
+
+test('RGB controller configuration keeps command bytes and active-low backlight', () => {
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const definition = JSON.parse(readFileSync(path.join(fixtureDir, 'rgb-panel-board.json'), 'utf8'))
+  definition.chips.expander.outputs = {}
+  definition.chips.display.backlightActiveLow = true
+  definition.chips.display.controller = {
+    cs: 0, clock: 2, data: 1, reset: 5, addressSelect: 6,
+    commands: [{ command: 0x11, data: [], delayMs: 120 }, { command: 0x3a, data: [0x66] }]
+  }
+  const target = normalizeCustomTarget(definition, catalog)
+  const header = renderBoardHeader(target)
+  assert.match(header, /#define GEA_BOARD_HAS_RGB_CONTROLLER 1/)
+  assert.match(header, /\.backlightActiveLow = true/)
+  assert.match(header, /RgbControllerConfig rgbController\{ 0, 2, 1, 5, 6 \}/)
+  assert.match(header, /\{ 58, \{ 102 \}, 1, 0 \}/)
+  definition.chips.display.controller.commands[1].data = [256]
+  assert.throws(() => normalizeCustomTarget(definition, catalog), /controller data/)
+  definition.chips.display.controller.commands[1].data = [0x66]
+  delete definition.chips.expander
+  assert.throws(() => normalizeCustomTarget(definition, catalog), /requires an I\/O expander/)
+})
+
+test('audio supports a separate microphone ADC and expander amplifier', () => {
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const definition = JSON.parse(readFileSync(path.join(fixtureDir, 'manual-amoled.json'), 'utf8'))
+  definition.chips.audio.es7210Address = 0x40
+  delete definition.chips.audio.pins.powerAmplifier
+  const header = renderBoardHeader(normalizeCustomTarget(definition, catalog))
+  assert.match(header, /\.powerAmplifier = GPIO_NUM_NC, \.es7210Address = 64/)
 })

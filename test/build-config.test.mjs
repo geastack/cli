@@ -176,13 +176,14 @@ test('shared panel preferences apply only to supported drivers; explicit overrid
 
 test('bouncing balls declares each identical build choice once, with only differing board exceptions', integration, () => {
   const esp32 = JSON.parse(fs.readFileSync(path.join(examplesRoot, 'apps/bouncing-balls-jsx/package.json'))).gea.targets.esp32
-  const seen = new Map()
-  for (const [scope, build] of [['base', esp32.build], ...Object.entries(esp32.boards).map(([id, entry]) => [id, entry.build])]) {
-    for (const [group, values] of Object.entries(build)) {
+  // A board exception exists only to differ from the base. Two boards that both
+  // need the same non-base value (a panel constraint they share) each declare it,
+  // so identical choices are checked against the base, not against each other.
+  for (const [id, entry] of Object.entries(esp32.boards)) {
+    for (const [group, values] of Object.entries(entry.build)) {
       for (const [key, value] of Object.entries(values)) {
-        const signature = group + '.' + key + '=' + JSON.stringify(value)
-        assert.ok(!seen.has(signature), `${signature} duplicated in ${seen.get(signature)} and ${scope}`)
-        seen.set(signature, scope)
+        const base = esp32.build[group]?.[key]
+        assert.notDeepEqual(value, base, `${group}.${key}=${JSON.stringify(value)} on ${id} repeats the base value`)
       }
     }
   }

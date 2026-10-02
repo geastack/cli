@@ -183,8 +183,18 @@ function resolveMacUsbSerialPort(serial, ioreg = runIoreg) {
   throw new Error(`Could not map USB serial ${serial} to a /dev/cu.* port. Check that the board is attached.`)
 }
 
-export function resolveUsbSerialPort({ serial }, { platform = process.platform, ioreg = runIoreg } = {}) {
+export function resolveUsbSerialPort({ serial }, { platform = process.platform, ioreg = runIoreg, env = process.env } = {}) {
   if (!serial) throw new Error('A USB serial number is required to locate the board; /dev paths are not accepted.')
+  // GEA_SERIAL_DEVICES replaces OS enumeration everywhere (see detectSerialDevices);
+  // resolution honors it with the same exact-serial rule, so a declared device list
+  // can never map one board's serial onto another's port.
+  if (env.GEA_SERIAL_DEVICES) {
+    const needle = normalizedSerial(serial)
+    const matches = detectSerialDevices({ env }).filter((device) => device.serial && normalizedSerial(device.serial) === needle)
+    if (matches.length === 1) return matches[0].path
+    if (matches.length > 1) throw new Error([`USB serial ${serial} maps to multiple ports:`, ...matches.map((device) => `  ${device.path}`)].join('\n'))
+    throw new Error(`Could not map USB serial ${serial} to a port in GEA_SERIAL_DEVICES. Check that the board is attached.`)
+  }
   if (platform === 'linux') {
     const matches = linuxSerialByIdCandidates(serial)
     if (matches.length === 1) return realpathSync(matches[0])
@@ -225,7 +235,8 @@ export async function waitForSerialPort({
   pollSeconds = 1,
   log = (line) => process.stderr.write(`${line}\n`),
   resolver = resolveUsbSerialPort,
-  portPresent = serialPortPresent
+  portPresent = serialPortPresent,
+  env = process.env
 } = {}) {
   const startedAt = Date.now()
   let nextLog = startedAt
@@ -234,14 +245,14 @@ export async function waitForSerialPort({
       if (portPresent(port)) {
         if (!serial) return port
         try {
-          if (resolver({ serial }) === port) return port
+          if (resolver({ serial }, { env }) === port) return port
         } catch {
           // An explicit path does not override the registered board identity.
         }
       }
     } else if (serial) {
       try {
-        const resolved = resolver({ serial })
+        const resolved = resolver({ serial }, { env })
         if (resolved && portPresent(resolved)) return resolved
       } catch {
         // not attached yet

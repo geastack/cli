@@ -11,7 +11,7 @@
     "@geajs/core": "1.4.3"
   },
   "devDependencies": {
-    "typescript": "latest"
+    "typescript": "^5.9.3"
   },
   "gea": {
     "id": "counter",

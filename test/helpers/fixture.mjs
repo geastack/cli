@@ -159,6 +159,8 @@ export function createFixture(t, options = {}) {
       IDF_PATH: idf.dir,
       IDF_PYTHON_ENV_PATH: idf.pythonEnv,
       GEA_TEST_CALL_LOG: idf.callLog,
+      // The registered board's serial resolves to the fake port, as the OS registry would.
+      GEA_SERIAL_DEVICES: `${fakePort}|fake usb port|USB123`,
       GEA_ESP32_MANUAL_BOOT_GRACE_SECONDS: '0',
       GEA_ESP32_FLASH_RETRY_SECONDS: '5'
     }

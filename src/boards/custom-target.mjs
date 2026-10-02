@@ -151,6 +151,7 @@ export function normalizeCustomTarget(raw, catalog) {
     [imu, 'chips.imu'],
     [expander, 'chips.expander']
   ].filter(([chip]) => chip && chip.interface === 'i2c')
+  if (audio) i2cChips.push([audio, 'chips.audio (codec control)'])
   if (absent(buses.i2c) && i2cChips.length > 0) {
     throw new Error(`buses.i2c is required because ${i2cChips.map(([, label]) => label).join(', ')} ${i2cChips.length > 1 ? 'are' : 'is'} on the I2C bus.`)
   }
@@ -171,7 +172,8 @@ export function normalizeCustomTarget(raw, catalog) {
   const spiHost = display && displayInterface === 'qspi' ? String(display.spiHost ?? 'spi2').toLowerCase() : 'spi2'
   if (display && displayInterface === 'qspi' && !['spi2', 'spi3'].includes(spiHost)) throw new Error("chips.display.spiHost must be 'spi2' or 'spi3'.")
   const expanderOutputs = expander ? (absent(expander.outputs) ? {} : object(expander.outputs, 'chips.expander.outputs')) : null
-  const expanderPin = (value, label) => (absent(value) ? -1 : integer(value, label, { min: 0, max: 15 }))
+  const expanderMaxPin = expander?.driver === 'tca9554' ? 7 : expander?.driver === 'ch422g' ? 11 : 15
+  const expanderPin = (value, label) => (absent(value) ? -1 : integer(value, label, { min: 0, max: expanderMaxPin }))
 
   // Flash size and the partition table are board geometry, not app policy: a
   // module with 16MB of flash cannot borrow its base's 32MB layout, and every
@@ -208,6 +210,36 @@ export function normalizeCustomTarget(raw, catalog) {
     throw new Error(`psram.speed must be 40, 80 or 120 MHz, not ${psramSpeed}.`)
   }
 
+  const controller = display && !absent(display.controller) ? object(display.controller, 'chips.display.controller') : null
+  if (controller && (displayInterface !== 'rgb' || !expander)) throw new Error('RGB controller initialization requires an I/O expander.')
+  const byte = (value, label) => integer(value, label, { min: 0, max: 255 })
+  const controllerConfig = controller ? {
+    cs: expanderPin(controller.cs, 'controller.cs'),
+    clock: expanderPin(controller.clock, 'controller.clock'),
+    data: expanderPin(controller.data, 'controller.data'),
+    reset: expanderPin(controller.reset, 'controller.reset'),
+    addressSelect: expanderPin(controller.addressSelect, 'controller.addressSelect'),
+    commands: Array.isArray(controller.commands) ? controller.commands.map((command, index) => {
+      object(command, `controller.commands[${index}]`)
+      if (!Array.isArray(command.data) || command.data.length > 32) throw new Error('Controller command data must be an array of at most 32 bytes.')
+      return { command: byte(command.command, 'controller command'), data: command.data.map(value => byte(value, 'controller data')), delayMs: integer(command.delayMs ?? 0, 'controller delayMs', { min: 0, max: 1000 }) }
+    }) : []
+  } : null
+  if (controllerConfig && (controllerConfig.cs < 0 || controllerConfig.clock < 0 || controllerConfig.data < 0 || !controllerConfig.commands.length)) throw new Error('Controller requires CS, clock, data and initialization commands.')
+
+  if (controllerConfig) {
+    const assigned = new Set()
+    for (const [label, value] of Object.entries(controllerConfig)) {
+      if (label === 'commands' || value < 0) continue
+      if (assigned.has(value)) throw new Error(`Controller control pins overlap at expander pin ${value}.`)
+      assigned.add(value)
+    }
+    for (const [label, value] of Object.entries(expanderOutputs)) {
+      if (label.startsWith('_') || absent(value)) continue
+      if (assigned.has(value)) throw new Error(`Controller pin overlaps expander.outputs.${label}.`)
+    }
+  }
+
   const target = {
     id,
     extends: base,
@@ -239,6 +271,8 @@ export function normalizeCustomTarget(raw, catalog) {
         vsyncBackPorch: integer(display.vsyncBackPorch ?? 8, 'chips.display.vsyncBackPorch', { min: 0, max: 1024 }),
         vsyncFrontPorch: integer(display.vsyncFrontPorch ?? 8, 'chips.display.vsyncFrontPorch', { min: 0, max: 1024 }),
         pclkActiveNeg: boolean(display.pclkActiveNeg, 'chips.display.pclkActiveNeg', true),
+        backlightActiveLow: boolean(display.backlightActiveLow, 'chips.display.backlightActiveLow', false),
+        controller: controllerConfig,
         nativeSources: display.nativeSources,
         bindingSources: display.bindingSources,
         requires: display.requires,
@@ -290,8 +324,11 @@ export function normalizeCustomTarget(raw, catalog) {
         nativeSources: expander.nativeSources,
         bindingSources: expander.bindingSources,
         requires: expander.requires,
+        address: integer(expander.address ?? 32, 'chips.expander.address', { min: 8, max: 119 }),
+        initialDirections: byte(expander.initialDirections ?? 255, 'chips.expander.initialDirections'),
         initialOutputs: integer(expander.initialOutputs ?? 255, 'chips.expander.initialOutputs', { min: 0, max: 255 }),
         outputs: {
+          powerAmplifier: expanderPin(expanderOutputs.powerAmplifier, 'chips.expander.outputs.powerAmplifier'),
           backlight: expanderPin(expanderOutputs.backlight, 'chips.expander.outputs.backlight'),
           touchReset: expanderPin(expanderOutputs.touchReset, 'chips.expander.outputs.touchReset'),
           displayReset: expanderPin(expanderOutputs.displayReset, 'chips.expander.outputs.displayReset')
@@ -314,6 +351,7 @@ export function normalizeCustomTarget(raw, catalog) {
       audio: audio === null ? null : {
         driver: audio.driver,
         interface: exact(audio.interface, 'i2s', 'chips.audio.interface'),
+        es7210Address: integer(audio.es7210Address ?? 0, 'chips.audio.es7210Address', { min: 0, max: 119 }),
         nativeSources: audio.nativeSources,
         bindingSources: audio.bindingSources,
         requires: audio.requires,
@@ -323,7 +361,7 @@ export function normalizeCustomTarget(raw, catalog) {
           ws: pin(audioPins.ws, 'chips.audio.pins.ws'),
           dout: pin(audioPins.dout, 'chips.audio.pins.dout'),
           din: pin(audioPins.din, 'chips.audio.pins.din'),
-          powerAmplifier: pin(audioPins.powerAmplifier, 'chips.audio.pins.powerAmplifier')
+          powerAmplifier: pin(audioPins.powerAmplifier, 'chips.audio.pins.powerAmplifier', { optional: true })
         }
       }
     },
@@ -448,6 +486,7 @@ ${includes}
 #define GEA_BOARD_HAS_MICROSD ${target.storage.microSD ? 1 : 0}
 #define GEA_BOARD_HAS_LAUNCHER_BUTTON ${target.controls.launcherButton ? 1 : 0}
 #define GEA_BOARD_HAS_EXPANDER ${expander ? 1 : 0}
+#define GEA_BOARD_HAS_RGB_CONTROLLER ${rgb?.controller ? 1 : 0}
 
 namespace gea::platform::board {
 
@@ -464,7 +503,7 @@ ${qspi ? 'struct Co5300DisplayConfig { spi_host_device_t spiHost; gpio_num_t cs;
 // framebuffer out with these timings. data[0..4] are blue, [5..10] green,
 // [11..15] red (RGB565 lane order). backlight is a PWM-capable GPIO, or
 // GPIO_NUM_NC when the expander drives it.
-struct RgbPanelDisplayConfig { gpio_num_t de; gpio_num_t hsync; gpio_num_t vsync; gpio_num_t pclk; gpio_num_t disp; gpio_num_t backlight; gpio_num_t data[16]; int pclkHz; int hsyncPulseWidth; int hsyncBackPorch; int hsyncFrontPorch; int vsyncPulseWidth; int vsyncBackPorch; int vsyncFrontPorch; bool pclkActiveNeg; };` : ''}${touch ? '\nstruct Ft3168TouchConfig { gpio_num_t reset; gpio_num_t interrupt; };' : ''}${expander ? '\n// Expander pin numbers (0-based, the chip\'s own), -1 where a line is not routed through it.\nstruct IoExpanderConfig { int initialOutputs; int backlight; int touchReset; int displayReset; };' : ''}${audio ? '\nstruct Es8311AudioConfig { int i2sPort; gpio_num_t mclk; gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t din; gpio_num_t powerAmplifier; };' : ''}
+struct RgbPanelDisplayConfig { gpio_num_t de; gpio_num_t hsync; gpio_num_t vsync; gpio_num_t pclk; gpio_num_t disp; gpio_num_t backlight; gpio_num_t data[16]; int pclkHz; int hsyncPulseWidth; int hsyncBackPorch; int hsyncFrontPorch; int vsyncPulseWidth; int vsyncBackPorch; int vsyncFrontPorch; bool pclkActiveNeg; bool backlightActiveLow; };` : ''}${touch ? '\nstruct Ft3168TouchConfig { gpio_num_t reset; gpio_num_t interrupt; };' : ''}${expander ? '\n// Expander pin numbers (0-based, the chip\'s own), -1 where a line is not routed through it.\nstruct IoExpanderConfig { int initialOutputs; int backlight; int touchReset; int displayReset; int address; int initialDirections; int powerAmplifier; };' : ''}${audio ? '\nstruct Es8311AudioConfig { int i2sPort; gpio_num_t mclk; gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t din; gpio_num_t powerAmplifier; int es7210Address; };' : ''}
 
 inline constexpr I2cBusConfig i2c{ .sda = ${gpio(i2c.sda)}, .scl = ${gpio(i2c.scl)} };
 inline constexpr SdMmcConfig storage{ .clk = ${gpio(sdPins.clk)}, .cmd = ${gpio(sdPins.cmd)}, .data0 = ${gpio(sdPins.data0)} };
@@ -476,7 +515,8 @@ ${rgb ? `inline constexpr RgbPanelDisplayConfig display{
   .pclkHz = ${rgb.pclkHz},
   .hsyncPulseWidth = ${rgb.hsyncPulseWidth}, .hsyncBackPorch = ${rgb.hsyncBackPorch}, .hsyncFrontPorch = ${rgb.hsyncFrontPorch},
   .vsyncPulseWidth = ${rgb.vsyncPulseWidth}, .vsyncBackPorch = ${rgb.vsyncBackPorch}, .vsyncFrontPorch = ${rgb.vsyncFrontPorch},
-  .pclkActiveNeg = ${rgb.pclkActiveNeg ? 'true' : 'false'}
+  .pclkActiveNeg = ${rgb.pclkActiveNeg ? 'true' : 'false'},
+  .backlightActiveLow = ${rgb.backlightActiveLow ? 'true' : 'false'}
 };` : ''}${qspi ? `inline constexpr Co5300DisplayConfig display{
   .spiHost = ${display.spiHost === 'spi3' ? 'SPI3_HOST' : 'SPI2_HOST'}, .cs = ${gpio(displayPins.cs)}, .pclk = ${gpio(displayPins.pclk)},
   .data0 = ${gpio(displayPins.data0)}, .data1 = ${gpio(displayPins.data1)},
@@ -484,13 +524,19 @@ ${rgb ? `inline constexpr RgbPanelDisplayConfig display{
   .reset = ${gpio(displayPins.reset)}, .te = ${gpio(displayPins.te)}
 };` : ''}${touch ? `
 inline constexpr Ft3168TouchConfig touch{ .reset = ${gpio(touchPins.reset)}, .interrupt = ${gpio(touchPins.interrupt)} };` : ''}${expander ? `
-inline constexpr IoExpanderConfig expander{ .initialOutputs = ${expander.initialOutputs}, .backlight = ${expander.outputs.backlight}, .touchReset = ${expander.outputs.touchReset}, .displayReset = ${expander.outputs.displayReset} };` : ''}${audio ? `
+inline constexpr IoExpanderConfig expander{ .initialOutputs = ${expander.initialOutputs}, .backlight = ${expander.outputs.backlight}, .touchReset = ${expander.outputs.touchReset}, .displayReset = ${expander.outputs.displayReset}, .address = ${expander.address}, .initialDirections = ${expander.initialDirections}, .powerAmplifier = ${expander.outputs.powerAmplifier} };` : ''}${audio ? `
 inline constexpr Es8311AudioConfig audio{
   .i2sPort = I2S_NUM_AUTO, .mclk = ${gpio(audioPins.mclk)}, .bclk = ${gpio(audioPins.bclk)},
   .ws = ${gpio(audioPins.ws)}, .dout = ${gpio(audioPins.dout)}, .din = ${gpio(audioPins.din)},
-  .powerAmplifier = ${gpio(audioPins.powerAmplifier)}
+  .powerAmplifier = ${gpio(audioPins.powerAmplifier)}, .es7210Address = ${audio.es7210Address}
 };` : ''}
 
+${rgb?.controller ? `struct RgbControllerConfig { int cs; int clock; int data; int reset; int addressSelect; };
+inline constexpr RgbControllerConfig rgbController{ ${rgb.controller.cs}, ${rgb.controller.clock}, ${rgb.controller.data}, ${rgb.controller.reset}, ${rgb.controller.addressSelect} };
+struct RgbControllerCommand { unsigned char command; unsigned char data[32]; int length; int delayMs; };
+inline constexpr RgbControllerCommand rgbControllerCommands[] = {
+${rgb.controller.commands.map(command => `  { ${command.command}, { ${command.data.join(', ')} }, ${command.data.length}, ${command.delayMs} },`).join('\n')}
+};` : ''}
 }  // namespace gea::platform::board
 `
 }

@@ -22,7 +22,7 @@ test('RAM-only GeaOS deployment never selects the legacy flash script', () => {
 
 test('ordinary GeaOS boards retain their existing deployment route', () => {
   const lines = []
-  runGeaos({ ctx: { projectRoot: '/apps' }, selection: { adapter: 'geaos-arm64', targetDir: '/geaos', target: 'watch' },
-    action: 'flash', app: { id: 'clock' }, env: {}, dryRun: true, stdout: line => lines.push(line) })
+  runGeaos({ ctx: { projectRoot: '/apps', targetsRoot: '/targets' }, selection: { adapter: 'geaos-arm64', targetDir: '/geaos', target: 'watch' },
+    action: 'flash', app: { id: 'clock', root: '/apps/clock' }, env: {}, dryRun: true, stdout: line => lines.push(line) })
   assert.deepEqual(lines, ['/geaos/flash-geaos-arm64.sh clock'])
 })

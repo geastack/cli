@@ -92,13 +92,47 @@ export class SerialDevice {
 
   async writeLine(line) {
     const data = `${line.replace(/[\r\n]+$/, '')}\n`
-    await new Promise((resolve, reject) => this.port.write(data, (error) => (error ? reject(error) : resolve())))
-    await new Promise((resolve) => this.port.drain(() => resolve()))
+    await this.writeRaw(data)
   }
 
   async writeRaw(data) {
-    await new Promise((resolve, reject) => this.port.write(data, (error) => (error ? reject(error) : resolve())))
-    await new Promise((resolve) => this.port.drain(() => resolve()))
+    if (this.error) throw this.error
+    if (this.closed) throw new Error(`serial device ${this.path} is closed`)
+    // A USB removal can leave write/drain callbacks permanently pending.
+    // Keep a referenced deadline and reject on lifecycle events so callers can
+    // still release remote resources when the physical transport disappears.
+    await new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        this.port.removeListener('close', closed)
+        this.port.removeListener('error', failed)
+        if (error) reject(error)
+        else resolve()
+      }
+      const closed = () => finish(new Error(`serial device ${this.path} closed during write`))
+      const failed = (error) => finish(error)
+      const timer = setTimeout(() => finish(new Error(`serial write timed out for ${this.path}`)), 5000)
+      this.port.once('close', closed)
+      this.port.once('error', failed)
+      try {
+        this.port.write(data, (error) => {
+          if (settled) return
+          if (error) finish(error)
+          else {
+            try {
+              this.port.drain((error) => finish(error))
+            } catch (error) {
+              finish(error)
+            }
+          }
+        })
+      } catch (error) {
+        finish(error)
+      }
+    })
   }
 
   async readLine(timeoutMs) {
