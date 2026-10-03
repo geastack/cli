@@ -38,7 +38,7 @@
   "dependencies": {
     "@clack/prompts": "^1.8.0",
     "@geastack/simulator": "^0.1.13",
-    "@geastack/targets": "^0.1.88",
+    "@geastack/targets": "^0.1.92",
     "picocolors": "^1.1.1",
     "serialport": "^13.0.0"
   },
