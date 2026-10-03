@@ -177,6 +177,22 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'espressif-mosaico',
+    label: 'Espressif ESP-Mosaico (V1.2)',
+    alias: 'mosaico',
+    target: 'esp32-s31-espressif-mosaico',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S31',
+    capabilities: {
+      display: '480 × 480 square AMOLED (CO5300 QSPI)',
+      touch: 'CST9220 capacitive touch',
+      wireless: ['WiFi 6', 'BLE'],
+      storage: ['16 MB flash', '16 MB PSRAM', '128 MB SPI NAND'],
+      audio: ['ES8311 speaker + microphone'],
+      gps: false
+    }
+  },
+  {
     id: 'waveshare-rp2350-amoled-241',
     label: 'Waveshare RP2350 Touch AMOLED 2.41',
     alias: 'waveshare-rp2350-amoled-2.41',

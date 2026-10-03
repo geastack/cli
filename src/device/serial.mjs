@@ -415,6 +415,34 @@ export const geadev = {
     return `${line}  (${data.length} bytes in ${seconds.toFixed(1)}s, ${Math.round(data.length / Math.max(seconds, 0.001) / 1024)} KiB/s)`
   },
 
+  // Installs an app image through the running app (GEADEV OTA): it lands in
+  // the next OTA slot and the board restarts into it. Same throttled raw
+  // stream as pushFile.
+  async otaUpdate(d, source, { timeoutMs = 120000, stderr = () => {} } = {}) {
+    const data = readFileSync(source)
+    await d.writeLine(`GEADEV OTA ${data.length} ${crc32(data)}`)
+    const ready = await waitFor(d, 'GEADEV:OTA READY', 'GEADEV:OTA ERR', 15000, 'OTA READY')
+    const startedAt = Date.now()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const burst = 2048
+    for (let offset = 0; offset < data.length; offset += burst) {
+      await d.writeRaw(data.subarray(offset, Math.min(offset + burst, data.length)))
+      await new Promise((resolve) => setTimeout(resolve, 4))
+      if (((offset / burst) | 0) % 128 === 0) stderr(`  upload ${Math.floor((offset * 100) / data.length)}%`)
+    }
+    let line
+    try {
+      line = await waitFor(d, 'GEADEV:OTA OK', 'GEADEV:OTA ERR', timeoutMs, 'OTA OK')
+    } catch (error) {
+      // The board restarts right after the reply, and firmware whose console
+      // drops output on a full TX FIFO can lose it; the caller decides from
+      // what boots.
+      if (!error.message.startsWith('GEADEV:OTA ERR')) error.uploaded = true
+      throw error
+    }
+    return { ready, line, bytes: data.length, seconds: (Date.now() - startedAt) / 1000 }
+  },
+
   async pullFile(d, source, destination, { timeoutMs = 300000 } = {}) {
     const { chunks, end, lines } = await d.collect(`GEADEV PULL ${source}`, {
       begin: null,

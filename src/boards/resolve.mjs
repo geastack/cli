@@ -159,6 +159,16 @@ export function resolveBoardSelection({
     compatibleAppPlatforms: Array.isArray(targetInfo.compatibleAppPlatforms) ? targetInfo.compatibleAppPlatforms : [],
     idfTarget: board?.idfTarget || targetInfo.idfTarget || '',
     esptoolChip: board?.esptoolChip || targetInfo.esptoolChip || '',
+    // The oldest ESP-IDF major.minor the target compiles against. A chip that
+    // only exists in a pre-release IDF (ESP32-S31) names it here; every other
+    // target leaves it empty and keeps the newest stable install.
+    idfVersion: board?.idfVersion || targetInfo.idfVersion || '',
+    // A board whose USB port cannot be reset into the ROM loader from the host
+    // is flashed in manual boot mode by default: BOOT held through a power cycle.
+    manualBoot: Boolean(board?.manualBoot ?? targetInfo.manualBoot),
+    // 'geadev-ota': `gea flash` installs the app through the running firmware
+    // over its USB console (GEADEV OTA) and falls back to the ROM downloader.
+    usbAppUpdate: board?.usbAppUpdate || targetInfo.usbAppUpdate || '',
     mainTaskStackSize: board?.mainTaskStackSize || targetInfo.mainTaskStackSize || '',
     ipcTaskStackSize: board?.ipcTaskStackSize || targetInfo.ipcTaskStackSize || '',
     port,

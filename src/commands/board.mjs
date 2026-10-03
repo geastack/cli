@@ -3,7 +3,7 @@ import path from 'node:path'
 import { flag, option, optionList } from '../args.mjs'
 import { loadBoardConfig, normalizeBoardConfig } from '../boards/config.mjs'
 import { resolveBoardSelection } from '../boards/resolve.mjs'
-import { resolveUsbSerialPort } from '../boards/usb.mjs'
+import { resolveUsbSerialPort, serialPortPresent } from '../boards/usb.mjs'
 import { createChildEnv } from '../context.mjs'
 import { chooseTransport, openDevice, saveScreenshot } from '../device/device.mjs'
 import { geadev } from '../device/serial.mjs'
@@ -163,7 +163,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   const env = createChildEnv(ctx, base.env)
   const idf = requireEspIdf(env, base.stdout, selection)
   const flashEnv = idf.env
-  const opts = flashOptions(flashEnv, { idf, selection, manualBoot: flag(parsed, 'manual-boot'), noReset: option(parsed, 'reset') === false, baud: option(parsed, 'flash-baud', '') })
+  const opts = flashOptions(flashEnv, { idf, selection, manualBoot: flag(parsed, 'manual-boot') || selection.manualBoot, noReset: option(parsed, 'reset') === false, baud: option(parsed, 'flash-baud', '') })
   const common = { idf, selection, options: opts, port: selection.port, env: flashEnv, dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr }
   const slotImages = optionList(parsed, 'slot-image')
   const eraseSlotName = option(parsed, 'erase-slot', '')
@@ -197,12 +197,74 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
     await stageImage({ ...common, image, slot, buildDir, appLabel })
     return 0
   }
+  if (selection.usbAppUpdate === 'geadev-ota' && !flag(parsed, 'manual-boot') && !base.dryRun && (await usbAppUpdate({ selection, image, appLabel, env: flashEnv, stdout: base.stdout, stderr: base.stderr }))) {
+    if (!monitor) return 0
+    return monitorCommand(ctx, parsed, rest, options, selection)
+  }
   await flashFirmware({ ...common, images, appImage: image, appLabel })
   if (!monitor) {
     postFlashRestartNote(selection, base.stderr)
     return 0
   }
   return monitorCommand(ctx, parsed, rest, options, selection)
+}
+
+// A board whose USB port is not a ROM console (the ESP32-S31's OTG port) is
+// updated through the app it is running: GEADEV OTA writes the image into the
+// next OTA slot and restarts into it. Only when no gea app answers does the
+// flash fall back to the ROM downloader, which on such a board needs BOOT.
+async function usbAppUpdate({ selection, image, appLabel, env, stdout, stderr }) {
+  let device
+  try {
+    device = await openDevice({ selection, transport: 'usb', env, stderr: () => {}, waitSeconds: 5 })
+  } catch {
+    stderr('No running gea app answered on USB; falling back to the ROM downloader (hold BOOT while powering on).')
+    return false
+  }
+  try {
+    stdout(`Installing '${appLabel}' through the running app over USB...`)
+    const result = await geadev.otaUpdate(device.serial, image, { stderr })
+    success(stdout, `Installed '${appLabel}' (${Math.round(result.bytes / 1024)} KB in ${result.seconds.toFixed(1)}s) into ${result.line.match(/slot=(\S+)/)?.[1] || 'the next OTA slot'}; the board is restarting.`)
+    return true
+  } catch (error) {
+    if (error.uploaded) {
+      await device.close().catch(() => {})
+      device = null
+      if (await usbAppAnswers({ selection, appLabel, env })) {
+        success(stdout, `Installed '${appLabel}'; the board restarted into it (its confirmation line was lost on the console).`)
+        return true
+      }
+    }
+    stderr(`USB app update failed: ${error.message}. Falling back to the ROM downloader (hold BOOT while powering on).`)
+    return false
+  } finally {
+    if (device) await device.close().catch(() => {})
+  }
+}
+
+// After a fully sent image whose reply went missing: the board restarted only
+// if the port went away, and the install took only if the app that comes back
+// is the one sent.
+async function usbAppAnswers({ selection, appLabel, env }) {
+  let port = ''
+  try {
+    port = resolveUsbSerialPort({ serial: selection.usbSerial }, { env })
+  } catch {}
+  if (port && serialPortPresent(port)) return false
+  const deadline = Date.now() + 30000
+  while (Date.now() < deadline) {
+    let device
+    try {
+      device = await openDevice({ selection, transport: 'usb', env, stderr: () => {}, waitSeconds: 5 })
+      const pong = await geadev.ping(device.serial)
+      return /\bapp=(\S+)/.exec(pong)?.[1] === appLabel
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    } finally {
+      if (device) await device.close().catch(() => {})
+    }
+  }
+  return false
 }
 
 export async function flashCommand(ctx, parsed, rest, options, { monitor = false } = {}) {
