@@ -15,6 +15,11 @@ const VERSION_IN_TEXT = /v?(\d+)\.(\d+)\.(\d+)/i
 // Bump this alongside board-script updates.
 export const DEFAULT_ESP_IDF_VERSION = 'v6.0.2'
 
+// Automatic build selection is target-specific; IDF_PATH can override it.
+export function espIdfVersionForTarget(target) {
+  return target === 'esp32-s31-espressif-mosaico' ? '6.2-dev' : DEFAULT_ESP_IDF_VERSION.slice(1)
+}
+
 const GITHUB_LATEST_RELEASE_URL = 'https://api.github.com/repos/espressif/esp-idf/releases/latest'
 
 // Parses a strict `vX.Y.Z` release tag. Returns null for anything else,

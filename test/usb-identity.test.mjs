@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { resolveUsbSerialPort, waitForSerialPort } from '../src/boards/usb.mjs'
+import { listMacUsbCalloutPorts, resolveUsbSerialPort, waitForSerialPort } from '../src/boards/usb.mjs'
 import { serialFromLinuxById } from '../src/serial-devices.mjs'
 
 const amoled18 = '30:ED:A0:AC:90:DC'
@@ -37,6 +37,31 @@ test('macOS selects the exact serial even when port numbers share location digit
 test('a disconnected registered board never resolves to the remaining board', () => {
   const ioreg = registry([{ serial: kitt, port: '/dev/cu.usbmodem21301' }])
   assert.throws(() => resolveUsbSerialPort({ serial: amoled18 }, { platform: 'darwin', ioreg }), /Could not map USB serial/)
+})
+
+test('macOS inherits USB identity through nested interfaces drawn with spaces', () => {
+  const ioreg = () => [
+    '+-o Root <class IORegistryEntry>',
+    '  +-o USB hub <class IOUSBHostDevice>',
+    '  | +-o Board A <class IOUSBHostDevice>',
+    `  | |   "USB Serial Number" = "${amoled18}"`,
+    '  | |   "USB Product Name" = "AMOLED"',
+    '  | | +-o IOUSBHostInterface <class IOUSBHostInterface>',
+    '  | |   +-o AppleUSBACMData <class AppleUSBACMData>',
+    '  |       +-o IOSerialBSDClient <class IOSerialBSDClient>',
+    '  |           "IOCalloutDevice" = "/dev/cu.usbmodem101"',
+    '  | +-o Board B <class IOUSBHostDevice>',
+    `  |     "USB Serial Number" = "${kitt}"`,
+    '  |     "USB Product Name" = "KITT"',
+    '  |   +-o IOSerialBSDClient <class IOSerialBSDClient>',
+    '  |       "IOCalloutDevice" = "/dev/cu.usbmodem201"'
+  ].join('\n')
+  assert.equal(resolveUsbSerialPort({ serial: amoled18 }, { platform: 'darwin', ioreg }), '/dev/cu.usbmodem101')
+  assert.equal(resolveUsbSerialPort({ serial: kitt }, { platform: 'darwin', ioreg }), '/dev/cu.usbmodem201')
+  assert.deepEqual(listMacUsbCalloutPorts(ioreg), [
+    { path: '/dev/cu.usbmodem101', serial: amoled18, label: 'AMOLED' },
+    { path: '/dev/cu.usbmodem201', serial: kitt, label: 'KITT' }
+  ])
 })
 
 test('partial serial matches and serial-looking paths cannot identify a board', () => {

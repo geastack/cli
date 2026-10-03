@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 
 import { parseArgs } from '../src/args.mjs'
 import { createContext } from '../src/context.mjs'
-import { applySdkconfigPolicy, cmakeValue, esp32BuildDir, publishEsp32Output } from '../src/esp32/build.mjs'
+import { applySdkconfigPolicy, cmakeValue, ensureConfigured, esp32BuildDir, publishEsp32Output, requireEspIdf } from '../src/esp32/build.mjs'
 import { manifestRequestsBleOta, parseAnalysis, resolveAppCapabilities } from '../src/esp32/capabilities.mjs'
 import { activateEspIdf, esptoolCommand, findEspIdf, findIdfPythonEnv } from '../src/esp32/idf-env.mjs'
-import { DEFAULT_ESP_IDF_VERSION, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
+import { DEFAULT_ESP_IDF_VERSION, espIdfVersionForTarget, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
 import { flashCompleted, flashOptions } from '../src/esp32/flash.mjs'
 import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from '../src/esp32/partitions.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig, withSdkconfigUnset, withSdkconfigValue } from '../src/esp32/sdkconfig.mjs'
@@ -48,6 +48,128 @@ test('ESP-IDF activation runs idf_tools export from the installed python env, ne
   assert.ok(idf.env.PATH.endsWith(fixture.env.PATH), 'the literal $PATH placeholder is replaced with the caller PATH')
   assert.deepEqual(esptoolCommand(idf, ['--chip', 'esp32s3']), { command: idf.python, args: ['-m', 'esptool', '--chip', 'esp32s3'] })
   assert.match(fixture.calls().join('\n'), /idf_tools\.py export --format key-value/)
+})
+
+test('ESP-IDF discovery keeps stable installs by default and honours a target minimum', (t) => {
+  // A preview chip (ESP32-S31) needs IDF master; installing it must not move
+  // every other board onto a pre-release toolchain.
+  const fixture = createFixture(t)
+  const home = path.join(fixture.root, 'idf-home')
+  const install = (name, major, minor) => {
+    const dir = path.join(home, 'esp32', name)
+    mkdirSync(path.join(dir, 'tools', 'cmake'), { recursive: true })
+    writeFileSync(path.join(dir, 'tools', 'idf.py'), '')
+    writeFileSync(
+      path.join(dir, 'tools', 'cmake', 'version.cmake'),
+      `set(IDF_VERSION_MAJOR ${major})\nset(IDF_VERSION_MINOR ${minor})\nset(IDF_VERSION_PATCH 0)\n`
+    )
+    return dir
+  }
+  const stable = install('esp-idf-v6.0.2', 6, 0)
+  const preview = install('esp-idf-v6.2-dev', 6, 2)
+  assert.equal(findEspIdf({}, home), stable)
+  assert.equal(findEspIdf({}, home, { minVersion: '6.2' }), preview)
+  // An explicit IDF_PATH below the target's minimum is passed over, not used.
+  assert.equal(findEspIdf({ IDF_PATH: stable }, home, { minVersion: '6.2' }), preview)
+  assert.equal(findEspIdf({}, home, { minVersion: '7.0' }), '')
+})
+
+test('builds default only Mosaico to 6.2-dev and honour explicit IDF_PATH overrides', (t) => {
+  const fixture = createFixture(t)
+  const stable = fixture.env.IDF_PATH
+  const install = (name, minor, patch) => {
+    const dir = path.join(fixture.root, 'esp32', name)
+    cpSync(stable, dir, { recursive: true })
+    writeFileSync(path.join(dir, 'tools/cmake/version.cmake'), `set(IDF_VERSION_MAJOR 6)\nset(IDF_VERSION_MINOR ${minor})\nset(IDF_VERSION_PATCH ${patch})\n`)
+    return dir
+  }
+  const preview = install('esp-idf-v6.2-dev', 2, 0)
+  const newer = install('esp-idf-v6.3.0', 3, 0)
+  install('esp-idf-v6.3-dev', 3, 0)
+  install('esp-idf-v6.2.0', 2, 0)
+  install('esp-idf-v6.0.2-rc1', 0, 2)
+  for (const minor of ['6.0', '6.2']) {
+    cpSync(fixture.env.IDF_PYTHON_ENV_PATH, path.join(fixture.root, '.espressif/python_env', `idf${minor}_py3.11_env`), { recursive: true })
+  }
+
+  const targets = ['esp32-s3-touch-amoled-2.06', 'esp32-s3-touch-amoled-1.8', 'esp32', 'esp32-p4', 'custom-target']
+  for (const target of targets) {
+    assert.equal(espIdfVersionForTarget(target), '6.0.2')
+    const idf = requireEspIdf({ ...fixture.env, IDF_PATH: '', IDF_PYTHON_ENV_PATH: '' }, () => {}, { target, idfVersion: '6.2' })
+    assert.equal(idf.idfDir, stable)
+    assert.equal(idf.version.full, '6.0.2')
+    assert.match(path.basename(idf.pythonEnv), /^idf6\.0_py/)
+    assert.equal(idf.env.IDF_PATH, stable)
+    assert.equal(idf.env.IDF_PYTHON_ENV_PATH, idf.pythonEnv)
+  }
+
+  const target = 'esp32-s31-espressif-mosaico'
+  assert.equal(espIdfVersionForTarget(target), '6.2-dev')
+  const idf = requireEspIdf({ ...fixture.env, IDF_PATH: '', IDF_PYTHON_ENV_PATH: '' }, () => {}, { target })
+  assert.equal(idf.idfDir, preview)
+  assert.equal(idf.version.majorMinor, '6.2')
+  assert.match(path.basename(idf.pythonEnv), /^idf6\.2_py/)
+  assert.equal(idf.env.IDF_PATH, preview)
+
+  for (const env of [{}, { GEA_EMBEDDED_IDF_EXPORT: path.join(preview, 'export.sh') }, { ESP_IDF_EXPORT: path.join(preview, 'export.sh') }]) {
+    assert.equal(findEspIdf(env, fixture.root, { defaultVersion: '6.0.2' }), stable)
+    assert.equal(findEspIdf(env, fixture.root, { defaultVersion: '6.2-dev' }), preview)
+  }
+
+  // IDF_PATH takes precedence in both directions and over newer auto-discovery.
+  for (const override of [stable, preview, newer]) {
+    for (const defaultVersion of ['6.0.2', '6.2-dev']) {
+      assert.equal(findEspIdf({ IDF_PATH: override }, fixture.root, { defaultVersion }), override)
+    }
+  }
+  const overrideLog = []
+  const previewOverride = requireEspIdf({ ...fixture.env, IDF_PATH: preview, IDF_PYTHON_ENV_PATH: '' }, (line) => overrideLog.push(line), { target: targets[0] })
+  assert.equal(previewOverride.idfDir, preview)
+  assert.match(path.basename(previewOverride.pythonEnv), /^idf6\.2_py/)
+  assert.ok(overrideLog.some((line) => line.includes(preview)), 'the selected override is reported')
+  const stableOverride = requireEspIdf(fixture.env, () => {}, { target })
+  assert.equal(stableOverride.idfDir, stable)
+  assert.equal(stableOverride.version.full, '6.0.2')
+
+  // Neither a newer release nor a release candidate may replace a missing pin.
+  rmSync(stable, { recursive: true })
+  assert.equal(findEspIdf({}, fixture.root, { defaultVersion: '6.0.2' }), '')
+  assert.throws(() => requireEspIdf({ ...fixture.env, IDF_PATH: '' }, () => {}, { target: targets[0] }), /ESP-IDF 6\.0\.2 was not found/)
+  rmSync(preview, { recursive: true })
+  assert.equal(findEspIdf({}, fixture.root, { defaultVersion: '6.2-dev' }), '')
+  assert.throws(() => requireEspIdf(fixture.env, () => {}, { target }), /ESP-IDF 6\.2-dev was not found/)
+})
+
+test('an explicit Python environment from another IDF line is passed over', (t) => {
+  const fixture = createFixture(t)
+  const envRoot = path.join(fixture.root, '.espressif/python_env')
+  const matching = path.join(envRoot, 'idf6.0_py3.11_env')
+  const mismatched = path.join(envRoot, 'idf6.2_py3.11_env')
+  cpSync(fixture.env.IDF_PYTHON_ENV_PATH, matching, { recursive: true })
+  cpSync(fixture.env.IDF_PYTHON_ENV_PATH, mismatched, { recursive: true })
+  assert.equal(findIdfPythonEnv(fixture.env.IDF_PATH, { IDF_PYTHON_ENV_PATH: mismatched }, fixture.root), matching)
+})
+
+test('switching ESP-IDF installations invalidates the configure signature', async (t) => {
+  const fixture = createFixture(t)
+  const idf = activateEspIdf({ env: fixture.env })
+  const buildDir = path.join(fixture.root, 'configure-build')
+  const prepared = {
+    buildDir,
+    targetDir: fixture.esp32Target,
+    sdkconfigFile: path.join(buildDir, 'sdkconfig'),
+    defaultsFile: path.join(fixture.esp32Target, 'sdkconfig.defaults'),
+    idfArgs: ['-DIDF_TARGET=esp32s3']
+  }
+  const configure = (selectedIdf) => ensureConfigured({ idf: selectedIdf, prepared, env: selectedIdf.env, stdout: () => {}, stderr: () => {} })
+  assert.equal(await configure(idf), true)
+  assert.equal(await configure(idf), false)
+  const otherDir = path.join(fixture.root, 'esp32/esp-idf-v6.0.2')
+  cpSync(idf.idfDir, otherDir, { recursive: true })
+  const other = activateEspIdf({ env: { ...fixture.env, IDF_PATH: otherDir } })
+  assert.equal(await configure(other), true)
+  assert.ok(fixture.calls().some((line) => line.includes(`${otherDir}/tools/idf.py`) && line.endsWith(' reconfigure')))
+  assert.equal(await configure(other), false)
 })
 
 test('ESP-IDF version resolution: default pin, env/option override, latest-release lookup, and the acceptance floor', async () => {

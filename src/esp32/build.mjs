@@ -9,6 +9,7 @@ import { appCmakeMeta, appCmakeLdFragments, appTargetConfig, appTargetPaths } fr
 import { quietSteps, runQuiet } from '../run.mjs'
 import { resolveAppCapabilities, withRendererFeatureDefines } from './capabilities.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
+import { espIdfVersionForTarget } from './idf-version.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
 import { writePartitionTable } from './partitions-from-manifest.mjs'
 import { listAppSources } from './source-set.mjs'
@@ -48,15 +49,19 @@ export function buildImages(buildDir) {
   }
 }
 
-export function requireEspIdf(env, log) {
+export function requireEspIdf(env, log, selection = null) {
+  const defaultVersion = espIdfVersionForTarget(selection?.target)
   let idf
   try {
-    idf = activateEspIdf({ env, log })
+    idf = activateEspIdf({ env, log, defaultVersion })
   } catch (error) {
     fail(error.message, ExitCode.missingDependency)
   }
   if (!idf) {
-    fail('ESP-IDF was not found. Install it and set IDF_PATH (or place it under ~/esp or ~/esp32).', ExitCode.missingDependency)
+    fail(
+      `ESP-IDF ${defaultVersion} was not found${selection?.target ? ` for target '${selection.target}'` : ''}. Install it under ~/esp32/esp-idf-v${defaultVersion} and run its install.sh (install.bat on Windows), or set IDF_PATH to another installation.`,
+      ExitCode.missingDependency
+    )
   }
   return idf
 }
@@ -549,7 +554,7 @@ function runInTarget(command, args, { cwd, env, dryRun, verbose, label, logFile,
 // system's responsibility. This retains Ninja's sub-second no-op.
 export async function ensureConfigured({ idf, prepared, env, dryRun = false, verbose = false, stdout, stderr = console.error }) {
   const signatureFile = path.join(prepared.buildDir, '.gea-configure-args')
-  const signature = [`-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs, ...(prepared.sourceSet || [])].join('\n') + '\n'
+  const signature = [`IDF_PATH=${idf.idfDir}`, `IDF_PYTHON_ENV_PATH=${idf.pythonEnv}`, `-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs, ...(prepared.sourceSet || [])].join('\n') + '\n'
   if (existsSync(path.join(prepared.buildDir, 'CMakeCache.txt')) && existsSync(signatureFile) && readFileSync(signatureFile, 'utf8') === signature) {
     return false
   }
@@ -623,7 +628,7 @@ export async function buildEsp32Firmware({ ctx, selection, app = null, env = ctx
   // dim line; the spinner labels name each phase.
   const quiet = quietSteps(env, verbose)
   const detail = quiet ? () => {} : stdout
-  const idf = requireEspIdf(env, detail)
+  const idf = requireEspIdf(env, detail, selection)
   const prepared = prepareEsp32Build({ ctx, selection, app, env: idf.env, log: detail, bleOta, dryRun })
   prepared.targetDir = selection.targetDir
   if (quiet) hint(stdout, buildSummaryLine(idf, selection, prepared.capabilities))

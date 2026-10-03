@@ -43,13 +43,38 @@ function compareVersions(a, b) {
   return 0
 }
 
-// Where an ESP-IDF checkout may live. Explicit settings win; otherwise the
-// newest install under the conventional directories is used, because the
-// firmware tracks the current IDF major (older ones do not compile it).
-export function findEspIdf(env = process.env, home = os.homedir()) {
-  const explicit = [env.IDF_PATH, envExportDir(env.GEA_EMBEDDED_IDF_EXPORT), envExportDir(env.ESP_IDF_EXPORT)]
+// A checkout of an unreleased IDF line (master, a release candidate) is named
+// for it: `esp-idf-v6.2-dev`, `esp-idf-v6.1-rc1`. Its version.cmake already
+// reads like the release, so the name is the only thing that tells it apart.
+function isPrereleaseIdf(dir) {
+  return /-(dev|rc\d*|beta\d*|master)$/i.test(path.basename(dir))
+}
+
+function meetsMinimum(dir, minimum) {
+  if (!minimum) return true
+  const want = minimum.split('.').map((part) => Number(part) || 0)
+  return compareVersions(versionKey(dir), [want[0] || 0, want[1] || 0, 0]) >= 0
+}
+
+function matchesDefaultVersion(dir, defaultVersion) {
+  if (!defaultVersion) return true
+  const version = espIdfVersion(dir)
+  if (defaultVersion.endsWith('-dev')) {
+    return version?.majorMinor === defaultVersion.slice(0, -4) && /-dev$/i.test(path.basename(dir))
+  }
+  return version?.full === defaultVersion && !isPrereleaseIdf(dir)
+}
+
+// Generic discovery honours explicit settings and otherwise prefers the
+// newest stable installation. Callers can request a minimum version instead.
+// Builds provide an exact defaultVersion for automatic discovery. IDF_PATH
+// overrides that default; export-script hints must still match the target.
+export function findEspIdf(env = process.env, home = os.homedir(), { minVersion = '', defaultVersion = '' } = {}) {
+  const accepts = (dir) => meetsMinimum(dir, minVersion) && matchesDefaultVersion(dir, defaultVersion)
+  if (isIdfDir(env.IDF_PATH) && meetsMinimum(env.IDF_PATH, minVersion)) return path.resolve(env.IDF_PATH)
+  const explicit = [envExportDir(env.GEA_EMBEDDED_IDF_EXPORT), envExportDir(env.ESP_IDF_EXPORT)]
   for (const candidate of explicit) {
-    if (isIdfDir(candidate)) return path.resolve(candidate)
+    if (isIdfDir(candidate) && accepts(candidate)) return path.resolve(candidate)
   }
   const roots = [path.join(home, 'esp'), path.join(home, 'esp32'), home]
   const found = []
@@ -72,7 +97,9 @@ export function findEspIdf(env = process.env, home = os.homedir()) {
   }
   if (found.length === 0) return ''
   found.sort((a, b) => compareVersions(versionKey(b), versionKey(a)))
-  return found[0]
+  if (defaultVersion) return found.find(accepts) || ''
+  if (minVersion) return found.find((dir) => meetsMinimum(dir, minVersion)) || ''
+  return found.find((dir) => !isPrereleaseIdf(dir)) || found[0]
 }
 
 function envExportDir(exportScript) {
@@ -92,9 +119,10 @@ export function idfVenvPython(pythonEnv) {
 }
 
 export function findIdfPythonEnv(idfDir, env = process.env, home = os.homedir()) {
-  const explicit = env.IDF_PYTHON_ENV_PATH
-  if (explicit && existsSync(idfVenvPython(explicit))) return explicit
   const version = espIdfVersion(idfDir)?.majorMinor
+  const explicit = env.IDF_PYTHON_ENV_PATH
+  const explicitVersion = explicit && path.basename(explicit).match(/^idf(\d+\.\d+)_py/)?.[1]
+  if (explicit && (!explicitVersion || explicitVersion === version) && existsSync(idfVenvPython(explicit))) return explicit
   if (!version) return ''
   const envRoot = path.join(env.IDF_TOOLS_PATH || path.join(home, '.espressif'), 'python_env')
   let entries = []
@@ -130,10 +158,15 @@ const activationCache = new Map()
 // The tool export is cached per installation; the caller's environment is
 // layered on fresh every time so per-invocation settings (jobs, variants,
 // flash baud) are never frozen into a cached activation.
-export function activateEspIdf({ env = process.env, home = os.homedir(), log = () => {} } = {}) {
-  const idfDir = findEspIdf(env, home)
+export function activateEspIdf({ env = process.env, home = env.HOME || env.USERPROFILE || os.homedir(), log = () => {}, minVersion = '', defaultVersion = '' } = {}) {
+  const idfDir = findEspIdf(env, home, { minVersion, defaultVersion })
   if (!idfDir) return null
-  const pythonEnv = findIdfPythonEnv(idfDir, env, home)
+  // A venv exported by a different active checkout belongs to that checkout.
+  const activeIdf = env.IDF_PATH || envExportDir(env.GEA_EMBEDDED_IDF_EXPORT) || envExportDir(env.ESP_IDF_EXPORT)
+  const pythonEnvSettings = defaultVersion && activeIdf && path.resolve(activeIdf) !== idfDir
+    ? { ...env, IDF_PYTHON_ENV_PATH: '' }
+    : env
+  const pythonEnv = findIdfPythonEnv(idfDir, pythonEnvSettings, home)
   if (!pythonEnv) {
     const envRoot = path.join(env.IDF_TOOLS_PATH || path.join(home, '.espressif'), 'python_env')
     throw new Error(
@@ -149,7 +182,7 @@ export function activateEspIdf({ env = process.env, home = os.homedir(), log = (
       exported = parseKeyValueExport(
         execFileSync(python, [idfToolsPy, 'export', '--format', 'key-value'], {
           encoding: 'utf8',
-          env: { ...env, IDF_PATH: idfDir },
+          env: { ...env, IDF_PATH: idfDir, IDF_PYTHON_ENV_PATH: pythonEnv },
           stdio: ['ignore', 'pipe', 'ignore']
         })
       )
@@ -157,8 +190,8 @@ export function activateEspIdf({ env = process.env, home = os.homedir(), log = (
       throw new Error(`ESP-IDF tool export failed for ${idfDir}: ${error.message}`)
     }
     activationCache.set(cacheKey, exported)
-    log(`Using ESP-IDF ${espIdfVersion(idfDir)?.full || ''} at ${idfDir} (python env ${pythonEnv})`)
   }
+  log(`Using ESP-IDF ${espIdfVersion(idfDir)?.full || ''} at ${idfDir} (python env ${pythonEnv})`)
   const callerPath = envPath(env)
   const exportedPath = (exported.PATH || '').replace(/\$PATH|%PATH%/g, callerPath)
   return {

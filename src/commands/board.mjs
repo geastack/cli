@@ -161,7 +161,7 @@ export async function cleanCommand(ctx, parsed, rest, options) {
 async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   const base = io(parsed, options)
   const env = createChildEnv(ctx, base.env)
-  const idf = requireEspIdf(env, base.stdout)
+  const idf = requireEspIdf(env, base.stdout, selection)
   const flashEnv = idf.env
   const opts = flashOptions(flashEnv, { idf, selection, manualBoot: flag(parsed, 'manual-boot'), noReset: option(parsed, 'reset') === false, baud: option(parsed, 'flash-baud', '') })
   const common = { idf, selection, options: opts, port: selection.port, env: flashEnv, dryRun: base.dryRun, verbose: flag(parsed, 'verbose'), stdout: base.stdout, stderr: base.stderr }

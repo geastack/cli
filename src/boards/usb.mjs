@@ -109,7 +109,10 @@ function macUsbCalloutPortsForSerial(serial, ioreg = runIoreg) {
   for (const line of output.split(/\r?\n/)) {
     const node = line.match(/^([\s|]*)[+\\-]*o\s+/)
     if (node) {
-      const depth = (node[1].match(/\|/g) || []).length
+      // The column of `+-o` is the depth. Counting `|` is not: ioreg draws the
+      // last child's subtree with spaces, so a callout under a device's last
+      // interface would look shallower than the device holding its serial.
+      const depth = node[1].length
       while (stack.length > 0 && stack[stack.length - 1].depth >= depth) stack.pop()
       stack.push({ depth, serial: '' })
       continue
@@ -144,7 +147,10 @@ export function listMacUsbCalloutPorts(ioreg = runIoreg) {
   for (const line of output.split(/\r?\n/)) {
     const node = line.match(/^([\s|]*)[+\\-]*o\s+/)
     if (node) {
-      const depth = (node[1].match(/\|/g) || []).length
+      // The column of `+-o` is the depth. Counting `|` is not: ioreg draws the
+      // last child's subtree with spaces, so a callout under a device's last
+      // interface would look shallower than the device holding its serial.
+      const depth = node[1].length
       while (stack.length > 0 && stack[stack.length - 1].depth >= depth) stack.pop()
       stack.push({ depth, serial: '', product: '' })
       continue
