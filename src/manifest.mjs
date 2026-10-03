@@ -182,8 +182,16 @@ export function appRootFor(ctx, app) {
 }
 
 // `root;entry;runtime;nativeSource...` -- the one line CMake splits on ';'.
+// Every target joins a native source onto the app root, so a source named by
+// package (`@scope/pkg/native/x.cpp`) goes out as its resolved file relative to
+// that root; an app-relative source is unchanged.
 export function appCmakeMeta(ctx, app) {
-  return [appRootFor(ctx, app), app.entry, app.runtime, ...app.nativeSources].join(';')
+  const root = appRootFor(ctx, app)
+  const nativeSources = app.nativeSources.map((source) => {
+    const resolved = resolveAppSourcePath(app.root, source)
+    return resolved && resolved !== path.resolve(app.root, source) ? path.relative(root, resolved).split(path.sep).join('/') : source
+  })
+  return [root, app.entry, app.runtime, ...nativeSources].join(';')
 }
 
 // Defines and linker fragments travel in their own variables rather than being
