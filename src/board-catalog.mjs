@@ -96,6 +96,24 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'waveshare-lcd-154',
+    label: 'Waveshare ESP32-S3 Touch LCD 1.54',
+    alias: 'waveshare-154',
+    target: 'esp32-s3-touch-lcd-1.54',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3',
+    capabilities: {
+      display: '1.54 inch ST7789 LCD 240x240',
+      touch: 'CST816 capacitive touch',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['flash', 'PSRAM', 'microSD'],
+      audio: ['ES8311 speaker', 'ES7210 microphone'],
+      imu: 'QMI8658 accelerometer and gyroscope',
+      battery: 'ADC voltage and charging status',
+      gps: false
+    }
+  },
+  {
     id: 'esp32-s3-epaper-154',
     label: 'ESP32-S3 e-paper 1.54',
     alias: 'epaper',
