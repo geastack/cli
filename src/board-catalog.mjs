@@ -144,6 +144,22 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'm5stack-stopwatch',
+    label: 'M5Stack StopWatch (C152)',
+    alias: 'stopwatch',
+    target: 'esp32-s3-m5stack-stopwatch',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3R8',
+    capabilities: {
+      display: '1.75 inch 466x466 round AMOLED (CO5300 QSPI)',
+      touch: 'CST820B capacitive touch',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM'],
+      audio: [],
+      gps: false
+    }
+  },
+  {
     id: 'm5stack-tab5',
     label: 'M5Stack Tab5',
     alias: 'm5tab',
