@@ -319,3 +319,10 @@ test('geadev.i2cScan speaks the GEADEV I2CSCAN protocol the firmware implements'
     'every GEADEV:I2CSCAN frame is kept, in order, and unrelated log lines are dropped',
   )
 })
+
+test('native debugger pause cancels a serial wait without closing the port or retaining waiters',async()=>{
+ const port=new EventEmitter();const serial=new SerialDevice(port,{path:'/dev/fake'});const controller=new AbortController()
+ const read=serial.readLine(5000,controller.signal);controller.abort(new Error('Native app paused'))
+ await assert.rejects(read,/Native app paused/);assert.equal(serial.waiters.length,0);assert.equal(serial.closed,false)
+ port.emit('data',Buffer.from('GEADEV:DEBUG END sequence=2\n'));assert.equal(await serial.readLine(100),'GEADEV:DEBUG END sequence=2')
+})

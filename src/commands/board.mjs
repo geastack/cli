@@ -169,7 +169,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   const eraseSlotName = option(parsed, 'erase-slot', '')
   const slot = option(parsed, 'slot', '')
   const explicitImage = option(parsed, 'image', '')
-  const app = explicitImage && !option(parsed, 'app') && !rest[0] ? null : optionalApp(ctx, parsed, rest, selection, { required: !explicitImage && !slotImages.length && !eraseSlotName && !flag(parsed, 'restore-boot') })
+  const app = options.debugApp || (explicitImage && !option(parsed, 'app') && !rest[0] ? null : optionalApp(ctx, parsed, rest, selection, { required: !explicitImage && !slotImages.length && !eraseSlotName && !flag(parsed, 'restore-boot') }))
 
   const buildDir = esp32BuildDir(ctx, selection, app?.id, flashEnv)
   const images = { ...buildImages(buildDir), buildDir }

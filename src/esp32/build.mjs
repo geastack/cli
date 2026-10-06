@@ -1,5 +1,6 @@
+import { debugFps } from '../debug-fps.mjs'
 import { spawnSync } from 'node:child_process'
-import { resolveBuildConfig, writeBuildConfig } from '../build-config.mjs'
+import { appForNativeDebugger, resolveBuildConfig, writeBuildConfig } from '../build-config.mjs'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
@@ -325,7 +326,10 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   }
   const capabilities = app ? resolveAppCapabilities(ctx, app, { env }) : { network: false, ble: false, bleApi: false, audio: false, bindings: [], features: [] }
   if (bleOta) capabilities.ble = true
-  const resolvedBuild = resolveBuildConfig({ app, platform: 'esp32', board: selection.target, targetBase: selection.targetBase, targetsRoot: ctx.targetsRoot, env, capabilities })
+  // Console-created native nodes require the retained runtime even when the
+  // app's original source could use the direct-canvas specialization.
+  const buildCapabilities = env.GEA_NATIVE_DEBUGGER === '1' ? { ...capabilities, features: capabilities.features.filter(f => !f.startsWith('runtime-analysis-')) } : capabilities
+  const resolvedBuild = resolveBuildConfig({ app: env.GEA_NATIVE_DEBUGGER === '1' ? appForNativeDebugger(app, 'esp32') : app, platform: 'esp32', board: selection.target, targetBase: selection.targetBase, targetsRoot: ctx.targetsRoot, env, capabilities: buildCapabilities })
   const idfTarget = selection.idfTarget || 'esp32s3'
   const buildDir = esp32BuildDir(ctx, selection, app?.id, env)
   // gea.targets.esp32.sdkconfig: the app's own Kconfig defaults, layered over
@@ -429,7 +433,7 @@ function preparePartitions(app, config, buildDir, targetId) {
     // `set(... CACHE STRING ...)`, so a -D of the same name, which exists before
     // the board's CMakeLists runs, wins without the board knowing about apps.
     const cssDpr = cssDevicePixelRatioLiteral(resolvedBuild.cssDevicePixelRatio)
-    const appDefines = [withRendererFeatureDefines(resolvedBuild.defines.join(';'), capabilities.features, { devicePixelRatio: cssDpr ? Number(cssDpr) : undefined }), cssDpr && `GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=${cssDpr}`]
+    const appDefines = [env.GEA_NATIVE_DEBUGGER === '1' && 'GEA_NATIVE_DEBUGGER=1', env.GEA_NATIVE_DEBUGGER === '1' && `GEA_NATIVE_DEBUGGER_FPS=${debugFps(env.GEA_DEBUGGER_FPS === '0' ? undefined : env.GEA_DEBUGGER_FPS)}`, withRendererFeatureDefines(resolvedBuild.defines.join(';'), env.GEA_NATIVE_DEBUGGER === '1' ? capabilities.features.filter(f => f === 'worker-realms') : capabilities.features, { devicePixelRatio: cssDpr ? Number(cssDpr) : undefined }), cssDpr && `GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=${cssDpr}`]
       .filter(Boolean)
       .join(';')
     const esp32Config = appEsp32Config

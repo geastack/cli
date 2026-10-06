@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 
 import { crc32, decodeRgb565Raw, decodeRgb565Rle } from './image.mjs'
 
@@ -64,9 +65,41 @@ export class SerialDevice {
   }
 
   static async open({ path: devicePath, baudRate = 115200, trace = false, stderr }) {
+    // Older clients and serial monitors may not take an advisory lock. On macOS,
+    // check both names of the device before opening; flock handles racing clients.
+    if (process.platform === 'darwin' && /^\/dev\/(cu|tty)\./.test(devicePath)) {
+      let owners = ''
+      try {
+        owners = execFileSync('/usr/sbin/lsof', [
+          '-t',
+          devicePath.replace('/dev/tty.', '/dev/cu.'),
+          devicePath.replace('/dev/cu.', '/dev/tty.')
+        ], {
+          encoding: 'utf8',
+          timeout: 2000,
+          stdio: ['ignore', 'pipe', 'ignore']
+        }).trim()
+      } catch (error) {
+        if (error.status !== 1 && error.code !== 'ENOENT') {
+          throw new Error(`Could not check serial ownership for ${devicePath}`, { cause: error })
+        }
+        owners = error.stdout?.toString().trim() || ''
+      }
+      if (owners) {
+        const pids = [...new Set(owners.split(/\s+/))].join(', ')
+        throw new Error(`Serial port ${devicePath} is already in use (PID ${pids}). Close its debugger or serial monitor before attaching.`)
+      }
+    }
     const { SerialPort } = await loadSerialport()
-    const port = new SerialPort({ path: devicePath, baudRate, autoOpen: false, hupcl: false, lock: false })
-    await new Promise((resolve, reject) => port.open((error) => (error ? reject(error) : resolve())))
+    const port = new SerialPort({ path: devicePath, baudRate, autoOpen: false, hupcl: false, lock: true })
+    try {
+      await new Promise((resolve, reject) => port.open((error) => (error ? reject(error) : resolve())))
+    } catch (error) {
+      if (/cannot lock port|resource (?:temporarily unavailable|busy)|sharing violation/i.test(error.message)) {
+        throw new Error(`Serial port ${devicePath} is already in use. Close its debugger or serial monitor before attaching.`, { cause: error })
+      }
+      throw error
+    }
     return new SerialDevice(port, { path: devicePath, trace, stderr })
   }
 
@@ -76,17 +109,22 @@ export class SerialDevice {
     for (const waiter of waiters) waiter()
   }
 
-  waitForData(timeoutMs) {
-    return new Promise((resolve) => {
+  waitForData(timeoutMs, signal) {
+    return new Promise((resolve, reject) => {
+      signal?.throwIfAborted()
+      const abort = () => { clearTimeout(timer); this.waiters = this.waiters.filter(waiter => waiter !== done); reject(signal.reason) }
       const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', abort)
         this.waiters = this.waiters.filter((waiter) => waiter !== done)
         resolve(false)
       }, Math.max(0, timeoutMs))
       const done = () => {
+        signal?.removeEventListener('abort', abort)
         clearTimeout(timer)
         resolve(true)
       }
       this.waiters.push(done)
+      signal?.addEventListener('abort', abort, { once: true })
     })
   }
 
@@ -135,9 +173,10 @@ export class SerialDevice {
     })
   }
 
-  async readLine(timeoutMs) {
+  async readLine(timeoutMs, signal) {
     const deadline = Date.now() + timeoutMs
     while (true) {
+      signal?.throwIfAborted()
       const newline = this.buffer.indexOf(0x0a)
       if (newline >= 0) {
         const raw = this.buffer.subarray(0, newline)
@@ -148,7 +187,7 @@ export class SerialDevice {
       if (this.closed) return null
       const remaining = deadline - Date.now()
       if (remaining <= 0) return null
-      await this.waitForData(remaining)
+      await this.waitForData(remaining, signal)
     }
   }
 
@@ -178,13 +217,13 @@ export class SerialDevice {
     }
   }
 
-  async command(line, prefixes, timeoutMs = 5000) {
+  async command(line, prefixes, timeoutMs = 5000, signal) {
     await this.writeLine(line)
     const deadline = Date.now() + timeoutMs
     while (true) {
       const remaining = deadline - Date.now()
       if (remaining <= 0) throw new Error(`timed out waiting for response to ${JSON.stringify(line)}`)
-      const received = await this.readLine(remaining)
+      const received = await this.readLine(remaining, signal)
       if (received === null) throw new Error(`timed out waiting for response to ${JSON.stringify(line)}`)
       if (this.trace) this.stderr(received)
       const frame = geadevFragment(received)
@@ -193,7 +232,7 @@ export class SerialDevice {
     }
   }
 
-  async collect(line, { begin = null, data = 'GEADEV:DATA ', end, error = ['GEADEV:ERR'], timeoutMs = 8000 }) {
+  async collect(line, { begin = null, data = 'GEADEV:DATA ', end, error = ['GEADEV:ERR'], timeoutMs = 8000, signal }) {
     await this.writeLine(line)
     const deadline = Date.now() + timeoutMs
     const chunks = []
@@ -202,13 +241,13 @@ export class SerialDevice {
     while (true) {
       const remaining = deadline - Date.now()
       if (remaining <= 0) throw new Error(`timed out waiting for ${line}`)
-      const received = await this.readLine(remaining)
+      const received = await this.readLine(remaining, signal)
       if (received === null) throw new Error(`timed out waiting for ${line}`)
       const frame = geadevFragment(received)
       if (this.trace && !frame.startsWith(data)) this.stderr(received)
       if (error.some((prefix) => frame.startsWith(prefix))) throw new Error(frame)
       if (begin && beginFrame === null) {
-        if (frame.startsWith(begin)) beginFrame = frame
+        if (typeof begin === 'function' ? begin(frame) : frame.startsWith(begin)) beginFrame = frame
         continue
       }
       if (frame.startsWith(data)) {

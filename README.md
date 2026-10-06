@@ -227,3 +227,69 @@ reload. Browser previews use simulated device APIs and browser layout; use the
 WASM renderer or a physical device to validate embedded rendering.
 
 Native compiler, UI, renderer, and display settings belong in the app manifest. See [Native build settings](docs/NATIVE-BUILD-CONFIG.md) for precedence, board overrides, and `gea config --board <alias>`.
+
+
+## Chrome DevTools debugger
+
+`gea run --debug --target macos` builds and launches a native Gea app with CDP
+at `127.0.0.1:9222`, then opens Chrome DevTools. A declared macOS deployment
+target is not required for debugging; the source manifest is unchanged. On Mac,
+`gea run --debug` defaults to native for an app that already declares macOS.
+`gea run --debug --target web` uses the existing DOM/CSS runtime with Vite HMR.
+
+Elements inspects the native tree, authored class CSS, common inline/computed
+styles, text, attributes and layout. Inline CSS and tree edits affect the actual
+AppKit window. The Console runs JavaScriptCore scripts with `document`, `$0`,
+selectors, style edits, element creation/removal and click dispatch wired to the
+native tree. Compiled C++ app modules/stores are not console globals; source
+breakpoints, arbitrary class stylesheet edits and promise awaiting are not yet
+implemented. Runtime edits do not save to source and can be replaced by app code.
+
+Use `--debug-port 9223` for CDP and `--port 5182` for the DOM server. Native
+`--no-open` exposes CDP without opening Chrome. Ctrl-C or closing the owned app
+or browser stops the session. Other native targets, WASM and
+direct AppKit widget graphs outside the Gea retained tree remain unsupported.
+
+The CLI installs `@geastack/debugger` automatically. Debugging requires Node.js
+22 or later and Chrome/Chromium. Native builds need matching compiler and target
+runtimes with debugger instrumentation; this release ships the host adapter and
+CLI integration. `GEA_DEBUGGER_DIR` selects a development checkout;
+contributor native launches use sibling Apple,
+core/plugin packages and the shared compiler; explicit overrides win. Set
+`GEA_CHROME_PATH` for a custom browser. Chrome uses its own app profile inside
+`.gea/build/web`.
+
+
+From your app directory, `gea run --debug --board amoled --debug-fps 10` builds and flashes debug
+firmware on the registered AMOLED 2.06, then opens Chrome DevTools through USB.
+Other ESP32 aliases use the same adapter. `--attach` connects to already-running
+debug firmware without flashing; regular firmware is rejected before JTAG or
+Chrome starts. `--no-open` exposes only the CDP endpoint.
+`--port` selects the USB device when using `--board`, while `--debug-port` selects
+CDP. The debugger owns the serial stream; stop it before using `gea devctl` or
+`gea monitor` on that port.
+
+Device builds retain engine CSS features and authored rules for runtime edits.
+The board contains no JavaScript VM. Its Console evaluates JavaScript on the
+host against a snapshot; supported mutations are acknowledged by the device
+before evaluation returns. A following evaluation reads fresh device state.
+Use an async function and `await document.createElement(...)` to create nodes.
+On ESP32-S3, add `--debug-sources` to explicitly start USB JTAG for original
+TypeScript source maps, line/column hardware breakpoints and Step Over/Into/Out. Scope
+shows native C++ locals; paused-frame evaluation accepts GDB C++ expressions.
+The board has two breakpoint slots. Its matching ELF is verified before attach;
+older firmware needs a fresh build. Tree/style inspection does not start JTAG
+by default. `GEA_DEBUGGER_JTAG=1` also opts in; `--no-debug-sources` overrides it.
+Native Mac source stepping is not implemented yet. Inline
+styles, authored class rules, attributes, text, append/remove and compiled event clicks affect the
+actual device. Live changes are sampled every 750 ms. See the debugger README
+for supported properties, USB bounds, and example scripts.
+
+Add `--debug-fps 30` (or `--debug-fps 10`) to a board debug launch to reserve
+more time for inspection and editing. Values are integers from 1 to 120. Debug
+firmware enforces the cap across timer, TE and input/catch-up frame paths; app
+FPS settings cannot exceed it. Use `--attach --debug-fps 10` to change the cap
+on current debug firmware without rebuilding/flashing. Omitting the flag leaves
+an existing attached app's cap alone; a fresh build defaults to normal pacing.
+The cap persists after disconnecting. Firmware from before snapshot integrity
+and FPS control support needs one rebuild.

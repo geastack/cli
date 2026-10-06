@@ -276,3 +276,19 @@ export function nativeScriptBuildEnv(app, platform, env, { dryRun = false, build
   const json = dryRun ? path.join(directory, 'gea-build-config.json') : writeBuildConfig(directory, resolved).json
   return { ...env, GEA_BUILD_CONFIG_JSON: json, GEA_CLI_BIN: fileURLToPath(new URL('../bin/gea.mjs', import.meta.url)) }
 }
+
+
+// A debug launch can compile a Gea app natively without adding a deployment
+// target to its source manifest. Keep authored CSS available for inspection.
+export function appForNativeDebugger(app, platform) {
+  if (!['macos', 'esp32'].includes(platform)) fail('Native debugger build configuration requires macOS or ESP32')
+  const manifest = app.manifest || {}
+  const target = isObject(manifest.targets?.[platform]) ? manifest.targets[platform] : {}
+  const debugTarget = { ...target, build: { ...target.build, ...(platform === 'esp32' ? { renderer: { ...target.build?.renderer, recordInlinePositions: true } } : {}), compiler: {
+    ...target.build?.compiler, staticCssRules: false, staticCssTape: false, ...(platform === 'esp32' ? { generatedCodeOptimization: 'Og' } : {})
+  } } }
+  if (isObject(target.boards)) debugTarget.boards = Object.fromEntries(Object.entries(target.boards).map(([name, value]) => [name, isObject(value) ? { ...value, build: { ...value.build, ...(platform === 'esp32' ? { renderer: { ...value.build?.renderer, recordInlinePositions: true } } : {}), compiler: { ...value.build?.compiler, staticCssRules: false, staticCssTape: false, ...(platform === 'esp32' ? { generatedCodeOptimization: 'Og' } : {}) } } } : value]))
+  return { ...app, targets: { ...app.targets, [platform]: true }, manifest: {
+    ...manifest, targets: { ...manifest.targets, [platform]: debugTarget }
+  } }
+}

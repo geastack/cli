@@ -14,7 +14,7 @@ import { formatCommand } from '../run.mjs'
 // app's own module resolution is what finds it. An app declares `targets.macos`
 // and nothing else; the script reads the rest from the same manifest.
 export function runMacos({ app, env, dryRun = false, stdout }) {
-  const { script, require } = appleTargetScript(app, 'macos', 'build-macos.sh')
+  const { script, require } = appleTargetScript(app, 'macos', 'build-macos.sh', env)
   const childEnv = appleChildEnv(app, nativeScriptBuildEnv(app, 'macos', env, { dryRun }), require)
   if (dryRun) {
     stdout(formatCommand(['bash', script, app.id]))
@@ -29,11 +29,11 @@ export function runMacos({ app, env, dryRun = false, stdout }) {
 // Both Apple targets ship as one script each inside @geastack/apple, and both
 // resolve it the same way: through the app's own dependencies. iOS reuses this
 // from src/ios/adapter.mjs rather than restating the resolution.
-export function appleTargetScript(app, platform, scriptName) {
+export function appleTargetScript(app, platform, scriptName, env = process.env) {
   const require = createRequire(path.join(app.root, 'package.json'))
-  let appleRoot = ''
+  let appleRoot = env.GEA_APPLE_ROOT ? path.resolve(env.GEA_APPLE_ROOT) : ''
   try {
-    appleRoot = path.dirname(require.resolve('@geastack/apple/package.json'))
+    if (!appleRoot) appleRoot = path.dirname(require.resolve('@geastack/apple/package.json'))
   } catch {
     fail(`'${app.id}' targets ${platformLabel(platform)} but @geastack/apple is not installed in ${app.root} — run npm install there.`, ExitCode.missingDependency)
   }
