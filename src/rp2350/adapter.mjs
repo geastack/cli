@@ -37,18 +37,26 @@ function toolchainHasRuntime(root) {
   return false
 }
 
-function globDirs(pattern) {
-  const parent = path.dirname(pattern)
-  const prefix = path.basename(pattern).replace(/\*.*$/, '')
-  const suffix = pattern.includes('*') ? pattern.slice(pattern.indexOf('*') + 1) : ''
-  try {
-    return readdirSync(parent)
-      .filter((name) => name.startsWith(prefix))
-      .map((name) => path.join(parent, name, suffix))
-      .filter((dir) => existsSync(dir))
-  } catch {
-    return []
+// Expands `*` in any path segment, one directory level per segment:
+// `~/Tools/arm-gnu-toolchain-*/extract/Payload` matches every installed version.
+export function globDirs(pattern) {
+  const segments = pattern.split(path.sep)
+  let matches = [segments[0] || path.sep]
+  for (const segment of segments.slice(1)) {
+    if (!segment.includes('*')) {
+      matches = matches.map((dir) => path.join(dir, segment))
+      continue
+    }
+    const re = new RegExp(`^${segment.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
+    matches = matches.flatMap((dir) => {
+      try {
+        return readdirSync(dir).filter((name) => re.test(name)).sort().map((name) => path.join(dir, name))
+      } catch {
+        return []
+      }
+    })
   }
+  return matches.filter((dir) => existsSync(dir))
 }
 
 export function prepareArmToolchain(env, stderr = () => {}) {
