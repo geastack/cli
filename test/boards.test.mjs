@@ -4,7 +4,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { loadChipCatalogFromDir, normalizeCustomTarget, renderBoardHeader, renderTargetCmake, writeCustomTarget } from '../src/boards/custom-target.mjs'
+import { loadChipCatalogFromDir, normalizeCustomTarget, renderQspiPanelHeader, renderBoardHeader, renderTargetCmake, writeCustomTarget } from '../src/boards/custom-target.mjs'
 import { resolveBoardSelection } from '../src/boards/resolve.mjs'
 import { resolvePicotoolSelection, resolveUsbSerialPort } from '../src/boards/usb.mjs'
 import { createFixture } from './helpers/fixture.mjs'
@@ -429,4 +429,35 @@ test('audio supports a separate microphone ADC and expander amplifier', () => {
   delete definition.chips.audio.pins.powerAmplifier
   const header = renderBoardHeader(normalizeCustomTarget(definition, catalog))
   assert.match(header, /\.powerAmplifier = GPIO_NUM_NC, \.es7210Address = 64/)
+})
+
+
+test('custom QSPI startup preserves command bytes, empty payloads, delays and both offsets', () => {
+  const definition = JSON.parse(readFileSync(path.join(fixtureDir, 'manual-amoled.json'), 'utf8'))
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  definition.chips.display.pclkHz = 40000000
+  definition.chips.display.panel = { transferMode: 'bitmap', minChunkRows: 2, xGap: 22, yGap: 3, initCommands: [
+    { command: 17, delayMs: 120 },
+    { command: 196, data: [128] },
+    { command: 42, data: [0, 22, 1, 175] }
+  ] }
+  const target = normalizeCustomTarget(definition, catalog)
+  assert.deepEqual(target.chips.display.panel.initCommands[0], { command: 17, data: [], delayMs: 120 })
+  const header = renderQspiPanelHeader(target)
+  assert.match(renderTargetCmake(target, '/build'), /GEA_CUSTOM_QSPI_TRANSFER_MODE \"bitmap\"/)
+  assert.match(header, /GEA_QSPI_PANEL_X_GAP 22/)
+  assert.match(header, /GEA_QSPI_PANEL_Y_GAP 3/)
+  assert.match(header, /17, nullptr, 0, 120/)
+  assert.match(header, /data2\[\] = \{ 0, 22, 1, 175 \}/)
+  assert.match(renderTargetCmake(target, '/build'), /GEA_CUSTOM_QSPI_PANEL_CONFIG=1/)
+  assert.match(renderTargetCmake(target, '/build'), /GEA_EMBEDDED_DISPLAY_FLUSH_CHUNK_MIN=2/)
+  assert.match(renderTargetCmake(target, '/build'), /set\(GEA_CUSTOM_QSPI_PCLK_HZ 40000000\)/)
+  for (const panel of [{ minChunkRows: 0 }, { minChunkRows: 3 }, { transferMode: 'unknown' }, { initCommands: [] }, { initCommands: [{ command: 256 }] }, { initCommands: [{ command: 17, data: [256] }] }, { xGap: -1 }, { initCommands: [{ command: 17, delayMs: -1 }] }]) {
+    definition.chips.display.panel = panel
+    assert.throws(() => normalizeCustomTarget(definition, catalog))
+  }
+  delete definition.chips.display.panel
+  const preset = normalizeCustomTarget(definition, catalog)
+  assert.doesNotMatch(renderTargetCmake(preset, '/build'), /GEA_CUSTOM_QSPI_PANEL_CONFIG/)
+  assert.doesNotMatch(renderQspiPanelHeader(preset), /#define GEA_QSPI_PANEL/)
 })

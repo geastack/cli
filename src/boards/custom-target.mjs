@@ -210,6 +210,25 @@ export function normalizeCustomTarget(raw, catalog) {
     throw new Error(`psram.speed must be 40, 80 or 120 MHz, not ${psramSpeed}.`)
   }
 
+  const panel = displayInterface === 'qspi' && !absent(display.panel) ? object(display.panel, 'chips.display.panel') : null
+  if (panel && !['co5300', 'sh8601'].includes(display.driver)) throw new Error('Panel startup settings currently support co5300 and sh8601 bindings.')
+  if (displayInterface !== 'qspi' && display?.panel !== undefined) throw new Error('Panel startup settings require a QSPI display.')
+  const panelConfig = panel ? {
+    ...(panel.minChunkRows === undefined ? {} : { minChunkRows: integer(panel.minChunkRows, 'panel.minChunkRows', { min: 1, max: 2 }) }),
+    ...(panel.transferMode === undefined ? {} : { transferMode: (() => { if (!['bitmap', 'stream', 'cs-held'].includes(panel.transferMode)) throw new Error('panel.transferMode must be bitmap, stream or cs-held.'); return panel.transferMode })() }),
+    ...(panel.xGap === undefined ? {} : { xGap: integer(panel.xGap, 'panel.xGap', { min: 0, max: 4095 }) }),
+    ...(panel.yGap === undefined ? {} : { yGap: integer(panel.yGap, 'panel.yGap', { min: 0, max: 4095 }) }),
+    ...(panel.initCommands === undefined ? {} : { initCommands: (() => {
+      if (!Array.isArray(panel.initCommands) || !panel.initCommands.length || panel.initCommands.length > 256) throw new Error('panel.initCommands must contain 1 through 256 commands.')
+      return panel.initCommands.map((entry, index) => {
+        object(entry, `panel.initCommands[${index}]`)
+        const data = entry.data ?? []
+        if (!Array.isArray(data) || data.length > 32) throw new Error('Panel command data must contain at most 32 bytes.')
+        return { command: integer(entry.command, 'panel command', { min: 0, max: 255 }), data: data.map(value => integer(value, 'panel data', { min: 0, max: 255 })), delayMs: integer(entry.delayMs ?? 0, 'panel delayMs', { min: 0, max: 65535 }) }
+      })
+    })() })
+  } : null
+
   const controller = display && !absent(display.controller) ? object(display.controller, 'chips.display.controller') : null
   if (controller && (displayInterface !== 'rgb' || !expander)) throw new Error('RGB controller initialization requires an I/O expander.')
   const byte = (value, label) => integer(value, label, { min: 0, max: 255 })
@@ -288,6 +307,8 @@ export function normalizeCustomTarget(raw, catalog) {
       } : {
         driver: display.driver,
         interface: 'qspi',
+        panel: panelConfig,
+        pclkHz: display.pclkHz === undefined ? null : integer(display.pclkHz, 'chips.display.pclkHz', { min: 1000000, max: 80000000 }),
         width: integer(display.width, 'chips.display.width', { min: 1, max: 4096 }),
         height: integer(display.height, 'chips.display.height', { min: 1, max: 4096 }),
         spiHost,
@@ -541,6 +562,27 @@ ${rgb.controller.commands.map(command => `  { ${command.command}, { ${command.da
 `
 }
 
+// The bindings instantiate the same command list with their component's command type.
+export function renderQspiPanelHeader(target) {
+  const panel = target.chips.display?.panel
+  const commands = panel?.initCommands
+  return `#pragma once
+#include <array>
+#include <cstdint>
+${panel?.xGap === undefined ? '' : `#define GEA_QSPI_PANEL_X_GAP ${panel.xGap}`}
+${panel?.yGap === undefined ? '' : `#define GEA_QSPI_PANEL_Y_GAP ${panel.yGap}`}
+${commands ? `#define GEA_QSPI_PANEL_HAS_INIT_COMMANDS 1
+namespace gea::platform::custom_panel {
+${commands.map((entry, i) => entry.data.length ? `inline constexpr std::uint8_t data${i}[] = { ${entry.data.join(', ')} };` : '').join('\n')}
+template<class Command> inline auto initCommands() {
+  return std::array<Command, ${commands.length}>{{
+${commands.map((entry, i) => `    { ${entry.command}, ${entry.data.length ? `data${i}` : 'nullptr'}, ${entry.data.length}, ${entry.delayMs} },`).join('\n')}
+  }};
+}
+}
+` : ''}`
+}
+
 function cmakeQuote(value) {
   return `"${String(value).replace(/\\/g, '/').replace(/"/g, '\\"')}"`
 }
@@ -592,9 +634,13 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     // The QSPI panels take byte-swapped RGB565 over the wire and the base
     // stores it that way; an RGB panel's DMA reads the framebuffer as-is, so
     // it stores native order -- exactly what the Elecrow rotary target does.
+    display?.panel ? boardDefine('GEA_CUSTOM_QSPI_PANEL_CONFIG', 1) : '',
+    display?.panel?.minChunkRows ? boardDefine('GEA_EMBEDDED_DISPLAY_FLUSH_CHUNK_MIN', display.panel.minChunkRows) : '',
     display && display.interface === 'rgb' ? boardDefine('GEA_EMBEDDED_PIXEL_PANEL_ENDIAN', 0) : ''
   ].join('')
   return `set(GEA_CUSTOM_TARGET_ACTIVE 1)
+${display?.panel?.transferMode ? `set(GEA_CUSTOM_QSPI_TRANSFER_MODE \"${display.panel.transferMode}\")` : ''}
+${display?.interface === 'qspi' && display.pclkHz ? `set(GEA_CUSTOM_QSPI_PCLK_HZ ${display.pclkHz})` : ''}
 set(GEA_CUSTOM_TARGET_INCLUDE_DIR ${cmakeQuote(includeDir)})
 set(GEA_CUSTOM_TARGET_HAS_DISPLAY ${display ? 1 : 0})
 set(GEA_CUSTOM_TARGET_HAS_TOUCH ${touch ? 1 : 0})
@@ -620,6 +666,7 @@ export function writeCustomTarget({ definitionPath, outDir, catalog, appDefines 
   const headerPath = path.join(outDir, 'board.h')
   const cmakePath = path.join(outDir, 'target.cmake')
   writeIfChanged(headerPath, renderBoardHeader(target))
+  writeIfChanged(path.join(outDir, 'gea_qspi_panel_config.h'), renderQspiPanelHeader(target))
   writeIfChanged(cmakePath, renderTargetCmake(target, outDir, appDefines))
   let partitionCsv = ''
   if (target.partitions) {
