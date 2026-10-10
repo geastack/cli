@@ -15,7 +15,7 @@ const suite = createFixture({ after })
 const targetsRoot = suite.installed('targets')
 const base = {
   supported: ['compiler.generatedCodeOptimization', 'compiler.numberPrecision',
-    'renderer.fuseReplayFlush', 'renderer.subtreeRevealChecks', 'renderer.recordInlinePositions',
+    'renderer.bandedUi', 'renderer.fuseReplayFlush', 'renderer.subtreeRevealChecks', 'renderer.recordInlinePositions',
     'renderer.adaptiveCoalescing', 'renderer.broadDirtyBounds', 'display.framebufferStream',
     'display.presentStream', 'diagnostics.performanceCounters', 'diagnostics.frameTiming'],
   defaults: {
@@ -335,4 +335,13 @@ test('board native defines replace root values only for the selected target', ()
   for (const defines of [[], { 'BAD-NAME': 1 }, { PANEL_WIDTH: '480;INJECT=1' }]) {
     assert.throws(() => validateBuildManifest({ targets: { esp32: { boards: { [board]: { defines } } } } }), /define|object/)
   }
+})
+
+test('banded rendering is an app manifest opt-in', () => {
+  for (const enabled of [false, true]) {
+    const result = resolve({ build: { renderer: { bandedUi: enabled } } })
+    assert.equal(result.settings.renderer.bandedUi, enabled)
+    assert.ok(result.defines.includes(`GEA_EMBEDDED_DISPLAY_BANDED_UI=${Number(enabled)}`))
+  }
+  assert.throws(() => resolve({ build: { renderer: { bandedUi: 1 } } }), /boolean/)
 })

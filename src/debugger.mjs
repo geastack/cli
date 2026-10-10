@@ -43,40 +43,96 @@ export function sourceDebuggingRequested(parsed, env = process.env) {
   return env.GEA_DEBUGGER_JTAG === '1'
 }
 
-export async function runDebug({ app, env, dryRun = false, stdout, port = 5181, debugPort = 9222, target = 'web', open = true }) {
+// Build and run share instrumentation and manifest overrides. Launching a
+// debugger is a separate step, so a build never needs a browser or device.
+export function nativeDebugBuildOf(app, platform, env, { sources = platform === 'macos', fps = 0 } = {}) {
+  if (!['macos', 'esp32'].includes(platform)) fail('--debug builds support native macOS and ESP32 targets.', ExitCode.usage)
+  if (app.runtime !== 'gea') fail(`Debugger requires the gea runtime; '${app.id}' uses '${app.runtime}'.`, ExitCode.usage)
+  const entry = debuggerEntry(env, platform === 'macos' ? 'launch.mjs' : 'device.mjs')
+  const debuggerRoot = path.resolve(path.dirname(entry), '..')
+  const nativeEnv = { ...env, GEA_NATIVE_DEBUGGER: '1' }
+  if (platform === 'macos') {
+    const source = path.join(debuggerRoot, 'native/macos.mm')
+    if (!existsSync(source)) fail(`Native debugger source not found: ${source}`, ExitCode.missingDependency)
+    nativeEnv.GEA_DEBUGGER_NATIVE_SOURCE = source
+    if (sources) {
+      nativeEnv.GEA_MACOS_DEBUG_INFO = 'full'
+      nativeEnv.GEA_MACOS_OPT_LEVEL = '-O0'
+    }
+    const stack = path.resolve(debuggerRoot, '..')
+    for (const [key, relative, marker] of [
+      ['GEA_APPLE_ROOT', 'apple/packages/geastack-apple', 'targets/macos/build-macos.sh'],
+      ['GEA_CORE', 'core/packages/core', 'gea_sources.mjs'],
+      ['GEA_COMPILER', 'compiler', 'dist/cli.js'],
+      ['GEA_PLUGIN', 'core/packages/geatsc-plugin-gea', 'dist/index.js']
+    ]) {
+      const directory = path.join(stack, relative)
+      if (!nativeEnv[key] && existsSync(path.join(directory, marker))) nativeEnv[key] = directory
+    }
+    if (!nativeEnv.GEA_GEATSC_BIN && nativeEnv.GEA_COMPILER) nativeEnv.GEA_GEATSC_BIN = path.join(nativeEnv.GEA_COMPILER, 'dist/cli.js')
+  } else if (platform === 'esp32') {
+    nativeEnv.GEA_DEBUGGER_FPS = String(fps)
+    nativeEnv.GEA_GEATSC_DEBUG_INFO = '1'
+  }
+  return { app: appForNativeDebugger(app, platform), env: nativeEnv, debuggerRoot }
+}
+
+function boardDebugContext(ctx, env, debuggerRoot) {
+  const debugCtx = { ...ctx, env }
+  const stack = path.resolve(debuggerRoot, '..')
+  for (const [field, key, relative] of [
+    ['targetsRoot', 'GEA_TARGETS_ROOT', 'targets'],
+    ['compilerPackageDir', 'GEA_COMPILER_DIR', 'compiler'],
+    ...['core', 'engine', 'host', 'chips', 'elements', 'geaos'].map(name => [name + 'PackageDir', 'GEA_' + name.toUpperCase() + (name === 'geaos' ? '_PACKAGE_DIR' : '_DIR'), 'core/packages/' + name]),
+    ['pluginPackageDir', 'GEA_PLUGIN_DIR', 'core/packages/geatsc-plugin-gea']
+  ]) { const directory = path.join(stack, relative); if (!env[key] && existsSync(path.join(directory, 'package.json'))) debugCtx[field] = directory }
+  return debugCtx
+}
+
+export async function buildBoardDebug({ ctx, parsed, rest, options, app }) {
+  const { selectBoard, buildCommand } = await import('./commands/board.mjs')
+  const built = nativeDebugBuildOf(app, 'esp32', options.env, { fps: debugFps(option(parsed, 'debug-fps')) })
+  const debugCtx = boardDebugContext(ctx, built.env, built.debuggerRoot)
+  const selection = selectBoard(debugCtx, parsed)
+  if (selection.adapter !== 'esp32-idf') fail('--debug board support currently requires an ESP32 target.', ExitCode.usage)
+  if (sourceDebuggingRequested(parsed, built.env) && (selection.idfTarget || 'esp32s3') !== 'esp32s3')
+    fail('--debug-sources requires an ESP32-S3 board with USB JTAG.', ExitCode.usage)
+  return buildCommand(debugCtx, parsed, rest, { ...options, env: built.env, debugApp: built.app })
+}
+
+// Gea Changes overrides: --overrides applies a saved file once the debugger
+// attaches, --save-overrides writes the session's net edits on exit.
+function overrideFiles({ overrides, saveOverrides }) {
+  const file = (value, name) => {
+    if (value === undefined) return undefined
+    if (typeof value !== 'string' || !value) fail(`${name} requires a file path.`, ExitCode.usage)
+    return path.resolve(value)
+  }
+  return { overrides: file(overrides, '--overrides'), saveOverrides: file(saveOverrides, '--save-overrides') }
+}
+
+export async function runDebug({ app, env, dryRun = false, stdout, port = 5181, debugPort = 9222, target = 'web', open = true, sources = true, overrides, saveOverrides }) {
   if (app.runtime !== 'gea') fail(`Debugger requires the gea runtime; '${app.id}' uses '${app.runtime}'.`, ExitCode.usage)
   const entry = debuggerEntry(env)
+  const overrideOptions = overrideFiles({ overrides, saveOverrides })
+  if (target !== 'macos' && (overrideOptions.overrides || overrideOptions.saveOverrides)) fail('--overrides and --save-overrides require --debug with native macOS or an ESP32 board.', ExitCode.usage)
   try {
     const { launchDebugger, chromeArgs, chromeExecutable, portNumber } = await import(pathToFileURL(entry).href)
     port = portNumber(port, '--port')
     debugPort = portNumber(debugPort, '--debug-port')
     if (target === 'macos') {
       if (process.platform !== 'darwin') fail('Native macOS debugging requires a Mac.', ExitCode.usage)
-      const debuggerRoot = path.resolve(path.dirname(entry), '..')
-      const source = path.join(debuggerRoot, 'native/macos.mm')
-      if (!existsSync(source)) fail(`Native debugger source not found: ${source}`, ExitCode.missingDependency)
-      const nativeEnv = { ...env, GEA_NATIVE_DEBUGGER: '1', GEA_DEBUGGER_NATIVE_SOURCE: source }
-      // Contributor checkouts use one source stack and the shared compiler.
-      // Explicit overrides win; installed packages retain npm resolution.
-      const stack = path.resolve(debuggerRoot, '..')
-      for (const [key, relative, marker] of [
-        ['GEA_APPLE_ROOT', 'apple/packages/geastack-apple', 'targets/macos/build-macos.sh'],
-        ['GEA_CORE', 'core/packages/core', 'gea_sources.mjs'],
-        ['GEA_COMPILER', 'compiler', 'dist/cli.js'],
-        ['GEA_PLUGIN', 'core/packages/geatsc-plugin-gea', 'dist/index.js']
-      ]) {
-        const directory = path.join(stack, relative)
-        if (!nativeEnv[key] && existsSync(path.join(directory, marker))) nativeEnv[key] = directory
-      }
-      if (!nativeEnv.GEA_GEATSC_BIN && nativeEnv.GEA_COMPILER) nativeEnv.GEA_GEATSC_BIN = path.join(nativeEnv.GEA_COMPILER, 'dist/cli.js')
-      await runMacos({ app: appForNativeDebugger(app, 'macos'), env: nativeEnv, dryRun, stdout })
+      const built = nativeDebugBuildOf(app, 'macos', env, { sources })
+      const { debuggerRoot } = built
+      await runMacos({ app: built.app, env: built.env, dryRun, stdout })
       const outputRoot = path.resolve(app.root, env.GEA_MACOS_OUTPUT_DIR || 'dist/macos')
       const subpath = env.GEA_MACOS_OUTPUT_TAG ? path.join('.namespaces', env.GEA_MACOS_OUTPUT_TAG, app.id) : app.id
       const executable = path.join(outputRoot, subpath, `${app.name}.app`, 'Contents/MacOS', app.name)
-      if (dryRun) { stdout(formatCommand([executable])); stdout(`Native CDP: ws://127.0.0.1:${debugPort}/devtools/page/gea`); return 0 }
+      if (dryRun) { stdout(formatCommand([executable])); stdout(`Native CDP: ws://127.0.0.1:${debugPort}/devtools/page/gea`); if (sources) stdout('Native Sources: LLDB with full symbols and no optimization.'); return 0 }
       if (!existsSync(executable)) fail(`Built native executable not found: ${executable}`, ExitCode.buildFailed)
       const { launchNativeDebugger } = await import(pathToFileURL(path.join(debuggerRoot, 'src/native.mjs')).href)
-      return await launchNativeDebugger({ executable, appRoot: app.root, title: app.name, env, debugPort, stdout, open })
+      const metadata = path.join(outputRoot, '.generated', subpath, 'gea-debug-source.json')
+      return await launchNativeDebugger({ executable, appRoot: app.root, title: app.name, env, debugPort, stdout, open, nativeDebug: sources ? { metadata } : undefined, ...overrideOptions })
     }
     const script = path.join(resolveSimulatorDir(env), 'targets/web/dev-web.mjs')
     if (!existsSync(script)) fail(`Web dev server not found: ${script}`, ExitCode.missingDependency)
@@ -102,17 +158,11 @@ export async function runBoardDebug({ ctx, parsed, rest, options, app }) {
   const { openDevice } = await import('./device/device.mjs')
   const { encodePng } = await import('./device/image.mjs')
   const entry = debuggerEntry(options.env, 'device.mjs')
-  const root = path.resolve(path.dirname(entry), '..')
   const fps = debugFps(option(parsed, 'debug-fps'))
-  const env = { ...options.env, GEA_NATIVE_DEBUGGER: '1', GEA_DEBUGGER_FPS: String(fps), GEA_GEATSC_DEBUG_INFO: '1' }
-  const stack = path.resolve(root, '..')
-  const debugCtx = { ...ctx, env }
-  for (const [field, key, relative] of [
-    ['targetsRoot', 'GEA_TARGETS_ROOT', 'targets'],
-    ['compilerPackageDir', 'GEA_COMPILER_DIR', 'compiler'],
-    ...['core', 'engine', 'host', 'chips', 'elements', 'geaos'].map(name => [name + 'PackageDir', 'GEA_' + name.toUpperCase() + (name === 'geaos' ? '_PACKAGE_DIR' : '_DIR'), 'core/packages/' + name]),
-    ['pluginPackageDir', 'GEA_PLUGIN_DIR', 'core/packages/geatsc-plugin-gea']
-  ]) { const directory = path.join(stack, relative); if (!env[key] && existsSync(path.join(directory, 'package.json'))) debugCtx[field] = directory }
+  const overrideOptions = overrideFiles({ overrides: option(parsed, 'overrides'), saveOverrides: option(parsed, 'save-overrides') })
+  const built = nativeDebugBuildOf(app, 'esp32', options.env, { fps })
+  const { env, debuggerRoot: root } = built
+  const debugCtx = boardDebugContext(ctx, env, root)
   const selection = selectBoard(debugCtx, parsed, { usb: true })
   if (selection.adapter !== 'esp32-idf') fail('--debug board support currently requires an ESP32 target.', ExitCode.usage)
   const sources = sourceDebuggingRequested(parsed, env)
@@ -122,9 +172,9 @@ export async function runBoardDebug({ ctx, parsed, rest, options, app }) {
   const debugPort = portNumber(option(parsed, 'debug-port', 9222), '--debug-port')
   if (option(parsed, 'open', true) !== false) chromeExecutable(env)
   const { launchDeviceDebugger } = await import(pathToFileURL(entry).href)
-  if (!flag(parsed, 'attach')) await flashCommand(debugCtx, parsed, rest, { ...options, env, debugApp: appForNativeDebugger(app, 'esp32') }, { monitor: false })
+  if (!flag(parsed, 'attach')) await flashCommand(debugCtx, parsed, rest, { ...options, env, debugApp: built.app }, { monitor: false })
   if (flag(parsed, 'dry-run')) { options.stdout(`Device CDP: ws://127.0.0.1:${debugPort}/devtools/page/gea`); if(fps)options.stdout(`Device debug FPS cap: ${fps}`); if(sources)options.stdout('Native Sources: USB JTAG requested.'); return 0 }
-  let nativeDebug
+  let nativeDebug, listenerSources
   if (sources) {
     const { nativeDebugBuilds } = await import('./debugger-builds.mjs')
     const builds = nativeDebugBuilds(debugCtx, selection, app, env)
@@ -134,8 +184,21 @@ export async function runBoardDebug({ ctx, parsed, rest, options, app }) {
       nativeDebug = {builds,serial:selection.usbSerial,env:idf.env,
         gdbExecutable:env.GEA_GDB_BIN || 'xtensa-esp32s3-elf-gdb',openocdExecutable:env.GEA_OPENOCD_BIN || 'openocd'}
     } else fail('--debug-sources requires matching local ELF/source metadata. Rebuild without --attach to generate source debugging files.', ExitCode.missingDependency)
-  } else options.stdout('Native Sources: disabled; --debug-sources explicitly enables USB JTAG for breakpoints and stepping.')
+  } else {
+    options.stdout('Native Sources: read-only; --debug-sources explicitly enables USB JTAG for breakpoints and stepping.')
+    // Event Listeners link to TSX through the firmware's ELF; no JTAG needed.
+    try {
+      const { nativeDebugBuilds } = await import('./debugger-builds.mjs')
+      const builds = nativeDebugBuilds(debugCtx, selection, app, env)
+      if (builds.length) {
+        const { activateEspIdf } = await import('./esp32/idf-env.mjs')
+        const idf = activateEspIdf({ env })
+        const chip = selection.idfTarget || 'esp32s3'
+        if (idf) listenerSources = { builds, env: idf.env, gdbExecutable: env.GEA_GDB_BIN || (['esp32', 'esp32s2', 'esp32s3'].includes(chip) ? `xtensa-${chip}-elf-gdb` : 'riscv32-esp-elf-gdb') }
+      }
+    } catch {}
+  }
   const device = await openDevice({ selection, transport: 'usb', env, stderr: options.stderr, waitSeconds: 15 })
-  try { return await launchDeviceDebugger({ serial: device.serial, screenshot: async () => { const shot = await device.screenshot(); return encodePng(shot.width, shot.height, shot.rgb).toString('base64') }, appRoot: app.root, title: app.name, env, debugPort, debugFps: fps, nativeDebug, stdout: options.stdout, open: option(parsed, 'open', true) !== false }) }
+  try { return await launchDeviceDebugger({ serial: device.serial, screenshot: async () => { const shot = await device.screenshot(); return encodePng(shot.width, shot.height, shot.rgb).toString('base64') }, appRoot: app.root, title: app.name, env, debugPort, debugFps: fps, nativeDebug, listenerSources, stdout: options.stdout, open: option(parsed, 'open', true) !== false, ...overrideOptions }) }
   finally { await device.close() }
 }

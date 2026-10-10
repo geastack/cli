@@ -118,6 +118,7 @@ effective build choices unchanged.
 | compiler.moduleGraph | auto, compile, only, disabled |
 | compiler.allowAny | boolean; default false |
 | ui.styleStorage | inline or shared; the existing default remains inline |
+| renderer.bandedUi | boolean; default false; app opt-in for DMA band rendering on ESP32 and RP2350 |
 | renderer.fuseReplayFlush | boolean |
 | renderer.subtreeRevealChecks | boolean; keep true when content can move into view from outside a recorded clip |
 | renderer.recordInlinePositions | boolean; false requires the app to refresh positions through its reactive updates |

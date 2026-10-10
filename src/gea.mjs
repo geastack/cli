@@ -59,7 +59,24 @@ export async function runGea(argv, io = {}) {
   const options = { stdout, stderr, env, stdin, output, prompt, probeSerialDevice: io.probeSerialDevice, fetchEspIdfLatest: io.fetchEspIdfLatest }
 
   if (option(parsed, 'debug-fps') !== undefined && !flag(parsed, 'debug')) fail('--debug-fps requires --debug.', ExitCode.usage)
-  if (flag(parsed, 'debug-sources') && !flag(parsed, 'debug')) fail('--debug-sources requires --debug with an ESP32-S3 board.', ExitCode.usage)
+  if (flag(parsed, 'debug-sources') && !flag(parsed, 'debug')) fail('--debug-sources requires --debug with macOS or an ESP32-S3 board.', ExitCode.usage)
+  for (const name of ['overrides', 'save-overrides'])
+    if (option(parsed, name) !== undefined && !(['run', 'dev', 'simulate'].includes(command) && flag(parsed, 'debug'))) fail(`--${name} requires gea run --debug.`, ExitCode.usage)
+
+  if (command === 'build' && flag(parsed, 'debug')) {
+    const target = option(parsed, 'target', '')
+    const app = webApp(ctx, parsed, rest, cwd)
+    const { nativeDebugBuildOf, buildBoardDebug, sourceDebuggingRequested } = await import('./debugger.mjs')
+    if (option(parsed, 'debug-sources') !== undefined) sourceDebuggingRequested(parsed, env)
+    if (target === 'macos' || (!target && !option(parsed, 'board') && process.platform === 'darwin' && app.targets?.macos && !declaresBoardTarget(app))) {
+      if (option(parsed, 'debug-fps') !== undefined) fail('--debug-fps currently requires --debug with an ESP32 board.', ExitCode.usage)
+      const built = nativeDebugBuildOf(app, 'macos', env, { sources: option(parsed, 'debug-sources', true) !== false })
+      const { runMacos } = await import('./macos/adapter.mjs')
+      return runMacos({ app: built.app, env: built.env, dryRun: flag(parsed, 'dry-run'), stdout })
+    }
+    if (target && knownPlatforms.includes(target) && target !== 'esp32') fail('--debug builds support native macOS and ESP32 targets.', ExitCode.usage)
+    return buildBoardDebug({ ctx, parsed, rest, options, app })
+  }
 
   if (['run', 'dev', 'simulate'].includes(command) && flag(parsed, 'debug')) {
     const target = option(parsed, 'target', '')
@@ -71,10 +88,15 @@ export async function runGea(argv, io = {}) {
       fail('--debug supports the DOM runtime, native macOS, and ESP32 boards over USB.', ExitCode.usage)
     }
     if (option(parsed, 'debug-fps') !== undefined) fail('--debug-fps currently requires --debug with an ESP32 board.', ExitCode.usage)
-    if (flag(parsed, 'debug-sources')) fail('--debug-sources requires --debug with an ESP32-S3 board.', ExitCode.usage)
     const app = webApp(ctx, parsed, rest, cwd)
+    const debugTarget = target || (command === 'run' && process.platform === 'darwin' && app.targets?.macos ? 'macos' : 'web')
+    if (flag(parsed, 'debug-sources') && debugTarget !== 'macos') fail('--debug-sources requires --debug with macOS or an ESP32-S3 board.', ExitCode.usage)
+    if (option(parsed, 'debug-sources') !== undefined) {
+      const { sourceDebuggingRequested } = await import('./debugger.mjs')
+      sourceDebuggingRequested(parsed, env)
+    }
     const { runDebug } = await import('./debugger.mjs')
-    return runDebug({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, port: option(parsed, 'port', 5181), debugPort: option(parsed, 'debug-port', 9222), target: target || (command === 'run' && process.platform === 'darwin' && app.targets?.macos ? 'macos' : 'web'), open: option(parsed, 'open', true) !== false })
+    return runDebug({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, port: option(parsed, 'port', 5181), debugPort: option(parsed, 'debug-port', 9222), target: debugTarget, open: option(parsed, 'open', true) !== false, sources: option(parsed, 'debug-sources', true) !== false, overrides: option(parsed, 'overrides'), saveOverrides: option(parsed, 'save-overrides') })
   }
 
   // Xbox is both a platform and a concrete built-in UWP target.
@@ -266,7 +288,7 @@ ${heading('Usage:')}
   gea doctor [--json] [--strict]                 check packages and toolchains
 
 ${heading('Run on this machine (no board needed):')}
-  gea run [app] --debug [--debug-port N]        live tree/CSS in Chrome DevTools [--target macos|web|esp32] [--board alias] [--attach] [--debug-fps 1..120] [--debug-sources]
+  gea run [app] --debug [--debug-port N]        live tree/CSS in Chrome DevTools [--target macos|web|esp32] [--board alias] [--attach] [--debug-fps 1..120] [--debug-sources] [--overrides file] [--save-overrides file]
   gea simulate [app] [--port N]                  DOM emulator with HMR [--renderer dom|wasm] [--no-open] [--width W --height H --dpr D --zoom Z]
   gea dev [app] [--port N]                       real DOM + CSS dev server with HMR  (same as --target web)
   gea build --target web [app] [--out-dir d]     build the app as a real web app

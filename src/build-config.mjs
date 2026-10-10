@@ -19,6 +19,7 @@ export const buildOptions = {
   'compiler.generatedCodeOptimization': { values: ['O0', 'O1', 'O2', 'O3', 'Os', 'Og'] },
   'compiler.numberPrecision': { values: ['float64', 'float32'], macro: 'GEA_NUMBER_FLOAT', encode: v => v === 'float32' ? 1 : undefined },
   'ui.styleStorage': { values: ['inline', 'shared'], macro: 'GEA_EMBEDDED_SHARED_STYLES', encode: v => Number(v === 'shared') },
+  'renderer.bandedUi': { type: 'boolean', macro: 'GEA_EMBEDDED_DISPLAY_BANDED_UI' },
   'renderer.fuseReplayFlush': { boardScoped: true, type: 'boolean', macro: 'GEA_EMBEDDED_DISPLAY_FUSE_REPLAY_FLUSH' },
   'renderer.subtreeRevealChecks': { type: 'boolean', macro: 'GEA_EMBEDDED_SUBTREE_REVEAL_CHECK' },
   'renderer.recordInlinePositions': { type: 'boolean', macro: 'GEA_EMBEDDED_SKIP_POSITION_INLINE_RECORD', encode: v => Number(!v) },

@@ -237,6 +237,13 @@ target is not required for debugging; the source manifest is unchanged. On Mac,
 `gea run --debug` defaults to native for an app that already declares macOS.
 `gea run --debug --target web` uses the existing DOM/CSS runtime with Vite HMR.
 
+`gea build --debug --target macos` produces the same instrumented native app
+without launching it or opening Chrome. `gea build --debug --board amoled`
+builds ESP32 debug firmware without flashing or opening USB. Both commands use
+the same debug configuration as `run`, including editable CSS. macOS retains
+full symbols and unoptimized code by default; `--no-debug-sources` disables
+that source-debugging build override.
+
 Elements inspects the native tree, authored class CSS, common inline/computed
 styles, text, attributes and layout. Inline CSS and tree edits affect the actual
 AppKit window. The Console runs JavaScriptCore scripts with `document`, `$0`,
@@ -280,7 +287,10 @@ shows native C++ locals; paused-frame evaluation accepts GDB C++ expressions.
 The board has two breakpoint slots. Its matching ELF is verified before attach;
 older firmware needs a fresh build. Tree/style inspection does not start JTAG
 by default. `GEA_DEBUGGER_JTAG=1` also opts in; `--no-debug-sources` overrides it.
-Native Mac source stepping is not implemented yet. Inline
+On macOS, source debugging is enabled by default. LLDB uses full symbols and
+unoptimized native code for original TS/TSX breakpoints and Step Over/Into/Out.
+Scopes expose native C++ values; paused expressions use C++ syntax. Use
+`--no-debug-sources` to run tree/style inspection without LLDB. Inline
 styles, authored class rules, attributes, text, append/remove and compiled event clicks affect the
 actual device. Live changes are sampled every 750 ms. See the debugger README
 for supported properties, USB bounds, and example scripts.
@@ -293,3 +303,11 @@ on current debug firmware without rebuilding/flashing. Omitting the flag leaves
 an existing attached app's cap alone; a fresh build defaults to normal pacing.
 The cap persists after disconnecting. Firmware from before snapshot integrity
 and FPS control support needs one rebuild.
+
+DevTools edits on macOS and boards go into a shared Gea Changes history that you
+can undo and save. `--save-overrides edits.json` writes the net edits when the
+debugger exits. `--overrides edits.json` replays them as soon as it attaches:
+
+```sh
+gea run --debug --target macos --overrides edits.json --save-overrides edits.json
+```

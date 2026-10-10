@@ -433,6 +433,13 @@ function preparePartitions(app, config, buildDir, targetId) {
     // `set(... CACHE STRING ...)`, so a -D of the same name, which exists before
     // the board's CMakeLists runs, wins without the board knowing about apps.
     const cssDpr = cssDevicePixelRatioLiteral(resolvedBuild.cssDevicePixelRatio)
+    const rtcExcluded = resolvedBuild.defines.includes('GEA_EMBEDDED_RTC_UNUSED=1')
+    if (rtcExcluded && capabilities.bindings.includes('rtc'))
+      fail('GEA_EMBEDDED_RTC_UNUSED=1 conflicts with the app RTC binding', ExitCode.usage)
+    const rtcUsed = capabilities.network && !rtcExcluded
+    // Video reachability is not yet part of analysis. Keep H264 by default;
+    // an app that only uses PCM/JPEG can explicitly exclude it.
+    const h264Used = capabilities.network && !resolvedBuild.defines.includes('GEA_EMBEDDED_H264_UNUSED=1')
     const appDefines = [env.GEA_NATIVE_DEBUGGER === '1' && 'GEA_NATIVE_DEBUGGER=1', env.GEA_NATIVE_DEBUGGER === '1' && `GEA_NATIVE_DEBUGGER_FPS=${debugFps(env.GEA_DEBUGGER_FPS === '0' ? undefined : env.GEA_DEBUGGER_FPS)}`, withRendererFeatureDefines(resolvedBuild.defines.join(';'), env.GEA_NATIVE_DEBUGGER === '1' ? capabilities.features.filter(f => f === 'worker-realms') : capabilities.features, { devicePixelRatio: cssDpr ? Number(cssDpr) : undefined }), cssDpr && `GEA_EMBEDDED_CSS_LAYOUT_DEVICE_PIXEL_RATIO=${cssDpr}`]
       .filter(Boolean)
       .join(';')
@@ -468,7 +475,10 @@ function preparePartitions(app, config, buildDir, targetId) {
     idfArgs.push(
       `-DGEA_EMBEDDED_CAPABILITY_NETWORK=${capabilities.network ? 1 : 0}`,
       `-DGEA_EMBEDDED_CAPABILITY_BLE=${capabilities.ble ? 1 : 0}`,
-      `-DGEA_EMBEDDED_CAPABILITY_AUDIO=${capabilities.audio ? 1 : 0}`
+      `-DGEA_EMBEDDED_CAPABILITY_AUDIO=${capabilities.audio ? 1 : 0}`,
+      `-DGEA_EMBEDDED_CAPABILITY_CAMERA=${capabilities.bindings.includes('camera') ? 1 : 0}`,
+      `-DGEA_EMBEDDED_CAPABILITY_RTC=${rtcUsed ? 1 : 0}`,
+      `-DGEA_EMBEDDED_CAPABILITY_H264=${h264Used ? 1 : 0}`
     )
     // IDF's MINIMAL_BUILD component-requirements pass runs before normal
     // CMake cache propagation; environment values stay visible there, so
@@ -479,6 +489,9 @@ function preparePartitions(app, config, buildDir, targetId) {
     childEnv.GEA_EMBEDDED_CAPABILITY_NETWORK = capabilities.network ? '1' : '0'
     childEnv.GEA_EMBEDDED_CAPABILITY_BLE = capabilities.ble ? '1' : '0'
     childEnv.GEA_EMBEDDED_CAPABILITY_AUDIO = capabilities.audio ? '1' : '0'
+    childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA = capabilities.bindings.includes('camera') ? '1' : '0'
+    childEnv.GEA_EMBEDDED_CAPABILITY_RTC = rtcUsed ? '1' : '0'
+    childEnv.GEA_EMBEDDED_CAPABILITY_H264 = h264Used ? '1' : '0'
     if (bleOta) childEnv.GEA_EMBEDDED_BLE_OTA = '1'
     log(`App capabilities: network=${capabilities.network ? 1 : 0} ble=${capabilities.ble ? 1 : 0} audio=${capabilities.audio ? 1 : 0}`)
     generateWifiConfig(app.root, path.join(buildDir, 'apps', app.id, 'wifi_config.h'))

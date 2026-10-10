@@ -17,7 +17,7 @@ export function runIos({ app, env, dryRun = false, stdout, mode = '', run = fals
   if (destination !== 'simulator' && destination !== 'device') {
     fail(`--mode ${mode} is not an iOS destination; expected simulator or device.`, ExitCode.usage)
   }
-  const { script, require } = appleTargetScript(app, 'ios', 'build-ios.sh')
+  const { script, require } = appleTargetScript(app, 'ios', 'build-ios.sh', env)
   const childEnv = appleChildEnv(app, nativeScriptBuildEnv(app, 'ios', env, { dryRun }), require)
   if (!run && childEnv.GEA_IOS_SKIP_LAUNCH === undefined) childEnv.GEA_IOS_SKIP_LAUNCH = '1'
   if (dryRun) {

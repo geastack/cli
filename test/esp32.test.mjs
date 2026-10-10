@@ -5,7 +5,7 @@ import test from 'node:test'
 
 import { parseArgs } from '../src/args.mjs'
 import { createContext } from '../src/context.mjs'
-import { applySdkconfigPolicy, cmakeValue, ensureConfigured, esp32BuildDir, publishEsp32Output, requireEspIdf } from '../src/esp32/build.mjs'
+import { applySdkconfigPolicy, cmakeValue, ensureConfigured, esp32BuildDir, prepareEsp32Build, publishEsp32Output, requireEspIdf } from '../src/esp32/build.mjs'
 import { manifestRequestsBleOta, parseAnalysis, resolveAppCapabilities } from '../src/esp32/capabilities.mjs'
 import { activateEspIdf, esptoolCommand, findEspIdf, findIdfPythonEnv } from '../src/esp32/idf-env.mjs'
 import { DEFAULT_ESP_IDF_VERSION, espIdfVersionForTarget, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
@@ -19,6 +19,56 @@ import { createFixture } from './helpers/fixture.mjs'
 test('CMake arguments carry forward slashes on Windows and are untouched elsewhere', () => {
   assert.equal(cmakeValue('C:\\Users\\me\\app;src/native/main.cpp', 'win32'), 'C:/Users/me/app;src/native/main.cpp')
   assert.equal(cmakeValue('/home/me/app;src/native/main.cpp', 'linux'), '/home/me/app;src/native/main.cpp')
+})
+
+test('camera binding enables capture in CMake and component-manager dependency resolution', (t) => {
+  const fixture = createFixture(t)
+  const compiler = path.join(fixture.installed('compiler'), 'dist/cli.js')
+  const original = readFileSync(compiler, 'utf8')
+  writeFileSync(compiler, original.replace('bindings=audio;fetch', 'bindings=camera'))
+  const ctx = createContext(parseArgs([]), fixture.env, fixture.appDir)
+  const app = findCurrentApp(fixture.appDir)
+  const selection = {
+    target: 'esp32-s3-touch-amoled-2.06', targetDir: fixture.esp32Target,
+    idfTarget: 'esp32s3', flashSize: '16MB'
+  }
+  const camera = prepareEsp32Build({ ctx, selection, app, dryRun: true })
+  assert.ok(camera.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_CAMERA=1'))
+  assert.equal(camera.childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA, '1')
+  writeFileSync(compiler, original)
+  const ordinary = prepareEsp32Build({ ctx, selection, app, dryRun: true })
+  assert.ok(ordinary.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_CAMERA=0'))
+  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA, '0')
+})
+
+test('explicit RTC and H264 exclusion reach native defines and dependency resolution', (t) => {
+  const fixture = createFixture(t)
+  const compiler = path.join(fixture.installed('compiler'), 'dist/cli.js')
+  const original = readFileSync(compiler, 'utf8')
+  const ctx = createContext(parseArgs([]), fixture.env, fixture.appDir)
+  const app = findCurrentApp(fixture.appDir)
+  const selection = {
+    target: 'esp32-s3-touch-amoled-2.06', targetDir: fixture.esp32Target,
+    idfTarget: 'esp32s3', flashSize: '16MB'
+  }
+  const ordinary = prepareEsp32Build({ ctx, selection, app, dryRun: true })
+  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, '1')
+  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_H264, '1')
+  assert.doesNotMatch(ordinary.childEnv.GEA_EMBEDDED_APP_DEFINES ?? '', /GEA_EMBEDDED_RTC_UNUSED/)
+  writeFileSync(compiler, original.replace('bindings=audio;fetch', 'bindings=audio;rtc'))
+  const rtc = prepareEsp32Build({ ctx, selection, app, dryRun: true })
+  assert.equal(rtc.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, '1')
+  assert.ok(rtc.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_RTC=1'))
+  assert.doesNotMatch(rtc.childEnv.GEA_EMBEDDED_APP_DEFINES ?? '', /GEA_EMBEDDED_RTC_UNUSED/)
+  app.defines.push('GEA_EMBEDDED_H264_UNUSED=1', 'GEA_EMBEDDED_RTC_UNUSED=1')
+  assert.throws(() => prepareEsp32Build({ ctx, selection, app, dryRun: true }), /conflicts with the app RTC binding/)
+  writeFileSync(compiler, original)
+  const pcmAndJpeg = prepareEsp32Build({ ctx, selection, app, dryRun: true })
+  assert.equal(pcmAndJpeg.childEnv.GEA_EMBEDDED_CAPABILITY_H264, '0')
+  assert.equal(pcmAndJpeg.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, '0')
+  assert.match(pcmAndJpeg.childEnv.GEA_EMBEDDED_APP_DEFINES, /GEA_EMBEDDED_RTC_UNUSED=1/)
+  assert.ok(pcmAndJpeg.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_H264=0'))
+  assert.match(pcmAndJpeg.childEnv.GEA_EMBEDDED_APP_DEFINES, /GEA_EMBEDDED_H264_UNUSED=1/)
 })
 
 test('ESP-IDF activation keeps a single PATH key when the environment spells it Path', (t) => {

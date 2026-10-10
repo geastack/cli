@@ -1,6 +1,6 @@
 {
   "name": "@geastack/cli",
-  "version": "0.1.99",
+  "version": "0.1.102",
   "description": "Command-line front door for GeaStack apps, targets, and local toolchains.",
   "license": "Apache-2.0",
   "repository": {
@@ -37,19 +37,21 @@
   ],
   "dependencies": {
     "@clack/prompts": "^1.8.0",
-    "@geastack/debugger": "^0.1.0",
-    "@geastack/simulator": "^0.1.14",
-    "@geastack/targets": "^0.1.98",
+    "@geastack/simulator": "^0.1.15",
+    "@geastack/targets": "^0.1.101",
     "picocolors": "^1.1.1",
     "serialport": "^13.0.0"
   },
   "starterDependencies": {
-    "@geastack/core": "^0.1.34",
-    "@geastack/targets": "^0.1.98",
-    "@geastack/apple": "^0.2.13"
+    "@geastack/core": "^0.1.40",
+    "@geastack/targets": "^0.1.101",
+    "@geastack/apple": "^0.2.15"
   },
   "scripts": {
     "check": "node --check bin/gea.mjs && node --check bin/create-geastack.mjs && find src test packages -name '*.mjs' -print0 | xargs -0 -n1 node --check",
     "test": "node --test"
+  },
+  "optionalDependencies": {
+    "@geastack/debugger": "^0.1.0"
   }
 }

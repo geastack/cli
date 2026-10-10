@@ -103,6 +103,29 @@ test('USB JTAG requires explicit source debugging and can be disabled over an en
     stdout: text => output.push(text),
   })
   assert.ok(output.includes('Native Sources: USB JTAG requested.'))
-  for (const flags of [['--debug-sources'], ['--debug', '--debug-sources', '--target', 'web'], ['--debug', '--debug-sources', '--target', 'macos']])
+  for (const flags of [['--debug-sources'], ['--debug', '--debug-sources', '--target', 'web']])
     await assert.rejects(runGea(['run', ...flags], { env, cwd: path.join(root, 'examples/apps/bouncing-balls-jsx'), stdout() {} }), /--debug-sources requires/)
+})
+
+test('macOS enables LLDB symbols by default and accepts an explicit source debugging option', { skip: process.platform !== 'darwin' }, async () => {
+  for (const flags of [[], ['--debug-sources'], ['--no-debug-sources']]) {
+    const output = []
+    await runGea(['run', '--debug', '--target', 'macos', '--dry-run', '--no-open', ...flags], {
+      env, cwd: path.join(root, 'examples/apps/bouncing-balls-jsx'), stdout: text => output.push(text),
+    })
+    const command = output.join('\n')
+    if (!flags.includes('--no-debug-sources')) {
+      assert.match(command, /Native Sources: LLDB with full symbols and no optimization/)
+    } else assert.doesNotMatch(command, /Native Sources: LLDB/)
+    assert.match(command, /Native CDP: ws:/)
+  }
+})
+
+test('Gea Changes override files require a debug run and a path', async () => {
+  for (const flags of [['build', '--overrides', 'edits.json'], ['run', '--save-overrides', 'edits.json']])
+    await assert.rejects(runGea(flags, { env, cwd: root, stdout() {} }), /requires gea run --debug/)
+  await assert.rejects(
+    runGea(['run', '--debug', '--target', 'macos', '--no-open', '--project', path.join(root, 'examples'), '--app', 'tic-tac-toe', '--overrides'], { env, cwd: root, stdout() {} }),
+    /--overrides requires a file path/,
+  )
 })

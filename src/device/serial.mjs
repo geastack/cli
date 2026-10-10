@@ -72,15 +72,18 @@ export class SerialDevice {
       try {
         owners = execFileSync('/usr/sbin/lsof', [
           '-t',
+          '-nP',
           devicePath.replace('/dev/tty.', '/dev/cu.'),
           devicePath.replace('/dev/cu.', '/dev/tty.')
         ], {
           encoding: 'utf8',
-          timeout: 2000,
+          timeout: 15000,
           stdio: ['ignore', 'pipe', 'ignore']
         }).trim()
       } catch (error) {
-        if (error.status !== 1 && error.code !== 'ENOENT') {
+        // A loaded host can take seconds to list open files; a timed-out
+        // check is not a busy port, and the flock below still catches one.
+        if (error.status !== 1 && error.code !== 'ENOENT' && error.code !== 'ETIMEDOUT' && error.signal !== 'SIGTERM') {
           throw new Error(`Could not check serial ownership for ${devicePath}`, { cause: error })
         }
         owners = error.stdout?.toString().trim() || ''
@@ -287,6 +290,8 @@ export const geadev = {
   reboot: (d) => d.command('GEADEV REBOOT', ['GEADEV:OK REBOOT']),
   notify: (d, text) => d.command(`GEADEV NOTIFY ${text}`, ['GEADEV:OK NOTIFY']),
   rm: (d, devicePath) => d.command(`GEADEV RM ${devicePath}`, ['GEADEV:RM OK', 'GEADEV:RM ERR']),
+  // Erases and re-formats a board's file volume (everything on it is lost); a chip erase takes a while.
+  format: (d, mount) => d.command(`GEADEV FORMAT ${mount}`, ['GEADEV:FORMAT OK', 'GEADEV:FORMAT ERR'], 180000),
   playFile: (d, devicePath) => d.command(`GEADEV PLAYFILE ${devicePath}`, ['GEADEV:PLAYFILE OK', 'GEADEV:PLAYFILE ERR'], 30000),
 
   async brightness(d, value) {
@@ -459,6 +464,12 @@ export const geadev = {
   // stream as pushFile.
   async otaUpdate(d, source, { timeoutMs = 120000, stderr = () => {} } = {}) {
     const data = readFileSync(source)
+    // End whatever partial line the console holds first. A failed ROM-downloader
+    // attempt leaves esptool's sync bytes in it with no newline, and the command
+    // appended to them is refused as line-too-long -- every retry, until a bare
+    // newline clears it.
+    await d.writeRaw(Buffer.from('\n'))
+    await new Promise((resolve) => setTimeout(resolve, 100))
     await d.writeLine(`GEADEV OTA ${data.length} ${crc32(data)}`)
     const ready = await waitFor(d, 'GEADEV:OTA READY', 'GEADEV:OTA ERR', 15000, 'OTA READY')
     const startedAt = Date.now()

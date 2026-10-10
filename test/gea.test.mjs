@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import { CliError, ExitCode } from '../src/errors.mjs'
 import { runGea } from '../src/gea.mjs'
+import { onPath } from '../src/toolchain.mjs'
 import { capture, createFakeToolchain, createFixture, readJson, scriptedPrompt, writeExecutable, writeJson } from './helpers/fixture.mjs'
 
 test('help, version, and unknown command behavior are stable', async () => {
@@ -207,9 +208,11 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
   const dry = await gea(['build', '--board', 'amoled', '--dry-run'], fixture)
   assert.equal(dry.code, 0)
   const python = path.join(fixture.env.IDF_PYTHON_ENV_PATH, 'bin/python')
-  assert.match(dry.out, new RegExp(`^${escapeRegex(python)} ${escapeRegex(fixture.env.IDF_PATH)}/tools/idf.py -G Ninja -B ${escapeRegex(buildDir)} -DSDKCONFIG=${escapeRegex(buildDir)}/sdkconfig -DSDKCONFIG_DEFAULTS=${escapeRegex(fixture.esp32Target)}/sdkconfig.defaults -DIDF_TARGET=esp32s3 -DGEA_BUILD_CONFIG_FILE=${escapeRegex(buildDir)}/gea-build-config.cmake -DGEA_BUILD_CONFIG_JSON=${escapeRegex(buildDir)}/gea-build-config.json -DGEA_BUILD_CONFIG_HASH=[a-f0-9]{64} -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=${escapeRegex(fixture.appDir)};index.tsx;gea' -DGEA_EMBEDDED_CAPABILITY_NETWORK=1 -DGEA_EMBEDDED_CAPABILITY_BLE=0 -DGEA_EMBEDDED_CAPABILITY_AUDIO=1 reconfigure$`, 'm'))
+  // The fixture PATH keeps the system directories, which hold ccache on some hosts.
+  const ccache = onPath('ccache', fixture.env)
+  assert.match(dry.out, new RegExp(`^${escapeRegex(python)} ${escapeRegex(fixture.env.IDF_PATH)}/tools/idf.py${ccache ? ' --ccache' : ''} -G Ninja -B ${escapeRegex(buildDir)} -DSDKCONFIG=${escapeRegex(buildDir)}/sdkconfig -DSDKCONFIG_DEFAULTS=${escapeRegex(fixture.esp32Target)}/sdkconfig.defaults -DIDF_TARGET=esp32s3 -DGEA_BUILD_CONFIG_FILE=${escapeRegex(buildDir)}/gea-build-config.cmake -DGEA_BUILD_CONFIG_JSON=${escapeRegex(buildDir)}/gea-build-config.json -DGEA_BUILD_CONFIG_HASH=[a-f0-9]{64} -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=${escapeRegex(fixture.appDir)};index.tsx;gea' -DGEA_EMBEDDED_CAPABILITY_NETWORK=1 -DGEA_EMBEDDED_CAPABILITY_BLE=0 -DGEA_EMBEDDED_CAPABILITY_AUDIO=1 -DGEA_EMBEDDED_CAPABILITY_CAMERA=0 -DGEA_EMBEDDED_CAPABILITY_RTC=1 -DGEA_EMBEDDED_CAPABILITY_H264=1 reconfigure$`, 'm'))
   assert.match(dry.out, new RegExp(`^cmake --build ${escapeRegex(buildDir)} --parallel 8$`, 'm'))
-  assert.doesNotMatch(dry.out, /--ccache/, 'ccache is only passed when it is on PATH')
+  if (!ccache) assert.doesNotMatch(dry.out, /--ccache/, 'ccache is only passed when it is on PATH')
   assert.equal(fs.existsSync(path.join(buildDir, 'CMakeCache.txt')), false, 'dry-run never configures')
   // Preparation still happens in dry-run so the printed command is real.
   assert.match(fs.readFileSync(path.join(buildDir, 'sdkconfig'), 'utf8'), /^CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768$/m)
@@ -313,6 +316,18 @@ test('`gea build --target ios` runs the iOS target script from @geastack/apple',
     gea(['build', '--target', 'ios', '--dry-run'], fixture, { cwd: iosApp }),
     (error) => error instanceof CliError && error.exitCode === ExitCode.missingDependency && /@geastack\/apple is not installed/.test(error.message)
   )
+
+  // An explicit override belongs to this command's environment, just as the
+  // dependency lookup does. It must not resolve from the parent process instead.
+  const overrideApp = path.join(fixture.root, 'apple-override')
+  installFakeApple(overrideApp)
+  const appleRoot = path.join(overrideApp, 'node_modules', '@geastack', 'apple')
+  const overridden = await gea(['build', '--target', 'ios', '--dry-run'], fixture, {
+    cwd: iosApp,
+    env: { ...fixture.env, GEA_APPLE_ROOT: appleRoot }
+  })
+  assert.equal(overridden.code, 0, overridden.err)
+  assert.match(overridden.out, new RegExp(`${escapeRegex(appleRoot)}/targets/ios/build-ios\\.sh phone simulator$`, 'm'))
   installFakeApple(iosApp)
 
   // The simulator is the default destination; --mode picks the device build.
@@ -708,7 +723,7 @@ test('doctor requires npm packages while platform tools are optional', async (t)
   assert.equal(result.checks.find((check) => check.name === 'ESP-IDF').ok, true)
   assert.equal(result.checks.find((check) => check.name === 'ESP-IDF python env').ok, true)
   assert.equal(result.checks.find((check) => check.name === 'ninja').ok, true)
-  assert.equal(result.checks.find((check) => check.name === 'ccache').ok, false)
+  assert.equal(result.checks.find((check) => check.name === 'ccache').ok, onPath('ccache', { PATH: `${tools.bin}${path.delimiter}${fixture.env.PATH}` }))
   assert.equal(result.checks.find((check) => check.name === 'ccache').required, false)
 })
 

@@ -9,7 +9,7 @@ import { chooseTransport, openDevice, saveScreenshot } from '../device/device.mj
 import { geadev } from '../device/serial.mjs'
 import { ExitCode, fail } from '../errors.mjs'
 import { buildEsp32Firmware, buildImages, esp32BuildDir, fullCleanEsp32, requireEspIdf } from '../esp32/build.mjs'
-import { eraseSlot, flashFirmware, flashImageSet, flashOptions, postFlashRestartNote, restoreBootMetadata, stageImage } from '../esp32/flash.mjs'
+import { eraseSlot, flashFirmware, flashImageSet, flashOptions, postFlashRestartNote, restoreBootMetadata, stageImage, runEsptoolOverUsb } from '../esp32/flash.mjs'
 import { bleOta, otaEraseSlot, otaFlash, otaStage, waitForReboot } from '../esp32/ota.mjs'
 import { manifestRequestsBleOta } from '../esp32/capabilities.mjs'
 import { runGeaos } from '../geaos/adapter.mjs'
@@ -117,7 +117,7 @@ function requireApp(ctx, selection, app) {
 
 export async function buildCommand(ctx, parsed, rest, options) {
   const selection = selectBoard(ctx, parsed)
-  const app = requireAppForAdapter(ctx, parsed, selection, optionalApp(ctx, parsed, rest, selection))
+  const app = options.debugApp || requireAppForAdapter(ctx, parsed, selection, optionalApp(ctx, parsed, rest, selection))
   const base = io(parsed, options)
   const env = createChildEnv(ctx, base.env)
   switch (selection.adapter) {
@@ -216,7 +216,7 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
 async function usbAppUpdate({ selection, image, appLabel, env, stdout, stderr }) {
   let device
   try {
-    device = await openDevice({ selection, transport: 'usb', env, stderr: () => {}, waitSeconds: 5 })
+    device = await openDevice({ selection, transport: 'usb', env, stderr: () => {}, waitSeconds: 20 })
   } catch {
     stderr('No running gea app answered on USB; falling back to the ROM downloader (hold BOOT while powering on).')
     return false
@@ -255,7 +255,7 @@ async function usbAppAnswers({ selection, appLabel, env }) {
   while (Date.now() < deadline) {
     let device
     try {
-      device = await openDevice({ selection, transport: 'usb', env, stderr: () => {}, waitSeconds: 5 })
+      device = await openDevice({ selection, transport: 'usb', env, stderr: () => {}, waitSeconds: 20 })
       const pong = await geadev.ping(device.serial)
       return /\bapp=(\S+)/.exec(pong)?.[1] === appLabel
     } catch {
@@ -442,7 +442,8 @@ Verbs (USB, GEADEV protocol):
   set-default <app-id>    set-time [epochSeconds]
   ls [path]               rm <path>
   push <local> <remote> [--base64]               pull <remote> <local>
-  playfile <path>
+  read-flash <offset> <size> <file>             ESP32 ROM/stub flash backup [--no-stub]
+  playfile <path>         format <mount>  (erase + re-format a file volume, e.g. /nand)
 
 Display knobs (either transport; no value reports the current one):
   brightness [0-100]      hbm [on|off]           vsync [on|off]`
@@ -503,6 +504,18 @@ export async function devctlCommand(ctx, parsed, rest, options) {
     return verb ? 0 : ExitCode.usage
   }
   const selection = selectBoard(ctx, parsed, {})
+  if (verb === 'read-flash') {
+    if (selection.adapter !== 'esp32-idf' || args.length !== 3) fail('devctl read-flash <offset> <size> <file> needs an ESP32 board.', ExitCode.usage)
+    const offset = Number(args[0])
+    const size = Number(args[1])
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(size) || size <= 0) fail('Flash offset and size must be nonnegative/positive integers.', ExitCode.usage)
+    const env = createChildEnv(ctx, options.env)
+    const idf = requireEspIdf(env, options.stdout, selection)
+    const opts = flashOptions(idf.env, { idf, selection, baud: option(parsed, 'flash-baud', '') })
+    const destination = path.resolve(ctx.cwd, args[2])
+    await runEsptoolOverUsb({ idf, selection, options: opts, env: idf.env, logDir: path.dirname(destination), verbose: true, stdout: options.stdout, stderr: options.stderr, args: ['--chip', selection.esptoolChip || selection.idfTarget || 'esp32s3', '--before', opts.before, '--after', opts.after, '-b', opts.baud, ...(option(parsed, 'stub') === false ? ['--no-stub'] : []), 'read-flash', String(offset), String(size), destination] })
+    return 0
+  }
   // Display knobs answer on both transports, so they follow the board's own
   // preference (WiFi when it has an address) instead of forcing one; every
   // other verb is GEADEV-only and needs the cable.
@@ -553,6 +566,7 @@ export async function devctlCommand(ctx, parsed, rest, options) {
       case 'set-time': print(await geadev.setTime(d, args[0] ? num(args[0], 'epoch') : Math.floor(Date.now() / 1000))); break
       case 'ls': print(await geadev.ls(d, args[0] || '/sdcard')); break
       case 'rm': need(1); print(await geadev.rm(d, args[0])); break
+      case 'format': need(1); print(await geadev.format(d, args[0])); break
       case 'push': need(2); print(await geadev.pushFile(d, path.resolve(ctx.cwd, args[0]), args[1], { base64: flag(parsed, 'base64'), stderr: base.stderr })); break
       case 'pull': need(2); print(await geadev.pullFile(d, args[0], path.resolve(ctx.cwd, args[1]))); break
       case 'playfile': need(1); print(await geadev.playFile(d, args[0])); break
