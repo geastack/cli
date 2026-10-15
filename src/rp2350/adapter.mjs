@@ -8,7 +8,7 @@ import { resolvePicotoolSelection } from '../boards/usb.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { appCmakeMeta } from '../manifest.mjs'
 import { formatCommand } from '../run.mjs'
-import { findOnPath } from '../toolchain.mjs'
+import { findOnPath, globDirs } from '../toolchain.mjs'
 
 // Raspberry Pi RP2350 boards through the Pico SDK: cmake configure + build,
 // then UF2 over the BOOTSEL volume or picotool.
@@ -35,28 +35,6 @@ function toolchainHasRuntime(root) {
     }
   }
   return false
-}
-
-// Expands `*` in any path segment, one directory level per segment:
-// `~/Tools/arm-gnu-toolchain-*/extract/Payload` matches every installed version.
-export function globDirs(pattern) {
-  const segments = pattern.split(path.sep)
-  let matches = [segments[0] || path.sep]
-  for (const segment of segments.slice(1)) {
-    if (!segment.includes('*')) {
-      matches = matches.map((dir) => path.join(dir, segment))
-      continue
-    }
-    const re = new RegExp(`^${segment.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
-    matches = matches.flatMap((dir) => {
-      try {
-        return readdirSync(dir).filter((name) => re.test(name)).sort().map((name) => path.join(dir, name))
-      } catch {
-        return []
-      }
-    })
-  }
-  return matches.filter((dir) => existsSync(dir))
 }
 
 export function prepareArmToolchain(env, stderr = () => {}) {

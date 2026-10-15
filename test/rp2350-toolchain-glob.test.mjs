@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { globDirs } from '../src/rp2350/adapter.mjs'
+import { globDirs } from '../src/toolchain.mjs'
 
 test('globDirs expands a wildcard in a middle segment', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'gea-glob-'))
