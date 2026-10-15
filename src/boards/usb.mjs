@@ -19,12 +19,14 @@ const serialPatterns = [
   /^ttyUSB/
 ]
 
-export function serialPortCandidates() {
+export function serialPortCandidates(env = process.env) {
   // Windows has no /dev: a port is `COM3`, enumerated through the OS rather
   // than listed in a directory. Everything below that asks "is this port here?"
   // has to go through the same enumeration, because existsSync('COM3') is
-  // always false and made every Windows wait time out.
-  if (process.platform === 'win32') return detectSerialDevices({}).map((device) => device.path).sort()
+  // always false and made every Windows wait time out. It is the command's
+  // environment that is enumerated, so a GEA_SERIAL_DEVICES given to the
+  // command replaces the OS list here as it does when resolving a serial.
+  if (process.platform === 'win32') return detectSerialDevices({ env }).map((device) => device.path).sort()
   const dev = '/dev'
   if (!existsSync(dev)) return []
   return readdirSync(dev)
@@ -34,10 +36,10 @@ export function serialPortCandidates() {
 }
 
 // Windows port names are case-insensitive, so compare them that way.
-export function serialPortPresent(port) {
+export function serialPortPresent(port, env = process.env) {
   if (!port) return false
   if (process.platform !== 'win32') return existsSync(port)
-  return serialPortCandidates().some((candidate) => candidate.toUpperCase() === port.toUpperCase())
+  return serialPortCandidates(env).some((candidate) => candidate.toUpperCase() === port.toUpperCase())
 }
 
 export function resolveAutoUsbPort() {
@@ -250,7 +252,7 @@ export async function waitForSerialPort({
   let nextLog = startedAt
   while (true) {
     if (port) {
-      if (portPresent(port)) {
+      if (portPresent(port, env)) {
         if (!serial) return port
         try {
           if (resolver({ serial }, { env }) === port) return port
@@ -261,12 +263,12 @@ export async function waitForSerialPort({
     } else if (serial) {
       try {
         const resolved = resolver({ serial }, { env })
-        if (resolved && portPresent(resolved)) return resolved
+        if (resolved && portPresent(resolved, env)) return resolved
       } catch {
         // not attached yet
       }
     } else {
-      const candidate = serialPortCandidates()[0]
+      const candidate = serialPortCandidates(env)[0]
       if (candidate) return candidate
     }
     const elapsed = (Date.now() - startedAt) / 1000

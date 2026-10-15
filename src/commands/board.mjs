@@ -250,7 +250,7 @@ async function usbAppAnswers({ selection, appLabel, env }) {
   try {
     port = resolveUsbSerialPort({ serial: selection.usbSerial }, { env })
   } catch {}
-  if (port && serialPortPresent(port)) return false
+  if (port && serialPortPresent(port, env)) return false
   const deadline = Date.now() + 30000
   while (Date.now() < deadline) {
     let device

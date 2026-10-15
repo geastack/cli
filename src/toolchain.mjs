@@ -23,7 +23,27 @@ export function commandVersion(command, args, env = process.env) {
 // it -- a toolchain a build needs is worth failing on before the build starts,
 // with the same answer doctor would have given.
 export function onPath(name, env = process.env) {
-  return envPath(env)
-    .split(path.delimiter)
-    .some((dir) => dir && existsSync(path.join(dir, name)))
+  return Boolean(findOnPath(name, env))
+}
+
+// The file a command resolves to on this PATH, or ''.
+export function findOnPath(name, env = process.env) {
+  const names = executableNames(name, env)
+  for (const dir of envPath(env).split(path.delimiter)) {
+    if (!dir) continue
+    const found = names.map((candidate) => path.join(dir, candidate)).find((file) => existsSync(file))
+    if (found) return found
+  }
+  return ''
+}
+
+// Windows executables carry an extension from PATHEXT, so probing for the bare
+// name finds nothing even when the tool is installed and on PATH -- which is
+// how an ESP-IDF install that ships ninja.exe still read as "no ninja".
+// PATHEXT spells the extensions in capitals; files on disk are `cmake.exe`,
+// and a path the CLI prints or runs reads the same way.
+function executableNames(name, env) {
+  if (process.platform !== 'win32') return [name]
+  const extensions = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  return [name, ...extensions.map((extension) => name + extension.toLowerCase())]
 }

@@ -253,7 +253,10 @@ async function setupCustomBoard(ctx, parsed, io, prompt) {
 
   const configPath = boardConfigPath(ctx, parsed)
   const definitionPath = path.join(path.dirname(configPath), 'targets', `${alias}.json`)
-  const relativeDefinition = path.relative(path.dirname(configPath), definitionPath)
+  // boards.json is shared between machines (a project's .gea/boards.json is
+  // committed), so the reference is written with forward slashes: every host
+  // reads those, while a backslash is part of a file name on macOS and Linux.
+  const relativeDefinition = path.relative(path.dirname(configPath), definitionPath).split(path.sep).join('/')
   const entry = compactObject({
     target: alias,
     targetDefinition: relativeDefinition,

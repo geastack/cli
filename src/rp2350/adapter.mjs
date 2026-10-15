@@ -6,9 +6,9 @@ import path from 'node:path'
 
 import { resolvePicotoolSelection } from '../boards/usb.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
-import { envPath } from '../env-path.mjs'
 import { appCmakeMeta } from '../manifest.mjs'
 import { formatCommand } from '../run.mjs'
+import { findOnPath } from '../toolchain.mjs'
 
 // Raspberry Pi RP2350 boards through the Pico SDK: cmake configure + build,
 // then UF2 over the BOOTSEL volume or picotool.
@@ -81,9 +81,9 @@ export function prepareArmToolchain(env, stderr = () => {}) {
 
 export function cmakeBinary(env) {
   if (env.CMAKE) return env.CMAKE
-  for (const dir of envPath(env).split(path.delimiter)) {
-    if (dir && existsSync(path.join(dir, 'cmake'))) return path.join(dir, 'cmake')
-  }
+  // cmake.exe on Windows: the lookup honours PATHEXT.
+  const found = findOnPath('cmake', env)
+  if (found) return found
   for (const candidate of ['/opt/homebrew/bin/cmake', '/usr/local/bin/cmake', '/Applications/CMake.app/Contents/bin/cmake']) {
     if (existsSync(candidate)) return candidate
   }

@@ -17,7 +17,7 @@ import { listAppSources } from './source-set.mjs'
 import { writeFlashPlan } from './partitions.mjs'
 import { generateWifiConfig } from './wifi-config.mjs'
 import { hint, warn } from '../report.mjs'
-import { envPath } from '../env-path.mjs'
+import { onPath } from '../toolchain.mjs'
 
 // The ESP-IDF build. Everything the old bash board script decided about a
 // build lives here: where the build directory is, what the app-local
@@ -514,15 +514,6 @@ function preparePartitions(app, config, buildDir, targetId) {
   return { buildDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, sourceSet, images: buildImages(buildDir) }
 }
 
-// Windows executables carry an extension from PATHEXT, so probing for the bare
-// name finds nothing even when the tool is installed and on PATH -- which is
-// how an ESP-IDF install that ships ninja.exe still read as "no ninja".
-function executableNames(name, env) {
-  if (process.platform !== 'win32') return [name]
-  const extensions = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
-  return [name, ...extensions.map((extension) => name + extension)]
-}
-
 // A path handed to CMake on its command line, or through the environment
 // the component-requirements pass reads. Windows paths carry backslashes,
 // and ESP-IDF re-parses the registered sources as CMake code during that
@@ -533,15 +524,9 @@ export function cmakeValue(value, platform = process.platform) {
   return platform === 'win32' ? String(value).replace(/\\/g, '/') : String(value)
 }
 
-function commandExists(name, env) {
-  const dirs = envPath(env).split(path.delimiter).filter(Boolean)
-  const names = executableNames(name, env)
-  return dirs.some((dir) => names.some((candidate) => existsSync(path.join(dir, candidate))))
-}
-
 export function configureArguments(prepared, env) {
   const args = []
-  if ((env.GEA_IDF_CCACHE || '1') !== '0' && commandExists('ccache', env)) args.push('--ccache')
+  if ((env.GEA_IDF_CCACHE || '1') !== '0' && onPath('ccache', env)) args.push('--ccache')
   // A CMake generator is immutable once a build directory has been
   // configured. Prefer Ninja for new builds (its no-op dependency traversal
   // is dramatically cheaper) while leaving existing Make builds untouched.
@@ -549,7 +534,7 @@ export function configureArguments(prepared, env) {
     // idf.py accepts only Ninja on Windows, so the probe must not decide there:
     // a false negative would pick a generator the build refuses outright.
     const windows = process.platform === 'win32'
-    const generator = env.GEA_IDF_GENERATOR || (windows || commandExists('ninja', env) ? 'Ninja' : 'Unix Makefiles')
+    const generator = env.GEA_IDF_GENERATOR || (windows || onPath('ninja', env) ? 'Ninja' : 'Unix Makefiles')
     if (generator !== 'Ninja' && generator !== 'Unix Makefiles') {
       fail(`GEA_IDF_GENERATOR must be 'Ninja' or 'Unix Makefiles' (got '${generator}').`, ExitCode.usage)
     }
