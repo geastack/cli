@@ -68,6 +68,9 @@ export async function runStep(command, args, options = {}) {
     label = command,
     logFile = null,
     appendLog = false,
+    // A nonzero exit the caller knows to be harmless, judged from the log:
+    // returns the note to show instead of the failure, or '' when it failed.
+    accept = null,
     stdout = console.log,
     stderr = console.error
   } = options
@@ -99,6 +102,11 @@ export async function runStep(command, args, options = {}) {
   if (status === 0) {
     progress.stop(`${label} ${pc.dim(`(log: ${logFile})`)}`)
     return { status, quiet: true }
+  }
+  const accepted = accept ? accept(status) : ''
+  if (accepted) {
+    progress.stop(`${label} ${pc.dim(`(${accepted}; log: ${logFile})`)}`)
+    return { status, quiet: true, accepted: true }
   }
 
   progress.stop(pc.red(`${label} failed`), 1)

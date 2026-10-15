@@ -91,6 +91,10 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
       label: attempt === 1 ? `Flashing over USB on ${flashPort}` : `USB flash attempt ${attempt} on ${flashPort}`,
       logFile,
       appendLog: attempt > 1,
+      // The S31's USB port disappears as the board resets, and esptool exits 1
+      // from its teardown after a verified write. That is the expected end of a
+      // flash, so it must not read as a red failure with an error dump.
+      accept: () => flashCompleted(logFile, args, attemptLogOffset) ? 'the board left USB as it reset' : '',
       stdout,
       stderr
     })
@@ -105,8 +109,9 @@ export async function runEsptoolOverUsb({ idf, selection, options, args, port = 
     // A completed write that only failed on esptool's own teardown is a
     // success: the images are on the board and it has been reset. Report it
     // as one, so the retry loop does not re-flash and re-reboot for minutes.
-    if (flashCompleted(logFile, args, attemptLogOffset)) {
-      warn(stderr, `esptool exited ${status} after resetting the board; the flash itself completed.`)
+    if (step.accepted || flashCompleted(logFile, args, attemptLogOffset)) {
+      // The spinner already said so; passthrough output showed esptool's error.
+      if (!step.accepted) warn(stderr, `esptool exited ${status} after resetting the board; the flash itself completed.`)
       if (step.quiet) stdout(flashSummary(logFile))
       return 0
     }
