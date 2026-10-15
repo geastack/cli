@@ -95,7 +95,10 @@ export function buildFlashSettings(buildDir, fallbackSize) {
 // flash_args once a build has configured; fall back to the chip defaults.
 export function flashOffsetForBuildImage(buildDir, imagePath, fallback) {
   const flashArgs = path.join(buildDir, 'flash_args')
-  const relative = imagePath.startsWith(`${buildDir}${path.sep}`) ? imagePath.slice(buildDir.length + 1) : imagePath
+  // flash_args spells paths with `/` on every host; a Windows `bootloader\...`
+  // never matched, so the bootloader fell back to 0x0 on chips that boot from
+  // 0x2000 (ESP32-S31, P4, C5...) and the board came up with nothing to run.
+  const relative = (imagePath.startsWith(`${buildDir}${path.sep}`) ? imagePath.slice(buildDir.length + 1) : imagePath).replaceAll('\\', '/')
   if (existsSync(flashArgs)) {
     for (const line of readFileSync(flashArgs, 'utf8').split(/\r?\n/)) {
       const fields = line.trim().split(/\s+/)

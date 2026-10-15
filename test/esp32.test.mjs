@@ -559,6 +559,14 @@ test('partition tables answer slot offsets, sizes and build image offsets', (t) 
   writeFileSync(path.join(buildDir, 'flash_args'), '--flash_mode dio\n0x0 bootloader/bootloader.bin\n0x8000 partition_table/partition-table.bin\n')
   assert.equal(flashOffsetForBuildImage(buildDir, path.join(buildDir, 'bootloader/bootloader.bin'), '0x1000'), '0x0')
   assert.equal(flashOffsetForBuildImage(buildDir, path.join(buildDir, 'missing.bin'), '0x2000'), '0x2000')
+
+  // An ESP32-S31 boots from 0x2000. A Windows image path (`bootloader\...`)
+  // must still find flash_args' `/` spelling instead of falling back to 0x0.
+  const s31 = path.join(fixture.root, 'build-s31')
+  mkdirSync(s31, { recursive: true })
+  writeFileSync(path.join(s31, 'flash_args'), '--flash-mode dio\n0x8000 partition_table/partition-table.bin\n0x2000 bootloader/bootloader.bin\n')
+  assert.equal(flashOffsetForBuildImage(s31, `${s31}${path.sep}bootloader\\bootloader.bin`, '0x0'), '0x2000')
+  assert.equal(flashOffsetForBuildImage(s31, `${s31}${path.sep}partition_table\\partition-table.bin`, '0x0'), '0x8000')
 })
 
 test('a USB-Serial-JTAG board is restarted by its watchdog, not by the reset pin', () => {
