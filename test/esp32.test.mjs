@@ -251,6 +251,12 @@ test('ESP-IDF version resolution: default pin, env/option override, latest-relea
     'v6.1.0-rc1'
   )
 
+  // A branch is cloned as named: `vmaster` is no ref at all.
+  assert.equal(
+    await resolveEspIdfVersion({ override: 'master', env: {}, fetchLatest: async () => '' }),
+    'master'
+  )
+
   // A stable latest release is used when no override is given.
   assert.equal(
     await resolveEspIdfVersion({ env: {}, fetchLatest: async () => 'v6.1.0' }),

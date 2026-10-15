@@ -150,6 +150,11 @@ function parseKeyValueExport(output) {
   return values
 }
 
+function withoutKey(object, key) {
+  const { [key]: _omitted, ...rest } = object
+  return rest
+}
+
 const activationCache = new Map()
 
 // Returns the environment and command prefixes for one ESP-IDF install, or
@@ -158,7 +163,11 @@ const activationCache = new Map()
 // The tool export is cached per installation; the caller's environment is
 // layered on fresh every time so per-invocation settings (jobs, variants,
 // flash baud) are never frozen into a cached activation.
-export function activateEspIdf({ env = process.env, home = env.HOME || env.USERPROFILE || os.homedir(), log = () => {}, minVersion = '', defaultVersion = '' } = {}) {
+export function activateEspIdf({ env: callerEnv = process.env, home = callerEnv.HOME || callerEnv.USERPROFILE || os.homedir(), log = () => {}, minVersion = '', defaultVersion = '' } = {}) {
+  // ESP-IDF's tools exit with "MSys/Mingw is not supported" when MSYSTEM is
+  // set, which Git Bash does. The native Windows toolchain runs fine from
+  // there, so the variable is left out of everything ESP-IDF sees.
+  const env = callerEnv.MSYSTEM ? withoutKey(callerEnv, 'MSYSTEM') : callerEnv
   const idfDir = findEspIdf(env, home, { minVersion, defaultVersion })
   if (!idfDir) return null
   // A venv exported by a different active checkout belongs to that checkout.

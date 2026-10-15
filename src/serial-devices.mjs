@@ -98,24 +98,36 @@ function detectWindowsSerialDevices(env) {
         // Windows PowerShell writes in the console's OEM code page, so a port
         // label like "Serielles USB-Gerät" arrives mangled when read as UTF-8.
         // Setting the output encoding first makes the pipe match the decoding.
+        // A composite device (an ESP32's native USB CDC) puts the port on an
+        // interface (`...&MI_00\<synthesised>`); the serial is on its parent.
         '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;' +
-          'Get-CimInstance Win32_SerialPort | Select-Object DeviceID,Name,PNPDeviceID | ConvertTo-Json -Compress'
+          'Get-CimInstance Win32_SerialPort | ForEach-Object { $parent = ""; ' +
+          'try { $parent = (Get-PnpDeviceProperty -InstanceId $_.PNPDeviceID -KeyName DEVPKEY_Device_Parent -ErrorAction Stop).Data } catch {}; ' +
+          '[pscustomobject]@{ DeviceID = $_.DeviceID; Name = $_.Name; PNPDeviceID = $_.PNPDeviceID; Parent = $parent } } | ConvertTo-Json -Compress'
       ],
       { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] }
     ).trim()
     if (!output) return []
     const parsed = JSON.parse(output)
     return (Array.isArray(parsed) ? parsed : [parsed])
-      .map((entry) => normalizeDevice({
-        path: entry.DeviceID || '',
-        label: entry.Name || '',
-        serial: serialFromDeviceName(entry.PNPDeviceID || '')
-      }))
+      .map(windowsSerialPortDevice)
       .filter((device) => device.path)
       .sort((a, b) => a.path.localeCompare(b.path))
   } catch {
     return []
   }
+}
+
+// One Win32_SerialPort row (plus its PnP parent) as a device. A port on an
+// interface of a composite device (`&MI_xx`) carries a synthesised instance
+// ID; the serial is the parent device's.
+export function windowsSerialPortDevice(entry) {
+  const id = entry.PNPDeviceID || ''
+  return normalizeDevice({
+    path: entry.DeviceID || '',
+    label: entry.Name || '',
+    serial: serialFromDeviceName(id) || (/&MI_[0-9A-F]{2}\\/i.test(id) ? serialFromDeviceName(entry.Parent || '') : '')
+  })
 }
 
 function normalizeDevice(input) {

@@ -447,7 +447,7 @@ async function resolveEspIdfVersionForWizard(parsed, io) {
 async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, targetVersion } = {}) {
   const env = io.env || process.env
   const resolvedVersion = targetVersion || await resolveEspIdfVersionForWizard(parsed, io)
-  const status = detectEspIdf(env, resolvedVersion)
+  const status = detectEspIdf(env, resolvedVersion, option(parsed, 'idf-dir'))
   if (status.available) {
     if (force) ui(io).success(`ESP-IDF found: ${status.detail}`)
     return 0
@@ -494,8 +494,14 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, target
 // (`findEspIdf` + its version.cmake), which lets a version-floor check run;
 // falls back to a bare `idf.py --version` on PATH when no such directory is
 // found but some ESP-IDF install has still put idf.py on PATH.
-function detectEspIdf(env, targetVersion) {
-  const idfDir = findEspIdf(env)
+// An explicit --idf-dir is the only directory that counts: another install
+// elsewhere is not the one asked for, and a branch target such as `master`
+// has no version for the floor check to tell the two apart.
+function detectEspIdf(env, targetVersion, explicitDir = '') {
+  if (explicitDir && !fs.existsSync(path.join(explicitDir, 'tools', 'idf.py'))) {
+    return { available: false, detail: '' }
+  }
+  const idfDir = explicitDir ? path.resolve(explicitDir) : findEspIdf(env)
   if (idfDir) {
     const installed = readInstalledEspIdfVersion(idfDir)
     // A checkout is not an installation. `install.bat`/`install.sh` still has to

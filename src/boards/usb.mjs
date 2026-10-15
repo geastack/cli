@@ -193,13 +193,15 @@ export function resolveUsbSerialPort({ serial }, { platform = process.platform, 
   if (!serial) throw new Error('A USB serial number is required to locate the board; /dev paths are not accepted.')
   // GEA_SERIAL_DEVICES replaces OS enumeration everywhere (see detectSerialDevices);
   // resolution honors it with the same exact-serial rule, so a declared device list
-  // can never map one board's serial onto another's port.
-  if (env.GEA_SERIAL_DEVICES) {
+  // can never map one board's serial onto another's port. Windows enumeration
+  // already reports each COM port's serial, so it resolves the same way.
+  if (env.GEA_SERIAL_DEVICES || platform === 'win32') {
     const needle = normalizedSerial(serial)
-    const matches = detectSerialDevices({ env }).filter((device) => device.serial && normalizedSerial(device.serial) === needle)
+    const matches = detectSerialDevices({ env, platform }).filter((device) => device.serial && normalizedSerial(device.serial) === needle)
     if (matches.length === 1) return matches[0].path
     if (matches.length > 1) throw new Error([`USB serial ${serial} maps to multiple ports:`, ...matches.map((device) => `  ${device.path}`)].join('\n'))
-    throw new Error(`Could not map USB serial ${serial} to a port in GEA_SERIAL_DEVICES. Check that the board is attached.`)
+    const source = env.GEA_SERIAL_DEVICES ? 'a port in GEA_SERIAL_DEVICES' : 'a COM port'
+    throw new Error(`Could not map USB serial ${serial} to ${source}. Check that the board is attached.`)
   }
   if (platform === 'linux') {
     const matches = linuxSerialByIdCandidates(serial)

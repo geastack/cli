@@ -71,7 +71,8 @@ export async function fetchLatestEspIdfVersion({ fetchImpl = globalThis.fetch, t
 //   3. DEFAULT_ESP_IDF_VERSION.
 export async function resolveEspIdfVersion({ override, env = process.env, fetchLatest = fetchLatestEspIdfVersion, log = () => {} } = {}) {
   const requested = override || env.GEA_ESP_IDF_VERSION
-  if (requested) return requested.startsWith('v') ? requested : `v${requested}`
+  // Only a bare version gains the tag's `v`; a branch (`master`) is cloned as named.
+  if (requested) return /^\d/.test(requested) ? `v${requested}` : requested
   const latest = await fetchLatest({ log })
   return latest || DEFAULT_ESP_IDF_VERSION
 }

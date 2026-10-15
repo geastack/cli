@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { listMacUsbCalloutPorts, resolveUsbSerialPort, waitForSerialPort } from '../src/boards/usb.mjs'
-import { serialFromLinuxById } from '../src/serial-devices.mjs'
+import { serialFromLinuxById, windowsSerialPortDevice } from '../src/serial-devices.mjs'
 
 const amoled18 = '30:ED:A0:AC:90:DC'
 const kitt = '80:B5:4E:DA:73:88'
@@ -115,4 +115,21 @@ test('an explicit port is accepted only when its registered serial matches', asy
     portPresent: () => true,
     resolver: () => '/dev/cu.usbmodem101'
   }), '/dev/cu.usbmodem101')
+})
+
+test('a Windows composite-device port takes its serial from the parent device', () => {
+  // ESP32 native USB CDC: COM port on interface MI_00, serial on the parent device.
+  assert.deepEqual(windowsSerialPortDevice({
+    DeviceID: 'COM7',
+    Name: 'USB Serial Device (COM7)',
+    PNPDeviceID: 'USB\\VID_303A&PID_0020&MI_00\\9&148DD47E&0&0000',
+    Parent: 'USB\\VID_303A&PID_0020\\1C:29:04:D0:B5:80'
+  }), { path: 'COM7', label: 'USB Serial Device (COM7)', serial: '1C:29:04:D0:B5:80' })
+  // A non-composite port with a synthesised instance ID stays without a
+  // serial: its parent is a hub, not the device.
+  assert.equal(windowsSerialPortDevice({
+    DeviceID: 'COM3',
+    PNPDeviceID: 'USB\\VID_303A&PID_1001\\9&1099E41D&0&0000',
+    Parent: 'USB\\ROOT_HUB30\\5&239A9E6D&0&0'
+  }).serial, '')
 })
