@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 
 import { crc32, decodeRgb565Raw, decodeRgb565Rle } from './image.mjs'
 
@@ -16,14 +17,51 @@ import { crc32, decodeRgb565Raw, decodeRgb565Rle } from './image.mjs'
 // freshly flashed board. serialport with hupcl off leaves the lines alone.
 
 let serialportModule = null
-async function loadSerialport() {
+export async function loadSerialport() {
   if (serialportModule) return serialportModule
+  if (process.platform === 'win32') settleWindowsSerialCallbacks()
   try {
     serialportModule = await import('serialport')
   } catch (error) {
     throw new Error(`The 'serialport' package is required for USB device access (npm i serialport): ${error.message}`)
   }
   return serialportModule
+}
+
+// @serialport/bindings-cpp completes Windows reads and writes on its own
+// thread and calls back into JavaScript from a uv_async handle with a plain
+// napi Call. Since Node.js 26.4 nothing drains the microtask queue after such a
+// call (nodejs/node#66158), so the promise the binding resolves only continues
+// when some other macrotask runs: every write and read waited for the next
+// timer or console line, GEADEV commands timed out, and a chatty app stalled
+// on a console the host stopped draining. Until the binding scopes its
+// callbacks (serialport/bindings-cpp#243), each native read/write callback
+// queues a setImmediate, after which Node drains microtasks. This must run
+// before load-bindings.js promisifies the native functions, i.e. before
+// anything imports serialport.
+let windowsCallbacksSettled = false
+function settleWindowsSerialCallbacks() {
+  if (windowsCallbacksSettled) return
+  windowsCallbacksSettled = true
+  let binding
+  try {
+    const fromSerialport = createRequire(createRequire(import.meta.url).resolve('serialport/package.json'))
+    binding = fromSerialport('@serialport/bindings-cpp/dist/serialport-bindings').binding
+  } catch {
+    return
+  }
+  const settle = () => {}
+  for (const name of ['read', 'write']) {
+    const native = binding?.[name]
+    if (typeof native !== 'function') continue
+    binding[name] = (...args) => {
+      const callback = args.pop()
+      return native(...args, (...result) => {
+        callback(...result)
+        setImmediate(settle)
+      })
+    }
+  }
 }
 
 export function geadevFragment(line) {

@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import { flag } from '../args.mjs'
 import { boardConfigPath, boardConfigTiers, loadBoardConfig } from '../boards/config.mjs'
+import { loadSerialport } from '../device/serial.mjs'
 import { ExitCode } from '../errors.mjs'
 import { findEspIdf, findIdfPythonEnv } from '../esp32/idf-env.mjs'
 import { exists } from '../fs-utils.mjs'
@@ -15,7 +16,7 @@ function packageExists(dir) {
 
 async function serialportAvailable() {
   try {
-    await import('serialport')
+    await loadSerialport()
     return true
   } catch {
     return false
