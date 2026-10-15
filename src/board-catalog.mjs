@@ -259,6 +259,23 @@ export const knownBoards = Object.freeze([
       gps: false,
       sensors: ['PCF85063 RTC', 'buttons', 'battery sense', 'rear lighting']
     }
+  },
+  {
+    id: 'st-stm32f746g-disco',
+    label: 'STMicroelectronics STM32F746G-Discovery',
+    alias: 'stm32f746g-disco',
+    target: 'stm32f746g-disco',
+    adapter: 'stm32-cube',
+    mcu: 'STM32F746NG',
+    capabilities: {
+      display: '4.3 inch 480x272 RGB LCD (LTDC)',
+      touch: 'FT5336 capacitive touch',
+      wireless: [],
+      storage: ['1 MB flash', '16 MB QSPI flash', '8 MB SDRAM', 'microSD'],
+      audio: ['WM8994 codec'],
+      gps: false,
+      sensors: ['user button']
+    }
   }
 ])
 
