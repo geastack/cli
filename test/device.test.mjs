@@ -76,10 +76,17 @@ test('the WiFi transport streams channel-1 diagnostics frames and detects a miss
   await tailLogs({ host: '127.0.0.1', port, write: (chunk) => chunks.push(chunk.toString()), stderr: () => {} })
   assert.equal(chunks.join(''), 'boot ok\nframe 2\n')
 
-  const closed = net.createServer()
-  const closedPort = await listen(closed)
-  await new Promise((resolve) => closed.close(resolve))
-  await assert.rejects(tailLogs({ host: '127.0.0.1', port: closedPort, write: () => {}, stderr: () => {} }), /no diagnostics server/)
+  // A board without the diagnostics server refuses the connection. A closed
+  // loopback port is not a faithful stand-in: WSL's mirrored networking
+  // accepts a connection to one and then resets it. So the refusal is the one
+  // a board gives, delivered on the socket the transport opens.
+  const refused = t.mock.method(net, 'createConnection', () => {
+    const socket = new net.Socket()
+    process.nextTick(() => socket.destroy(Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:3333'), { code: 'ECONNREFUSED' })))
+    return socket
+  })
+  await assert.rejects(tailLogs({ host: '10.0.0.5', port: 3333, write: () => {}, stderr: () => {} }), /no diagnostics server/)
+  assert.equal(refused.mock.callCount(), 1)
 })
 
 test('the OTA server client uploads images, fetches screenshots and toggles HBM', async (t) => {
