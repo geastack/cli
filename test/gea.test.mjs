@@ -772,15 +772,42 @@ test('setup --esp-idf resolves the pinned default (never the stale v6.0.1) and a
   const fixture = createFixture(t)
   // capture()'s fetchEspIdfLatest stub answers as if the network is
   // unreachable, so this exercises the "fall back to the pin" path.
+  const s31 = fakeS31EspIdf(fixture)
   const found = await gea(['setup', '--esp-idf'], fixture, { prompt: scriptedPrompt([]) })
   assert.equal(found.code, 0, found.err)
   assert.match(found.out, /ESP-IDF found: 6\.0\.2 at /)
+  assert.match(found.out, new RegExp(`ESP-IDF 6\\.2-dev for the ESP32-S31 found: 6\\.2\\.0 at ${escapeRegex(s31)}`))
   assert.doesNotMatch(found.out, /6\.0\.1/)
+})
+
+test('setup --esp-idf also installs the ESP32-S31\'s ESP-IDF master line next to the stable one', async (t) => {
+  const fixture = createFixture(t)
+  const install = await gea(['setup', '--esp-idf', '--dry-run'], fixture, { prompt: scriptedPrompt([]) })
+  assert.equal(install.code, 0, install.err)
+  assert.match(install.out, /ESP-IDF found: 6\.0\.2 at /, 'the stable install is left alone')
+  const idfDir = path.join(fixture.root, 'esp32', 'esp-idf-v6.2-dev')
+  assert.match(install.out, new RegExp(`${commandText('git', 'clone', '-b', 'master', '--recursive', 'https://github.com/espressif/esp-idf.git', idfDir)}$`, 'm'))
+  const installer = path.join(idfDir, process.platform === 'win32' ? 'install.bat' : 'install.sh')
+  assert.match(install.out, new RegExp(`${commandText(installer, 'esp32s31')}$`, 'm'))
+})
+
+test('an explicit master install gets the ESP32-S31 tools too, and skips the separate S31 line', async (t) => {
+  const fixture = createFixture(t)
+  const idfDir = path.join(fixture.root, 'esp-idf-v6.2-dev')
+  const install = await gea(['setup', '--esp-idf', '--idf-version', 'master', '--idf-dir', idfDir, '--dry-run'], fixture, {
+    prompt: scriptedPrompt([])
+  })
+  assert.equal(install.code, 0, install.err)
+  assert.match(install.out, new RegExp(`${commandText('git', 'clone', '-b', 'master', '--recursive', 'https://github.com/espressif/esp-idf.git', idfDir)}$`, 'm'))
+  const installer = path.join(idfDir, process.platform === 'win32' ? 'install.bat' : 'install.sh')
+  assert.match(install.out, new RegExp(`${commandText(installer, 'esp32,esp32s3,esp32p4,esp32s31')}$`, 'm'))
+  assert.doesNotMatch(install.out, /esp32[\\/]esp-idf-v6\.2-dev/, 'no second clone into the default S31 directory')
 })
 
 test('setup wizard: --idf-version overrides GEA_ESP_IDF_VERSION, which overrides the pin, and the menu describes the resolved version', async (t) => {
   const fixture = createFixture(t)
   const out = capture()
+  fakeS31EspIdf(fixture)
   const prompt = scriptedPrompt(['4']) // "Only install/check ESP-IDF toolchain"
   const code = await runGea(['setup'], {
     ...out.io,
@@ -804,6 +831,7 @@ test('setup wizard: --idf-version overrides GEA_ESP_IDF_VERSION, which overrides
 
 test('setup wizard prefers a stable latest ESP-IDF release over the pin when the lookup succeeds', async (t) => {
   const fixture = createFixture(t)
+  fakeS31EspIdf(fixture)
   const out = capture()
   const prompt = scriptedPrompt(['4'])
   const code = await runGea(['setup'], {
@@ -831,6 +859,16 @@ test('setup wizard reinstalls when the resolved target outgrows what is installe
   assert.match(install.out, new RegExp(`${commandText(installer, 'esp32,esp32s3,esp32p4')}$`, 'm'))
   assert.match(install.out, new RegExp(`ESP-IDF installed at ${escapeRegex(idfDir)}$`, 'm'))
 })
+
+// An installed 6.2-dev checkout where the build looks for the ESP32-S31's
+// ESP-IDF; the fixture's IDF_PYTHON_ENV_PATH stands in for its tool venv.
+function fakeS31EspIdf(fixture) {
+  const dir = path.join(fixture.root, 'esp32', 'esp-idf-v6.2-dev')
+  fs.mkdirSync(path.join(dir, 'tools', 'cmake'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'tools', 'idf.py'), '# fake idf.py\n')
+  fs.writeFileSync(path.join(dir, 'tools', 'cmake', 'version.cmake'), 'set(IDF_VERSION_MAJOR 6)\nset(IDF_VERSION_MINOR 2)\nset(IDF_VERSION_PATCH 0)\n')
+  return dir
+}
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

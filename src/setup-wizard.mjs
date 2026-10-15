@@ -10,7 +10,7 @@ import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from
 import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { espIdfVersion as readInstalledEspIdfVersion, findEspIdf, findIdfPythonEnv } from './esp32/idf-env.mjs'
-import { extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
+import { espIdfVersionForTarget, extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { BACK, ask, choose, confirm, createPrompt, ui } from './prompts.mjs'
 import { runExternal, runQuiet } from './run.mjs'
@@ -18,6 +18,11 @@ import { detectSerialDevices } from './serial-devices.mjs'
 import { commandVersion } from './toolchain.mjs'
 
 const espIdfInstallTargets = 'esp32,esp32s3,esp32p4'
+
+// The ESP32-S31 (Mosaico) exists only on ESP-IDF master, a 6.2-dev line the
+// build looks for next to the stable install (espIdfVersionForTarget):
+// ~/esp32/esp-idf-v6.2-dev, its tools installed for esp32s31.
+const s31EspIdf = { version: '6.2-dev', ref: 'master', dir: path.join('esp32', 'esp-idf-v6.2-dev'), targets: 'esp32s31' }
 
 export async function runSetupWizard(ctx, parsed, io) {
   const stdout = io.stdout || console.log
@@ -30,7 +35,7 @@ export async function runSetupWizard(ctx, parsed, io) {
     ])
     if (option(parsed, 'esp-idf') === true) {
       renderStep(io, 'Toolchain', ['Checking ESP-IDF for ESP32 builds.'])
-      await maybeSetupEspIdf(ctx, parsed, io, prompt, { force: true, targetVersion: targetIdfVersion })
+      await setupAllEspIdf(ctx, parsed, io, prompt, targetIdfVersion)
       return 0
     }
     const mode = await choose(prompt, {
@@ -68,7 +73,7 @@ export async function runSetupWizard(ctx, parsed, io) {
 
     if (mode === 'esp-idf') {
       renderStep(io, 'Toolchain', ['Checking ESP-IDF for ESP32 builds.'])
-      await maybeSetupEspIdf(ctx, parsed, io, prompt, { force: true, targetVersion: targetIdfVersion })
+      await setupAllEspIdf(ctx, parsed, io, prompt, targetIdfVersion)
       return 0
     }
 
@@ -82,7 +87,11 @@ export async function runSetupWizard(ctx, parsed, io) {
     }
 
     renderStep(io, 'Toolchain', ['Checking ESP-IDF before board initialization.'])
-    await maybeSetupEspIdf(ctx, parsed, io, prompt, { targetVersion: targetIdfVersion })
+    if (boardSetup?.target && espIdfVersionForTarget(boardSetup.target) === s31EspIdf.version) {
+      await maybeSetupS31EspIdf(ctx, parsed, io, prompt)
+    } else {
+      await maybeSetupEspIdf(ctx, parsed, io, prompt, { targetVersion: targetIdfVersion })
+    }
     if (option(parsed, 'install') === true) {
       await maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force: true })
     }
@@ -150,7 +159,7 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
   writeJsonEnsured(configPath, config)
   ui(io).success(`Wrote board alias '${alias}' to ${configPath}`)
   ui(io).message(`Target: ${board.target}`)
-  return { alias, flashReady: true }
+  return { alias, target: board.target, flashReady: true }
 }
 
 async function setupCustomBoard(ctx, parsed, io, prompt) {
@@ -466,10 +475,72 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, target
   }
 
   const idfDir = option(parsed, 'idf-dir') || env.GEA_ESP_IDF_DIR || path.join(os.homedir(), 'esp', 'esp-idf')
+  // An explicit master/6.2+ checkout is the S31's line, so it gets its tools too.
+  const targets = idfVersionMeetsTarget(extractIdfVersionFromText(resolvedVersion), 'v6.2.0') || resolvedVersion === s31EspIdf.ref
+    ? `${espIdfInstallTargets},${s31EspIdf.targets}`
+    : espIdfInstallTargets
+  installEspIdf(ctx, parsed, io, { idfDir, ref: resolvedVersion, targets })
+  return 0
+}
+
+// `gea setup --esp-idf`: the stable release every other board builds with,
+// and, unless one install was asked for by version or directory, the S31's
+// 6.2-dev line too. Either is left alone when it is already installed.
+async function setupAllEspIdf(ctx, parsed, io, prompt, targetVersion) {
+  await maybeSetupEspIdf(ctx, parsed, io, prompt, { force: true, targetVersion })
+  if (option(parsed, 'idf-version') || option(parsed, 'idf-dir')) return 0
+  return maybeSetupS31EspIdf(ctx, parsed, io, prompt, { force: true })
+}
+
+async function maybeSetupS31EspIdf(ctx, parsed, io, prompt, { force = false } = {}) {
+  const env = io.env || process.env
+  const home = env.HOME || env.USERPROFILE || os.homedir()
+  const status = detectS31EspIdf(env, home)
+  if (status.available) {
+    if (force) ui(io).success(`ESP-IDF ${s31EspIdf.version} for the ESP32-S31 found: ${status.detail}`)
+    return 0
+  }
+  const install = force || await confirm(prompt, {
+    message: `The ESP32-S31 builds with ESP-IDF ${s31EspIdf.version} (master), which was not found${status.detail ? ` (found ${status.detail})` : ''}. Install it now?`,
+    defaultValue: false
+  })
+  if (!install) {
+    ui(io).warn('ESP-IDF install later: npx gea setup --esp-idf')
+    return 0
+  }
+  installEspIdf(ctx, parsed, io, { idfDir: status.dir || path.join(home, s31EspIdf.dir), ref: s31EspIdf.ref, targets: s31EspIdf.targets })
+  return 0
+}
+
+// The 6.2-dev checkout the build would pick for the S31. IDF_PATH and the
+// export hints count only when they point at that line: the stable install
+// they usually name is not one.
+function detectS31EspIdf(env, home) {
+  const dir = findEspIdf({ ...env, IDF_PATH: '', GEA_EMBEDDED_IDF_EXPORT: '', ESP_IDF_EXPORT: '' }, home, { defaultVersion: s31EspIdf.version }) ||
+    (isS31EspIdfDir(env.IDF_PATH) ? path.resolve(env.IDF_PATH) : '')
+  if (!dir) {
+    const conventional = path.join(home, s31EspIdf.dir)
+    // A clone that was never installed is resumed in place, not cloned again.
+    return { available: false, detail: '', dir: exists(path.join(conventional, 'tools', 'idf.py')) ? conventional : '' }
+  }
+  const toolsInstalled = Boolean(findIdfPythonEnv(dir, env, home))
+  return {
+    available: toolsInstalled,
+    detail: `${readInstalledEspIdfVersion(dir)?.full || 'unknown version'} at ${dir}${toolsInstalled ? '' : ' (tools not installed)'}`,
+    dir
+  }
+}
+
+function isS31EspIdfDir(dir) {
+  return Boolean(dir) && exists(path.join(dir, 'tools', 'idf.py')) && readInstalledEspIdfVersion(dir)?.majorMinor === '6.2'
+}
+
+function installEspIdf(ctx, parsed, io, { idfDir, ref, targets }) {
+  const env = io.env || process.env
   const dryRun = flag(parsed, 'dry-run')
   if (!dryRun) fs.mkdirSync(path.dirname(idfDir), { recursive: true })
   if (!exists(path.join(idfDir, 'install.sh')) && !exists(path.join(idfDir, 'install.bat'))) {
-    runExternal('git', ['clone', '-b', resolvedVersion, '--recursive', 'https://github.com/espressif/esp-idf.git', idfDir], {
+    runExternal('git', ['clone', '-b', ref, '--recursive', 'https://github.com/espressif/esp-idf.git', idfDir], {
       cwd: ctx.cwd,
       env,
       dryRun,
@@ -479,7 +550,7 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, target
   }
 
   const installScript = process.platform === 'win32' ? path.join(idfDir, 'install.bat') : path.join(idfDir, 'install.sh')
-  runExternal(installScript, [espIdfInstallTargets], {
+  runExternal(installScript, [targets], {
     cwd: idfDir,
     env,
     dryRun,
@@ -490,7 +561,6 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, target
   const exportScript = process.platform === 'win32' ? path.join(idfDir, 'export.bat') : path.join(idfDir, 'export.sh')
   ui(io).success(`ESP-IDF installed at ${idfDir}`)
   ui(io).message(process.platform === 'win32' ? `For future shells: ${exportScript}` : `For future shells: . "${exportScript}"`)
-  return 0
 }
 
 // Prefers the same conventional-directory detection the build path uses
