@@ -59,8 +59,8 @@ test('macOS inherits USB identity through nested interfaces drawn with spaces', 
   assert.equal(resolveUsbSerialPort({ serial: amoled18 }, { platform: 'darwin', ioreg }), '/dev/cu.usbmodem101')
   assert.equal(resolveUsbSerialPort({ serial: kitt }, { platform: 'darwin', ioreg }), '/dev/cu.usbmodem201')
   assert.deepEqual(listMacUsbCalloutPorts(ioreg), [
-    { path: '/dev/cu.usbmodem101', serial: amoled18, label: 'AMOLED' },
-    { path: '/dev/cu.usbmodem201', serial: kitt, label: 'KITT' }
+    { path: '/dev/cu.usbmodem101', serial: amoled18, label: 'AMOLED', vendorId: '', productId: '' },
+    { path: '/dev/cu.usbmodem201', serial: kitt, label: 'KITT', vendorId: '', productId: '' }
   ])
 })
 
@@ -124,7 +124,7 @@ test('a Windows composite-device port takes its serial from the parent device', 
     Name: 'USB Serial Device (COM7)',
     PNPDeviceID: 'USB\\VID_303A&PID_0020&MI_00\\9&148DD47E&0&0000',
     Parent: 'USB\\VID_303A&PID_0020\\1C:29:04:D0:B5:80'
-  }), { path: 'COM7', label: 'USB Serial Device (COM7)', serial: '1C:29:04:D0:B5:80' })
+  }), { path: 'COM7', label: 'USB Serial Device (COM7)', serial: '1C:29:04:D0:B5:80', vendorId: '303a', productId: '0020' })
   // A non-composite port with a synthesised instance ID stays without a
   // serial: its parent is a hub, not the device.
   assert.equal(windowsSerialPortDevice({

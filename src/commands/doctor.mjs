@@ -7,6 +7,7 @@ import { ExitCode } from '../errors.mjs'
 import { findEspIdf, findIdfPythonEnv } from '../esp32/idf-env.mjs'
 import { exists } from '../fs-utils.mjs'
 import { discoverApps, resolveRequestedApp, validateApp } from '../manifest.mjs'
+import { stm32ToolChecks } from '../stm32/toolchain.mjs'
 import { commandVersion, nodeAtLeast, onPath } from '../toolchain.mjs'
 import pc from 'picocolors'
 
@@ -48,6 +49,7 @@ export async function doctorCommand(ctx, parsed, rest, options) {
   add('ccache', onPath('ccache', env), onPath('ccache', env) ? 'on PATH' : 'optional', false)
   add('arm-none-eabi-gcc (RP2350)', onPath('arm-none-eabi-gcc', env) || Boolean(env.PICO_TOOLCHAIN_PATH), env.PICO_TOOLCHAIN_PATH || 'optional', false)
   add('picotool (RP2350)', onPath('picotool', env), onPath('picotool', env) ? 'on PATH' : 'optional', false)
+  for (const check of stm32ToolChecks(env)) add(check.name, check.ok, check.detail, false)
   add('swift (BLE OTA)', onPath('swift', env), onPath('swift', env) ? 'on PATH' : 'optional; macOS only', false)
   // gea simulate compiles the app with emcc and links with em++, and hashes
   // both binaries into its object-cache profile, so both are worth naming.

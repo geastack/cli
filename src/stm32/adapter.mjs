@@ -6,9 +6,10 @@ import { ExitCode, fail } from '../errors.mjs'
 import { appCmakeMeta } from '../manifest.mjs'
 import { runExternal } from '../run.mjs'
 import { onPath } from '../toolchain.mjs'
+import { armToolchainRoot, findArmGcc } from './toolchain.mjs'
 
 // STMicroelectronics STM32 boards: cmake configure + build with the Arm GNU
-// toolchain against STM32CubeF7's CMSIS headers, then one openocd `program`
+// toolchain against the target's CMSIS headers, then one openocd `program`
 // of the ELF, which writes internal flash and the board's QSPI flash
 // (execute-in-place app code) in a single pass.
 
@@ -32,20 +33,24 @@ export function stm32BuildDir(ctx, selection) {
   return path.join(ctx.buildRoot, selection.target)
 }
 
-// The target's CMake toolchain file finds arm-none-eabi-gcc on PATH or under
-// ARM_TOOLCHAIN_PATH; failing here names what is missing before CMake runs.
-function requireBuildTools(env) {
-  if (!env.ARM_TOOLCHAIN_PATH && !onPath('arm-none-eabi-gcc', env)) {
+// Fails before CMake runs when a build tool is missing. The toolchain found is
+// handed to the target's CMake toolchain file as ARM_TOOLCHAIN_PATH, which
+// also covers the Arm installer's folders that are not on PATH.
+function buildToolsEnv(env) {
+  const gcc = findArmGcc(env)
+  if (!gcc) {
     fail('STM32 builds need the Arm GNU toolchain: put arm-none-eabi-gcc on PATH or set ARM_TOOLCHAIN_PATH to its root.', ExitCode.missingDependency)
   }
+
   if (!env.CMAKE && !onPath('cmake', env)) {
     fail('STM32 builds need CMake 3.20+. Install cmake or set CMAKE=/path/to/cmake.', ExitCode.missingDependency)
   }
+
+  return { ...env, ARM_TOOLCHAIN_PATH: armToolchainRoot(gcc) }
 }
 
 export function buildStm32({ ctx, selection, app = null, env, dryRun = false, stdout, configureOnly = false }) {
-  if (!dryRun) requireBuildTools(env)
-
+  const toolsEnv = dryRun ? env : buildToolsEnv(env)
   const resolvedBuild = resolveBuildConfig({ app, platform: 'stm32', board: selection.target, targetBase: selection.targetBase, targetsRoot: ctx.targetsRoot, env })
   const cmake = env.CMAKE || 'cmake'
   const buildDir = stm32BuildDir(ctx, selection)
@@ -60,7 +65,7 @@ export function buildStm32({ ctx, selection, app = null, env, dryRun = false, st
   ]
   if (resolvedBuild.cssDevicePixelRatio) configure.push(`-DGEA_EMBEDDED_CSS_DEVICE_PIXEL_RATIO=${resolvedBuild.cssDevicePixelRatio}`)
 
-  const buildEnv = { ...env }
+  const buildEnv = { ...toolsEnv }
   if (app) {
     const meta = appCmakeMeta(ctx, app)
     configure.push(`-DGEA_EMBEDDED_APP=${app.id}`, `-DGEA_EMBEDDED_APP_META=${meta}`)
