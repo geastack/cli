@@ -5,7 +5,7 @@ import { boardConfigOrigins, boardConfigPath, loadBoardConfig, normalizeBoardCon
 import { loadTargets } from './targets.mjs'
 import { resolveUsbSerialPort } from './usb.mjs'
 
-export const usbSerialAdapters = new Set(['esp32-idf', 'rp2350-pico'])
+export const usbSerialAdapters = new Set(['esp32-idf', 'rp2350-pico', 'stm32-cube'])
 export const geaosAdapters = new Set(['geaos-linux', 'geaos-arm64'])
 
 function boardTransport(board, name) {

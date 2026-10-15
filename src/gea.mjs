@@ -18,7 +18,7 @@ const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.met
 
 // The platforms board selection serves: an app declaring one of them has a
 // board to resolve, which is what a bare `gea build` is asking for.
-const boardPlatforms = Object.freeze(['esp32', 'rp2350', 'geaos'])
+const boardPlatforms = Object.freeze(['esp32', 'rp2350', 'stm32', 'geaos'])
 
 function declaresBoardTarget(app) {
   return boardPlatforms.some((platform) => Boolean(app?.targets?.[platform]))
@@ -213,7 +213,7 @@ export async function runGea(argv, io = {}) {
     })
   }
   if (target && target !== 'xbox' && knownPlatforms.includes(target) && ['build', 'flash', 'run', 'monitor', 'ota'].includes(command)) {
-    if (target === 'esp32' || target === 'rp2350' || target === 'geaos') {
+    if (boardPlatforms.includes(target)) {
       fail(`--target ${target} names a platform; pass --board <alias> (gea boards list) or --target <target id> (gea targets list).`, ExitCode.usage)
     }
     fail(`The ${target} build is not driven by gea; run its build script in the ${target} target project.`, ExitCode.usage)
@@ -312,7 +312,7 @@ ${heading('Native desktop, mobile and watch apps (scripts ship in @geastack/appl
 
 ${heading('Build and deploy (device commands take --board <alias>, see gea boards list; with one registered board it can be left out):')}
   gea config --board <alias> [--app <id>]        effective build settings and their origins (JSON)
-  gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / geaos)  [--verbose] [--output file.bin]
+  gea build --board <alias> [--app <id>]         build firmware (ESP-IDF / Pico SDK / STM32 / geaos)  [--verbose] [--output file.bin]
   gea flash --board <alias> [--app <id>]         build + flash over USB   [--monitor] [--manual-boot] [--no-reset] [--flash-baud N]
       --slot ota_N [--image file]                stage an app image into an OTA slot only
       --slot-image ota_N=file ...                provision several prebuilt images

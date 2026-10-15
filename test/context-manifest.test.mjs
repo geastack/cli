@@ -134,6 +134,8 @@ test('manifest helpers validate current app and installed target metadata', (t) 
   assert.deepEqual(appPlatformsForTarget(ctx, 'tufty'), ['rp2350', 'esp32'])
   assert.equal(targetEnabledForApp(ctx, current, 'amoled'), true)
   assert.equal(targetEnabledForApp(ctx, current, 'tufty'), true)
+  assert.equal(appPlatformForTarget(ctx, 'disco'), 'stm32')
+  assert.equal(targetEnabledForApp(ctx, current, 'disco'), true)
 
   const bad = findCurrentApp(fixture.badAppDir)
   assert.deepEqual(validateApp(bad), ['gea.entry does not exist: missing.tsx'])
