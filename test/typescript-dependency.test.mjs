@@ -10,12 +10,13 @@ import { cliRoot, readJson } from './helpers/fixture.mjs'
 for (const starter of ['blank', 'counter', 'sky-hop']) {
   for (const version of [undefined, 'latest', '*', '~5.9.3', '6.0.2']) {
     test(`${starter} scaffolding bounds floating TypeScript ${version ?? '(missing)'}`, async (t) => {
-      const root = '/virtual-gea-create'
+      // Absolute as the scaffolder resolves it, which on Windows includes the drive.
+      const root = path.resolve('/virtual-gea-create')
       const files = new Map()
       const sourcePackage = { devDependencies: { typescript: version, vite: '^8.0.0' } }
       const realRead = fs.readFileSync.bind(fs)
       const realAccess = fs.accessSync.bind(fs)
-      const virtual = (file) => String(file).startsWith(`${root}/`) || String(file) === root
+      const virtual = (file) => String(file).startsWith(`${root}${path.sep}`) || String(file) === root
       t.mock.method(fs, 'mkdirSync', (file) => { assert.ok(virtual(file)) })
       t.mock.method(fs, 'writeFileSync', (file, text) => {
         assert.ok(virtual(file))

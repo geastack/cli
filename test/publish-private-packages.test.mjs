@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { cliRoot, writeExecutable, writeJson } from './helpers/fixture.mjs'
+import { cliRoot, withPathPrefix, writeFakeCommand, writeJson } from './helpers/fixture.mjs'
 
 const scriptPath = path.join(cliRoot, 'scripts/publish-private-packages.mjs')
 
@@ -37,7 +37,8 @@ test('real publish mode tags existing package versions instead of skipping them'
   const npmLog = path.join(root, 'npm.log')
   try {
     writePublishable(root, 'cli/package.json', '@geastack/cli')
-    writeExecutable(path.join(bin, 'npm'), `#!/usr/bin/env bash
+    writeFakeNpm(bin, {
+      bash: `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$NPM_LOG"
 case "$1" in
   --version)
@@ -57,18 +58,17 @@ case "$1" in
     exit 42
     ;;
 esac
-`)
+`,
+      replies: { '--version': '10.0.0', whoami: 'geastack', view: '"0.1.0"', 'dist-tag': 'tagged' },
+      refuses: { publish: 'publish should not run for an existing version' }
+    })
 
     const result = spawnSync(
       process.execPath,
       [scriptPath, '--root', root, '--yes', '--allow-dirty'],
       {
         encoding: 'utf8',
-        env: {
-          ...process.env,
-          NPM_LOG: npmLog,
-          PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`
-        }
+        env: withPathPrefix({ ...process.env, NPM_LOG: npmLog }, bin)
       }
     )
 
@@ -93,7 +93,8 @@ test('dry-run mode explains that dist-tags are not created', () => {
   const npmLog = path.join(root, 'npm.log')
   try {
     writePublishable(root, 'cli/package.json', '@geastack/cli')
-    writeExecutable(path.join(bin, 'npm'), `#!/usr/bin/env bash
+    writeFakeNpm(bin, {
+      bash: `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$NPM_LOG"
 case "$1" in
   --version)
@@ -106,18 +107,16 @@ case "$1" in
     printf '"0.1.0"\\n'
     ;;
 esac
-`)
+`,
+      replies: { '--version': '10.0.0', whoami: 'geastack', view: '"0.1.0"' }
+    })
 
     const result = spawnSync(
       process.execPath,
       [scriptPath, '--root', root, '--dry-run'],
       {
         encoding: 'utf8',
-        env: {
-          ...process.env,
-          NPM_LOG: npmLog,
-          PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`
-        }
+        env: withPathPrefix({ ...process.env, NPM_LOG: npmLog }, bin)
       }
     )
 
@@ -130,6 +129,28 @@ esac
     fs.rmSync(bin, { recursive: true, force: true })
   }
 })
+
+// The npm on PATH, faked: it logs its arguments to $NPM_LOG and answers by
+// its first argument. POSIX hosts run the bash script; on Windows, where npm
+// is an npm.cmd shim, the same behaviour runs behind one (`replies` print a
+// line and succeed, `refuses` print to stderr and exit 42).
+function writeFakeNpm(bin, { bash, replies, refuses = {} }) {
+  writeFakeCommand(bin, 'npm', {
+    bash,
+    node: `const fs = require('node:fs')
+const args = process.argv.slice(2)
+fs.appendFileSync(process.env.NPM_LOG, \`\${args.join(' ')}\\n\`)
+const replies = ${JSON.stringify(replies)}
+const refuses = ${JSON.stringify(refuses)}
+if (Object.hasOwn(replies, args[0])) console.log(replies[args[0]])
+if (Object.hasOwn(refuses, args[0])) {
+  console.error(refuses[args[0]])
+  process.exit(42)
+}
+`,
+    windowsLauncher: 'cmd'
+  })
+}
 
 function writePublishable(root, relativePath, name) {
   writeJson(path.join(root, relativePath), {

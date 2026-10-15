@@ -10,8 +10,8 @@ import { capture, createFixture, readJson, writeExecutable } from './helpers/fix
 const stack = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
 const debuggerDir = path.join(stack, 'debugger')
 
-function debugFixture(t) {
-  const fixture = createFixture(t)
+function debugFixture(t, options = {}) {
+  const fixture = createFixture(t, options)
   // Exercise the target's public capability catalogue while keeping all build
   // tools isolated in the fixture.
   fs.copyFileSync(path.join(stack, 'targets/build-config.json'),
@@ -83,11 +83,7 @@ test('macOS debug builds hand instrumentation and editable CSS to the build adap
 })
 
 test('ESP32 debug builds configure native inspection without flashing or opening a device', async (t) => {
-  const fixture = debugFixture(t)
-  const python = path.join(fixture.env.IDF_PYTHON_ENV_PATH, 'bin/python')
-  fs.writeFileSync(python, fs.readFileSync(python, 'utf8').replace(
-    'prev=""; build=""',
-    'printf "GEA_GEATSC_DEBUG_INFO=%s\\n" "$GEA_GEATSC_DEBUG_INFO" >> "$log"\nprev=""; build=""'))
+  const fixture = debugFixture(t, { recordPythonEnv: ['GEA_GEATSC_DEBUG_INFO'] })
   const captured = capture()
   assert.equal(await runGea(['build', '--debug', '--board', 'amoled', '--configure-only'], {
     ...captured.io, env: debugEnvOf(fixture), cwd: fixture.appDir

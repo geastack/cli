@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import fs from 'node:fs'
+import path from 'node:path'
 import { withRendererFeatureDefines } from '../src/esp32/capabilities.mjs'
 
 test('analyzed apps automatically prune all unused renderer storage, despite size knobs', () => {
@@ -379,10 +380,11 @@ test('old, incomplete, dynamic, native and effect paths retain full circle cache
 
 
 test('native drawing retains full circle caches without retaining unused CSS', t => {
-  const root='/virtual-circle-native';
+  const root=path.resolve('/virtual-circle-native');
+  const draw=path.join(root, 'draw.cpp');
   let source='';
-  t.mock.method(fs, 'existsSync', file => file === `${root}/draw.cpp`);
-  t.mock.method(fs, 'accessSync', file => { if (file !== `${root}/draw.cpp`) throw new Error('missing virtual file'); });
+  t.mock.method(fs, 'existsSync', file => file === draw);
+  t.mock.method(fs, 'accessSync', file => { if (file !== draw) throw new Error('missing virtual file'); });
   t.mock.method(fs, 'readdirSync', () => [{name:'draw.cpp',isDirectory:()=>false}]);
   t.mock.method(fs, 'readFileSync', () => source);
   const app={root,nativeSources:['draw.cpp']};
@@ -412,10 +414,11 @@ test('triangle occlusion scratch requires its own known proof and ignores manual
 })
 
 test('native sources retain triangle scratch without claiming a C++ call-graph proof', t => {
-  const root='/virtual-triangles-native'
+  const root=path.resolve('/virtual-triangles-native')
+  const draw=path.join(root,'draw.cpp')
   let source=''
-  t.mock.method(fs,'existsSync',file=>file===`${root}/draw.cpp`)
-  t.mock.method(fs,'accessSync',file=>{if(file!==`${root}/draw.cpp`) throw new Error('missing virtual file')})
+  t.mock.method(fs,'existsSync',file=>file===draw)
+  t.mock.method(fs,'accessSync',file=>{if(file!==draw) throw new Error('missing virtual file')})
   t.mock.method(fs,'readdirSync',()=>[{name:'draw.cpp',isDirectory:()=>false}])
   t.mock.method(fs,'readFileSync',()=>source)
   for(source of ['#include "canvas.h"','Canvas output;','TriangleEntry triangles[3];','p->fillTrianglesOpaqueOccluded(tris,count,0,0);','#include <opaque_external.h>\nregister_callback(draw_scene);','#include <audio/effects.h>\nprocess(samples,count);']) {

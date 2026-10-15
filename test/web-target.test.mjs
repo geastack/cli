@@ -5,8 +5,9 @@ import test from 'node:test'
 
 import { ExitCode } from '../src/errors.mjs'
 import { runGea } from '../src/gea.mjs'
+import { formatCommand } from '../src/run.mjs'
 import { webPaths } from '../src/web/adapter.mjs'
-import { capture, createFixture, writeExecutable, writeJson } from './helpers/fixture.mjs'
+import { capture, createFixture, writeFakeCommand, writeJson } from './helpers/fixture.mjs'
 
 // A stand-in for an installed @geastack/simulator. The adapter only ever asks
 // whether the three scripts exist and then hands them to bash/node, so a
@@ -26,12 +27,21 @@ function fakeSimulator(root) {
 }
 
 // PATH is replaced rather than prepended: whether this machine happens to have
-// a real Emscripten installed must not decide what the test asserts.
+// a real Emscripten installed must not decide what the test asserts. (On
+// Windows that means the inherited `Path` key goes too, and emsdk's tools are
+// batch files there.)
 function envWith(root, binaries) {
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin, { recursive: true })
-  for (const name of binaries) writeExecutable(path.join(bin, name), '#!/usr/bin/env bash\nprintf "4.0.0\\n"\n')
-  return { ...process.env, PATH: bin, GEA_SIMULATOR_DIR: fakeSimulator(root) }
+  for (const name of binaries) {
+    writeFakeCommand(bin, name, { bash: '#!/usr/bin/env bash\nprintf "4.0.0\\n"\n', node: 'console.log("4.0.0")\n', windowsLauncher: 'cmd' })
+  }
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'PATH'))
+  return { ...inherited, PATH: bin, GEA_SIMULATOR_DIR: fakeSimulator(root) }
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 test('gea simulate builds to wasm and serves the simulator', async (t) => {
@@ -42,8 +52,9 @@ test('gea simulate builds to wasm and serves the simulator', async (t) => {
   assert.equal(await runGea(['simulate', 'watch', '--renderer', 'wasm', '--dry-run'], { ...out.io, cwd: fixture.root, env }), 0)
 
   const printed = out.out.join('\n')
-  assert.match(printed, /targets\/web\/build-web\.sh watch/)
-  assert.match(printed, /vite --root .*fake-simulator\/simulator/)
+  const simulator = env.GEA_SIMULATOR_DIR
+  assert.ok(printed.includes(`${formatCommand([path.join(simulator, 'targets', 'web', 'build-web.sh')])} watch`), printed)
+  assert.ok(printed.includes(formatCommand(['vite', '--root', path.join(simulator, 'simulator')])), printed)
 })
 
 test('gea dev defaults to the real DOM web target and resolves the app from the cwd', async (t) => {
@@ -54,7 +65,8 @@ test('gea dev defaults to the real DOM web target and resolves the app from the 
 
   assert.equal(await runGea(['dev', '--dry-run'], { ...out.io, cwd: appDir, env }), 0)
 
-  assert.match(out.out.join('\n'), new RegExp(`dev-web\\.mjs --app-dir ${appDir}$`, 'm'))
+  const devWeb = path.join(env.GEA_SIMULATOR_DIR, 'targets', 'web', 'dev-web.mjs')
+  assert.match(out.out.join('\n'), new RegExp(`${escapeRegex(formatCommand([devWeb, '--app-dir', appDir]))}$`, 'm'))
 })
 
 test('gea dev --target web and a bare gea dev are the same command', async (t) => {
@@ -80,8 +92,8 @@ test('gea build --target web is no longer refused and writes outside node_module
 
   const printed = out.out.join('\n')
   assert.doesNotMatch(printed, /not driven by gea/)
-  assert.match(printed, /build-dom-web\.mjs --app-dir/)
-  assert.match(printed, new RegExp(`--out-dir ${path.join(appDir, '.gea', 'build', 'web', 'site')}`))
+  assert.ok(printed.includes(`${formatCommand([path.join(env.GEA_SIMULATOR_DIR, 'targets', 'web', 'build-dom-web.mjs')])} --app-dir`), printed)
+  assert.ok(printed.includes(formatCommand(['--out-dir', path.join(appDir, '.gea', 'build', 'web', 'site')])), printed)
 })
 
 test('gea simulate names the Emscripten SDK when emcc is missing', async (t) => {
@@ -139,7 +151,7 @@ test('web build output is the app\'s, and the object cache is the machine\'s', (
   // .gea/build/ is what `gea create` already gitignores, so simulating an app
   // must not leave ~800MB of untracked output in the user's repo.
   for (const key of ['generated', 'dist', 'public', 'domOut', 'viteCache', 'lock']) {
-    assert.ok(paths[key].startsWith('/somewhere/apps/watch/.gea/build/web'), `${key}: ${paths[key]}`)
+    assert.ok(paths[key].startsWith(path.join(app.root, '.gea', 'build', 'web')), `${key}: ${paths[key]}`)
   }
   // The object cache is hash-keyed by toolchain and flags, so sharing it across
   // apps is safe -- and it is the expensive half worth not duplicating.
@@ -151,7 +163,8 @@ test('simulate defaults to DOM with viewport options and no Emscripten', async (
   const env = envWith(fixture.root, [])
   const out = capture()
   await runGea(['simulate', 'watch', '--no-open', '--width', '320', '--height', '480', '--dpr', '2', '--zoom', '1.5', '--dry-run'], { ...out.io, cwd: fixture.root, env })
-  assert.match(out.out.join('\n'), /dev-web\.mjs .*--emulator --width 320 --height 480 --dpr 2 --zoom 1.5/)
+  const devWeb = formatCommand([path.join(env.GEA_SIMULATOR_DIR, 'targets', 'web', 'dev-web.mjs')])
+  assert.match(out.out.join('\n'), new RegExp(`${escapeRegex(devWeb)} .*--emulator --width 320 --height 480 --dpr 2 --zoom 1\\.5`))
   assert.doesNotMatch(out.out.join('\n'), /--open|build-web\.sh/)
 })
 

@@ -1,9 +1,17 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const cliRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+const windows = process.platform === 'win32'
+
+// A Python venv keeps its interpreter in bin/python, except on Windows, where
+// it is Scripts\python.exe. The fake ESP-IDF install follows the host's layout.
+export const venvBinDir = windows ? 'Scripts' : 'bin'
+export const venvPython = windows ? path.join('Scripts', 'python.exe') : path.join('bin', 'python')
 
 // A complete fake project: installed @geastack packages (targets with one
 // ESP32 and one RP2350 project, a chips catalog, a compiler whose `analyze`
@@ -139,7 +147,7 @@ export function createFixture(t, options = {}) {
     })
   }
 
-  const idf = createFakeEspIdf(root)
+  const idf = createFakeEspIdf(root, options)
   const fakePort = path.join(root, 'fake-usb-port')
   fs.writeFileSync(fakePort, '')
 
@@ -150,11 +158,16 @@ export function createFixture(t, options = {}) {
     installed,
     esp32Target,
     fakePort,
+    python: path.join(idf.pythonEnv, venvPython),
+    cmake: idf.cmake,
     callLog: idf.callLog,
     calls: () => (fs.existsSync(idf.callLog) ? fs.readFileSync(idf.callLog, 'utf8').split('\n').filter(Boolean) : []),
     buildDir: (target, appId) => path.join(root, 'apps/watch', '.gea', 'build', target, 'app-builds', appId),
     env: {
-      PATH: `${idf.bin}${path.delimiter}/usr/bin${path.delimiter}/bin`,
+      // The fake tools, then the system directories that hold bash and git:
+      // /usr/bin and /bin, or Git for Windows' bin folder on Windows (never
+      // System32, whose bash.exe is WSL's).
+      PATH: [idf.bin, ...(windows ? [gitBashBinDir()] : ['/usr/bin', '/bin'])].filter(Boolean).join(path.delimiter),
       HOME: root,
       IDF_PATH: idf.dir,
       IDF_PYTHON_ENV_PATH: idf.pythonEnv,
@@ -167,9 +180,13 @@ export function createFixture(t, options = {}) {
   }
 }
 
-// A fake ESP-IDF: tools/idf.py + idf_tools.py exist, and the venv python is a
-// shell script that answers `idf_tools.py export` and records everything else.
-function createFakeEspIdf(root) {
+// A fake ESP-IDF: tools/idf.py + idf_tools.py exist, and the venv python
+// answers `idf_tools.py export` and records everything else. On POSIX hosts the
+// fakes are shell scripts; on Windows they are real executables, as the tools
+// themselves are there (see writeFakeCommand), with the same behaviour.
+// `recordPythonEnv` names environment variables the fake python also records,
+// as NAME=value lines, for every call but the tool export.
+function createFakeEspIdf(root, { recordPythonEnv = [] } = {}) {
   const dir = path.join(root, 'esp-idf')
   const pythonEnv = path.join(root, 'python_env')
   const bin = path.join(root, 'fake-bin')
@@ -178,19 +195,37 @@ function createFakeEspIdf(root) {
   fs.writeFileSync(path.join(dir, 'tools', 'idf.py'), '# fake idf.py\n')
   fs.writeFileSync(path.join(dir, 'tools', 'idf_tools.py'), '# fake idf_tools.py\n')
   fs.writeFileSync(path.join(dir, 'tools', 'cmake', 'version.cmake'), 'set(IDF_VERSION_MAJOR 6)\nset(IDF_VERSION_MINOR 0)\nset(IDF_VERSION_PATCH 2)\n')
-  writeExecutable(path.join(pythonEnv, 'bin', 'python'), `#!/usr/bin/env bash
+  writeFakeCommand(path.join(pythonEnv, venvBinDir), 'python', {
+    bash: `#!/usr/bin/env bash
 log="\${GEA_TEST_CALL_LOG:-/dev/null}"
 printf 'python %s\\n' "$*" >> "$log"
 if [ "$2" = "export" ]; then
   printf 'OPENOCD_SCRIPTS=/fake/openocd/scripts\\nESP_ROM_ELF_DIR=/fake/rom\\nIDF_PYTHON_ENV_PATH=${pythonEnv}\\nPATH=/fake/idf-tools/bin:$PATH\\n'
   exit 0
 fi
-prev=""; build=""
+${recordPythonEnv.map((name) => `printf "${name}=%s\\n" "$${name}" >> "$log"\n`).join('')}prev=""; build=""
 for a in "$@"; do if [ "$prev" = "-B" ]; then build="$a"; fi; prev="$a"; done
 case " $* " in *" reconfigure "*) mkdir -p "$build" && : > "$build/CMakeCache.txt" ;; esac
 exit 0
-`)
-  writeExecutable(path.join(bin, 'cmake'), `#!/usr/bin/env bash
+`,
+    // ESP-IDF's export on Windows separates PATH entries with ';' and refers
+    // to the caller's PATH as %PATH%.
+    node: `${nodeCallLog}
+record(\`python \${args.join(' ')}\`)
+if (args[1] === 'export') {
+  process.stdout.write(${JSON.stringify(`OPENOCD_SCRIPTS=/fake/openocd/scripts\nESP_ROM_ELF_DIR=/fake/rom\nIDF_PYTHON_ENV_PATH=${pythonEnv}\nPATH=/fake/idf-tools/bin;%PATH%\n`)})
+  process.exit(0)
+}
+for (const name of ${JSON.stringify(recordPythonEnv)}) record(\`\${name}=\${process.env[name] ?? ''}\`)
+const build = args.lastIndexOf('-B') >= 0 ? args[args.lastIndexOf('-B') + 1] : ''
+if (build && args.includes('reconfigure')) {
+  fs.mkdirSync(build, { recursive: true })
+  fs.writeFileSync(path.join(build, 'CMakeCache.txt'), '')
+}
+`
+  })
+  const cmake = writeFakeCommand(bin, 'cmake', {
+    bash: `#!/usr/bin/env bash
 log="\${GEA_TEST_CALL_LOG:-/dev/null}"
 printf 'cmake %s\\n' "$*" >> "$log"
 if [ "$1" = "--build" ]; then
@@ -202,9 +237,111 @@ if [ "$1" = "--build" ]; then
   printf '{ "flash_settings": { "flash_mode": "dio", "flash_freq": "80m", "flash_size": "16MB" } }' > "$2/flasher_args.json"
 fi
 exit 0
-`)
-  writeExecutable(path.join(bin, 'ninja'), '#!/usr/bin/env bash\nexit 0\n')
-  return { dir, pythonEnv, bin, callLog }
+`,
+    node: `${nodeCallLog}
+record(\`cmake \${args.join(' ')}\`)
+if (args[0] === '--build') {
+  const out = args[1]
+  fs.mkdirSync(path.join(out, 'bootloader'), { recursive: true })
+  fs.mkdirSync(path.join(out, 'partition_table'), { recursive: true })
+  fs.writeFileSync(path.join(out, 'gea_embedded.bin'), 'app-image')
+  fs.writeFileSync(path.join(out, 'bootloader', 'bootloader.bin'), 'bootloader')
+  fs.writeFileSync(path.join(out, 'partition_table', 'partition-table.bin'), 'partitions')
+  fs.writeFileSync(path.join(out, 'ota_data_initial.bin'), 'otadata')
+  fs.writeFileSync(path.join(out, 'flasher_args.json'), '{ "flash_settings": { "flash_mode": "dio", "flash_freq": "80m", "flash_size": "16MB" } }')
+}
+`
+  })
+  writeFakeCommand(bin, 'ninja', { bash: '#!/usr/bin/env bash\nexit 0\n', node: '' })
+  return { dir, pythonEnv, bin, cmake, callLog }
+}
+
+// The prelude of every Windows fake that records its calls, like the shell
+// fakes' `printf ... >> "$GEA_TEST_CALL_LOG"`.
+const nodeCallLog = `const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+const record = (line) => { if (process.env.GEA_TEST_CALL_LOG) fs.appendFileSync(process.env.GEA_TEST_CALL_LOG, \`\${line}\\n\`) }`
+
+// A fake command-line tool in `dir`. On POSIX hosts it is the given bash
+// script, made executable. On Windows a script cannot be a command: the
+// behaviour goes in `<name>.cjs`, run by node through the kind of launcher
+// the real tool has there -- an `<name>.exe` (cmake, ninja, a venv's python)
+// or, with `windowsLauncher: 'cmd'`, an `<name>.cmd` shim (npm). An .exe is
+// what the CLI may start without a shell, and it takes any argument list,
+// `python -m esptool ...` included. Returns the command's path.
+export function writeFakeCommand(dir, name, { bash, node, windowsLauncher = 'exe' }) {
+  if (!windows) {
+    writeExecutable(path.join(dir, name), bash)
+    return path.join(dir, name)
+  }
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, `${name}.cjs`), node)
+  if (windowsLauncher === 'cmd') {
+    const shim = path.join(dir, `${name}.cmd`)
+    fs.writeFileSync(shim, `@"${process.execPath}" "%~dp0${name}.cjs" %*\r\n`)
+    return shim
+  }
+  const exe = path.join(dir, `${name}.exe`)
+  try {
+    fs.linkSync(windowsLauncherExe(), exe)
+  } catch {
+    fs.copyFileSync(windowsLauncherExe(), exe)
+  }
+  return exe
+}
+
+// One launcher executable per test process, hard-linked under every fake
+// tool's name: a Node.js single executable application whose whole program is
+// "run the .cjs beside me as `node <script> ...args` would". Built with
+// `node --build-sea` from the running node, and removed when the process exits.
+let launcherExe = ''
+function windowsLauncherExe() {
+  if (launcherExe) return launcherExe
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-cli-launcher-'))
+  process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }))
+  fs.writeFileSync(path.join(dir, 'launcher.cjs'), [
+    "const script = process.execPath.replace(/\\.exe$/i, '.cjs')",
+    // A single executable sees [exe, exe, ...args]; a script run by node sees [node, script, ...args].
+    'process.argv.splice(1, 1, script)',
+    "require('node:module').createRequire(script)(script)",
+    ''
+  ].join('\n'))
+  writeJson(path.join(dir, 'sea-config.json'), { main: 'launcher.cjs', output: 'launcher.exe', disableExperimentalSEAWarning: true })
+  try {
+    execFileSync(process.execPath, ['--build-sea', 'sea-config.json'], { cwd: dir, stdio: 'pipe' })
+  } catch (error) {
+    throw new Error(`The Windows test fixtures build their fake tools with \`node --build-sea\`, which failed with Node.js ${process.version}: ${String(error.stderr || error.message).trim()}`)
+  }
+  launcherExe = path.join(dir, 'launcher.exe')
+  return launcherExe
+}
+
+// Git for Windows' bin folder (bash.exe, sh.exe, git.exe), the Windows
+// counterpart of /usr/bin and /bin for the scripts the CLI hands to bash.
+// Found from git itself, which need not be the folder on PATH; '' if absent.
+let gitBashBin
+export function gitBashBinDir() {
+  if (gitBashBin !== undefined) return gitBashBin
+  const candidates = []
+  try {
+    // <Git>/mingw64/libexec/git-core
+    const execPath = execFileSync('git', ['--exec-path'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    candidates.push(path.resolve(execPath, '..', '..', '..', 'bin'))
+  } catch {
+    // No git on PATH; fall back to the default install location.
+  }
+  candidates.push(path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin'))
+  gitBashBin = candidates.find((dir) => fs.existsSync(path.join(dir, 'bash.exe'))) || ''
+  return gitBashBin
+}
+
+// A copy of `env` with `dir` in front of its PATH, under the key the
+// environment already uses: a Windows environment spells it Path, and a
+// second PATH key beside it would leave the child to pick one of the two.
+export function withPathPrefix(env, dir) {
+  const key = Object.keys(env).find((name) => name.toUpperCase() === 'PATH') || 'PATH'
+  return { ...env, [key]: [dir, env[key]].filter(Boolean).join(path.delimiter) }
 }
 
 export function createFakeToolchain(t, options = {}) {
@@ -218,14 +355,15 @@ export function createFakeToolchain(t, options = {}) {
     ...options.versions
   }
   for (const [name, output] of Object.entries(versions)) {
-    writeExecutable(path.join(bin, name), `#!/usr/bin/env bash\nprintf '%s\\n' ${JSON.stringify(output)}\n`)
+    writeFakeCommand(bin, name, {
+      bash: `#!/usr/bin/env bash\nprintf '%s\\n' ${JSON.stringify(output)}\n`,
+      node: `process.stdout.write(${JSON.stringify(`${output}\n`)})\n`,
+      windowsLauncher: name === 'npm' ? 'cmd' : 'exe'
+    })
   }
   return {
     bin,
-    env: {
-      ...process.env,
-      PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`
-    }
+    env: withPathPrefix({ ...process.env }, bin)
   }
 }
 

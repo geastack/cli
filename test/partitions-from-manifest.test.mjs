@@ -22,13 +22,15 @@ test('sizes accept byte counts, K/M suffixes and hex', () => {
 
 test('a manifest table becomes a CSV and yields its payload pairs', (t) => {
   const outDir = scratch(t)
+  // An app root is absolute, which on Windows includes the drive.
+  const appRoot = path.resolve('/app')
   const { file, payloads } = writePartitionTable({
     table: {
       nvs: { type: 'data', subtype: 'nvs', size: '24K', offset: '0x9000', flags: '', data: '' },
       ota_0: { type: 'app', subtype: 'ota_0', size: '4M', offset: '', flags: '', data: '' },
       models: { type: 'data', subtype: '0x40', size: '6M', offset: '', flags: '', data: 'build/models.bin' }
     },
-    appRoot: '/app',
+    appRoot,
     outDir
   })
   const csv = readFileSync(file, 'utf8')
@@ -36,7 +38,7 @@ test('a manifest table becomes a CSV and yields its payload pairs', (t) => {
   assert.match(csv, /^nvs, data, nvs, 0x9000, 24K, $/m)
   assert.match(csv, /^ota_0, app, ota_0, , 4M, $/m)
   // Only a partition that declares data produces a payload, and it is absolute.
-  assert.deepEqual(payloads, [{ name: 'models', file: '/app/build/models.bin' }])
+  assert.deepEqual(payloads, [{ name: 'models', file: path.join(appRoot, 'build', 'models.bin') }])
 })
 
 test('an over-long partition name is refused before the flash', (t) => {

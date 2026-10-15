@@ -14,7 +14,7 @@ import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionBy
 import { Sdkconfig, prepareBuildLocalSdkconfig, withSdkconfigUnset, withSdkconfigValue } from '../src/esp32/sdkconfig.mjs'
 import { quoteCString, wifiConfigContents } from '../src/esp32/wifi-config.mjs'
 import { findCurrentApp } from '../src/manifest.mjs'
-import { createFixture } from './helpers/fixture.mjs'
+import { createFixture, venvBinDir } from './helpers/fixture.mjs'
 
 test('CMake arguments carry forward slashes on Windows and are untouched elsewhere', () => {
   assert.equal(cmakeValue('C:\\Users\\me\\app;src/native/main.cpp', 'win32'), 'C:/Users/me/app;src/native/main.cpp')
@@ -81,7 +81,7 @@ test('ESP-IDF activation keeps a single PATH key when the environment spells it 
   const idf = activateEspIdf({ env: { ...rest, Path: PATH } })
   const pathKeys = Object.keys(idf.env).filter((key) => key.toUpperCase() === 'PATH')
   assert.deepEqual(pathKeys, ['Path'])
-  assert.ok(idf.env.Path.startsWith(`${path.join(fixture.env.IDF_PYTHON_ENV_PATH, 'bin')}${path.delimiter}/fake/idf-tools/bin${path.delimiter}`))
+  assert.ok(idf.env.Path.startsWith(`${path.join(fixture.env.IDF_PYTHON_ENV_PATH, venvBinDir)}${path.delimiter}/fake/idf-tools/bin${path.delimiter}`))
   assert.ok(idf.env.Path.endsWith(PATH), 'the caller PATH entries survive under the caller spelling')
 })
 
@@ -91,11 +91,11 @@ test('ESP-IDF activation runs idf_tools export from the installed python env, ne
   assert.equal(findIdfPythonEnv(fixture.env.IDF_PATH, fixture.env), fixture.env.IDF_PYTHON_ENV_PATH)
   const idf = activateEspIdf({ env: fixture.env })
   assert.equal(idf.version.full, '6.0.2')
-  assert.equal(idf.python, path.join(fixture.env.IDF_PYTHON_ENV_PATH, 'bin', 'python'))
+  assert.equal(idf.python, fixture.python)
   assert.equal(idf.env.OPENOCD_SCRIPTS, '/fake/openocd/scripts')
   assert.equal(idf.env.IDF_PATH, fixture.env.IDF_PATH)
-  assert.ok(idf.env.PATH.startsWith(`${path.join(fixture.env.IDF_PYTHON_ENV_PATH, 'bin')}${path.delimiter}/fake/idf-tools/bin${path.delimiter}`))
-  assert.ok(idf.env.PATH.endsWith(fixture.env.PATH), 'the literal $PATH placeholder is replaced with the caller PATH')
+  assert.ok(idf.env.PATH.startsWith(`${path.join(fixture.env.IDF_PYTHON_ENV_PATH, venvBinDir)}${path.delimiter}/fake/idf-tools/bin${path.delimiter}`))
+  assert.ok(idf.env.PATH.endsWith(fixture.env.PATH), 'the literal $PATH (%PATH% on Windows) placeholder is replaced with the caller PATH')
   assert.deepEqual(esptoolCommand(idf, ['--chip', 'esp32s3']), { command: idf.python, args: ['-m', 'esptool', '--chip', 'esp32s3'] })
   assert.match(fixture.calls().join('\n'), /idf_tools\.py export --format key-value/)
 })
@@ -218,7 +218,7 @@ test('switching ESP-IDF installations invalidates the configure signature', asyn
   cpSync(idf.idfDir, otherDir, { recursive: true })
   const other = activateEspIdf({ env: { ...fixture.env, IDF_PATH: otherDir } })
   assert.equal(await configure(other), true)
-  assert.ok(fixture.calls().some((line) => line.includes(`${otherDir}/tools/idf.py`) && line.endsWith(' reconfigure')))
+  assert.ok(fixture.calls().some((line) => line.includes(path.join(otherDir, 'tools', 'idf.py')) && line.endsWith(' reconfigure')))
   assert.equal(await configure(other), false)
 })
 
@@ -348,7 +348,7 @@ test('the application image is copied to the output the app or the command names
   const declared = publishEsp32Output({ ctx, app, images, stdout: (line) => lines.push(line) })
   assert.equal(declared, path.join(fixture.root, 'pedal/build/pedalboard.bin'))
   assert.equal(readFileSync(declared, 'utf8'), 'image')
-  assert.match(lines[0], /Firmware image: pedal\/build\/pedalboard\.bin/)
+  assert.ok(lines[0].includes(`Firmware image: ${path.join('pedal', 'build', 'pedalboard.bin')}`), lines[0])
   // The command line wins, relative to where it was typed.
   const explicit = publishEsp32Output({ ctx, app, images, output: 'out/fw.bin', stdout: () => {} })
   assert.equal(readFileSync(path.join(fixture.root, 'out/fw.bin'), 'utf8'), 'image')

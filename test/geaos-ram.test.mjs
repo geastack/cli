@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import test from 'node:test'
 import { resolveBoardSelection } from '../src/boards/resolve.mjs'
 import { runGeaos } from '../src/geaos/adapter.mjs'
+import { formatCommand } from '../src/run.mjs'
+
+// The printed command is the script's path, joined and shell-quoted as the
+// host writes it, followed by its arguments.
 
 const targets = {
   tablet: { adapter: 'geaos-arm64', targetDir: '/geaos/boards/w87', appPlatform: 'geaos', bootMode: 'ram-only' }
@@ -14,7 +19,7 @@ test('RAM-only GeaOS deployment never selects the legacy flash script', () => {
     const lines = []
     runGeaos({ ctx: { projectRoot: '/apps' }, selection, action, env: {}, dryRun: true,
       stdout: line => lines.push(line) })
-    assert.deepEqual(lines, [`/geaos/boards/w87/board.py ${expected}`])
+    assert.deepEqual(lines, [formatCommand([path.join('/geaos/boards/w87', 'board.py'), expected])])
   }
   assert.throws(() => runGeaos({ ctx: { projectRoot: '/apps' }, selection, action: 'flash-kernel',
     env: {}, dryRun: true, stdout() {} }), /not supported by this RAM-only target/)
@@ -24,5 +29,5 @@ test('ordinary GeaOS boards retain their existing deployment route', () => {
   const lines = []
   runGeaos({ ctx: { projectRoot: '/apps', targetsRoot: '/targets' }, selection: { adapter: 'geaos-arm64', targetDir: '/geaos', target: 'watch' },
     action: 'flash', app: { id: 'clock', root: '/apps/clock' }, env: {}, dryRun: true, stdout: line => lines.push(line) })
-  assert.deepEqual(lines, ['/geaos/flash-geaos-arm64.sh clock'])
+  assert.deepEqual(lines, [formatCommand([path.join('/geaos', 'flash-geaos-arm64.sh'), 'clock'])])
 })
