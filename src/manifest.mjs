@@ -1,3 +1,5 @@
+import { resolveNativeResources } from './native-resources.mjs'
+import { resolveNativeLink } from './native-link.mjs'
 import path from 'node:path'
 import { validateBuildManifest } from './build-config.mjs'
 import { createRequire } from 'node:module'
@@ -88,6 +90,7 @@ export function validateApp(app) {
   }
   for (const [target, config] of Object.entries(app.targetConfig)) {
     const where = (field) => `gea.targets.${target}.${field}`
+    try { resolveNativeResources(app.root, target, config.nativeResources); resolveNativeLink(app.root, target, config) } catch (error) { errors.push(`${where('nativeLibraries/frameworks')}: ${error.message}`) }
     for (const fragment of config.ldFragments) {
       if (!exists(path.join(app.root, fragment))) errors.push(`${where('ldFragments')} entry does not exist: ${fragment}`)
     }
@@ -150,7 +153,7 @@ export function assertTargetEnabled(ctx, app, targetOrPlatform) {
   fail(`App '${app.id}' does not enable target '${platform}'.`, ExitCode.targetUnavailable)
 }
 
-export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'macos', 'ios', 'android', 'windows', 'xbox', 'pebble'])
+export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'raspberry-pi-os', 'macos', 'ios', 'android', 'windows', 'xbox', 'pebble'])
 
 export function appPlatformForTarget(ctx, targetOrBoard) {
   return appPlatformsForTarget(ctx, targetOrBoard)[0] || ''
@@ -236,6 +239,8 @@ export function appSummary(ctx, app) {
     defines: app.defines,
     cssDevicePixelRatio: app.cssDevicePixelRatio,
     targetConfig: app.targetConfig,
+    nativeResources: Object.fromEntries(Object.keys(app.targets).map(target => [target, resolveNativeResources(app.root,target,appTargetConfig(app,target).nativeResources)])),
+    nativeLink: Object.fromEntries(Object.keys(app.targets).map(target => [target, resolveNativeLink(app.root, target, appTargetConfig(app, target))])),
     launcher: app.launcher
   }
 }
@@ -319,15 +324,15 @@ function normalizeLauncher(raw) {
   }
 }
 
-function normalizeManifestRelativePath(value) {
+function normalizeManifestRelativePath(value, allowParent = false) {
   const normalized = path.posix.normalize(String(value || '').replaceAll('\\', '/'))
   if (!normalized || normalized === '.' || normalized === '..') return ''
-  if (path.posix.isAbsolute(normalized) || normalized.startsWith('../')) return ''
-  if (normalized.includes('/../') || normalized.includes(';')) return ''
+  if (path.posix.isAbsolute(normalized) || (allowParent !== true && normalized.startsWith('../'))) return ''
+  if ((allowParent !== true && normalized.includes('/../')) || normalized.includes(';')) return ''
   return normalized
 }
 
-// A nativeSources entry is either a path inside the app or a file in one of its
+// A nativeSources entry is either a path relative to the app or a file in one of its
 // packages. App-relative wins when it exists, so nothing already declared can
 // change meaning; anything else is handed to node resolution, which is what
 // lets an app name `@geastack/native-webgl-angle/native/audio_host.mm` instead
@@ -347,7 +352,10 @@ export function resolveAppSourcePath(root, source) {
 
 export function normalizeNativeSources(raw) {
   if (!Array.isArray(raw)) return []
-  const sources = raw.map(normalizeManifestRelativePath).filter((source) => /\.(?:c|cc|cpp|cxx|m|mm|S)$/.test(source))
+  // Shared native code can live beside an app's directory. These are explicit
+  // compiler inputs, unlike app assets, and resolveAppSourcePath/validateApp
+  // must see missing sibling files instead of silently dropping the entries.
+  const sources = raw.map((source) => normalizeManifestRelativePath(source, true)).filter((source) => /\.(?:c|cc|cpp|cxx|m|mm|S)$/.test(source))
   return [...new Set(sources)]
 }
 
@@ -390,7 +398,7 @@ export function normalizeDefines(raw) {
 
 
 function emptyTargetConfig() {
-  return { ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', prebuild: '', output: '' }
+  return { nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', prebuild: '', output: '' }
 }
 
 function normalizeStringList(raw) {
@@ -457,6 +465,11 @@ function normalizeTargetConfig(raw) {
   for (const [name, value] of Object.entries(raw)) {
     if (!name || !value || typeof value !== 'object' || value.enabled === false) continue
     configs[name] = {
+      nativeIncludeDirectories: value.nativeIncludeDirectories ?? [],
+      nativeSystemLibraries: value.nativeSystemLibraries ?? [],
+      nativeResources: value.nativeResources ?? {},
+      nativeLibraries: value.nativeLibraries ?? [],
+      frameworks: value.frameworks ?? [],
       ldFragments: normalizeStringList(value.ldFragments).filter((entry) => entry.endsWith('.lf')).map(normalizeManifestRelativePath),
       componentDirs: normalizeStringList(value.componentDirs).map(normalizeManifestRelativePath),
       componentRequires: normalizeStringList(value.componentRequires),

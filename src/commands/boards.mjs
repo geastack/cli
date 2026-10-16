@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import {validateLinuxBoard} from '../linux/deploy.mjs'
 import { flag, option } from '../args.mjs'
 import {
   boardConfigOrigins,
@@ -20,6 +22,7 @@ export const boardsUsage = `gea boards <subcommand> [--global | --local]
   list [--json]                         every alias, with the file it lives in
   show <alias> [--json]
   add                                   register a board (guided; gea setup)
+  add <alias> --linux-config <file>       register reviewed native Linux SSH/profile
   set <alias> <key> <value>             edit one field; an empty value removes it
   remove <alias>
   rename <alias> <new-alias>
@@ -234,6 +237,18 @@ export async function boardsCommand(ctx, parsed, rest, options) {
     return 0
   }
 
+  if (sub === 'add' && option(parsed,'linux-config','')) {
+    const name=rest[1]
+    if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(name||'')) fail('A valid new Linux board alias is required.',ExitCode.usage)
+    if(boards[name]) fail(`Board '${name}' already exists; registration never repurposes it.`,ExitCode.usage)
+    const entry=JSON.parse(fs.readFileSync(option(parsed,'linux-config'),'utf8'))
+    validateLinuxBoard(entry)
+    const file=boardConfigWritePath(ctx,{scope:writeScope(parsed)})
+    updateBoardFile(file,current=>{current[name]=entry;return current})
+    success(options.stdout,`Registered Linux board '${name}' in ${file}; no connection opened`)
+    return 0
+  }
+
   if (sub === 'add') {
     const { runSetupWizard } = await import('../setup-wizard.mjs')
     return runSetupWizard(ctx, parsed, options)
@@ -251,7 +266,9 @@ export async function boardsCommand(ctx, parsed, rest, options) {
       // Moving an alias between tiers with --global/--project copies the
       // merged entry so the edit lands on a complete board, not a fragment.
       const base = current[name] ?? structuredClone(boards[name])
-      current[name] = setFieldPath(base, keyPath, value)
+      const updated=setFieldPath(base, keyPath, value)
+      if(base.adapter==='linux-native'||updated.adapter==='linux-native') validateLinuxBoard(updated)
+      current[name] = updated
       return current
     })
     if (scope && origins.get(name) && origins.get(name) !== file) {

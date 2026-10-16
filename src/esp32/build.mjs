@@ -11,6 +11,7 @@ import { CliError, ExitCode, fail } from '../errors.mjs'
 import { appCmakeMeta, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
 import { quietSteps, runQuiet } from '../run.mjs'
 import { resolveAppCapabilities, withRendererFeatureDefines } from './capabilities.mjs'
+import { prepareCapabilityDependencies } from './dependencies.mjs'
 import { activateEspIdf, idfPyCommand } from './idf-env.mjs'
 import { espIdfVersionForTarget } from './idf-version.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig } from './sdkconfig.mjs'
@@ -424,7 +425,14 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   log(`Using ESP32 target '${selection.target}' at ${selection.targetDir} (idf=${idfTarget} chip=${selection.esptoolChip || idfTarget} flash=${selection.flashSize})`)
 
   const childEnv = { ...env }
-  const buildConfig = writeBuildConfig(binaryDir, resolvedBuild)
+  for (const name of Object.keys(childEnv)) if (name.startsWith('GEA_EMBEDDED_CAPABILITY_')) delete childEnv[name]
+  if (resolvedBuild.settings.services?.wifi === 'disabled') {
+    if (capabilities.network) fail('services.wifi=disabled conflicts with the app network capabilities', ExitCode.usage)
+    capabilities.network = false
+  }
+  Object.assign(capabilities, resolvedBuild.capabilities)
+  const dependencyDirectory = prepareCapabilityDependencies(selection.targetDir, binaryDir, capabilities)
+  const buildConfig = writeBuildConfig(binaryDir, resolvedBuild, { capabilityDependencyDirectory: dependencyDirectory })
   const idfArgs = [`-DIDF_TARGET=${idfTarget}`, `-DGEA_BUILD_CONFIG_FILE=${cmakeValue(buildConfig.cmake)}`, `-DGEA_BUILD_CONFIG_JSON=${cmakeValue(buildConfig.json)}`, `-DGEA_BUILD_CONFIG_HASH=${buildConfig.hash}`]
   childEnv.GEA_BUILD_CONFIG_FILE = cmakeValue(buildConfig.cmake)
   childEnv.GEA_BUILD_CONFIG_JSON = cmakeValue(buildConfig.json)
@@ -535,7 +543,7 @@ function preparePartitions(app, config, buildDir, targetId) {
     const appNative = {
       GEA_EMBEDDED_APP_DEFINES: appDefines,
       GEA_EMBEDDED_APP_LDFRAGMENTS: appCmakeLdFragments(app),
-      GEA_EMBEDDED_APP_COMPONENT_DIRS: appTargetPaths(app, 'esp32', 'componentDirs').join(';'),
+      GEA_EMBEDDED_APP_COMPONENT_DIRS: [...appTargetPaths(app, 'esp32', 'componentDirs'), dependencyDirectory].filter(Boolean).join(';'),
       // Component names the app's own native sources include headers from or
       // take PUBLIC compile definitions from. They land on the shared
       // gea_framework component's REQUIRES, which is transitive, so the app's
@@ -568,12 +576,6 @@ function preparePartitions(app, config, buildDir, targetId) {
     childEnv.GEA_EMBEDDED_APP = app.id
     childEnv.GEA_EMBEDDED_APP_META = cmakeValue(meta)
     for (const [name, value] of Object.entries(appNative)) if (value) childEnv[name] = cmakeValue(value)
-    childEnv.GEA_EMBEDDED_CAPABILITY_NETWORK = capabilities.network ? '1' : '0'
-    childEnv.GEA_EMBEDDED_CAPABILITY_BLE = capabilities.ble ? '1' : '0'
-    childEnv.GEA_EMBEDDED_CAPABILITY_AUDIO = capabilities.audio ? '1' : '0'
-    childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA = capabilities.bindings.includes('camera') ? '1' : '0'
-    childEnv.GEA_EMBEDDED_CAPABILITY_RTC = rtcUsed ? '1' : '0'
-    childEnv.GEA_EMBEDDED_CAPABILITY_H264 = h264Used ? '1' : '0'
     if (bleOta) childEnv.GEA_EMBEDDED_BLE_OTA = '1'
     log(`App capabilities: network=${capabilities.network ? 1 : 0} ble=${capabilities.ble ? 1 : 0} audio=${capabilities.audio ? 1 : 0}`)
     generateWifiConfig(app.root, path.join(binaryDir, 'apps', app.id, 'wifi_config.h'))

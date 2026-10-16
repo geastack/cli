@@ -14,7 +14,9 @@ export function nativeCssSourceNeedsSupport(text) {
   if (/#\s*include\s+(?![<"])[A-Za-z_]/.test(text)) return true
   for (const match of text.matchAll(/#\s*include\s*[<"]([^>"\n]+)[>"]/g)) {
     const header = match[1].replaceAll('\\', '/')
-    if (header.endsWith('ui/tree_inspection.h')) continue
+    // Refresh tracing only reads/writes diagnostic stage atomics; it cannot
+    // construct nodes or change CSS, unlike the mutable UI headers below.
+    if (header.endsWith('ui/tree_inspection.h') || header.endsWith('ui/refresh_trace.h')) continue
     if (header.startsWith('css/') || header.startsWith('ui/') || privateUiHeader.test(header)) return true
   }
   return /\b(?:AnimationEngine|DeclarativeAnimations|ComputedStyle|StyleSheet|CssCompiledValue|CssDeclarationId|NodeText|NodeType|NodeClassList|ImageElement|InputElement|VirtualKeyboard)\b|\bProperty\s*::|(?:\.|->)\s*(?:style|cssText)\b|\b(?:setClassName|classList|setProperty|applyTransformComponentsFast|applyTransformSlotsFast|setDevicePixelRatio|setViewportMetrics|gea_style_set_device_pixel_ratio|gea_style_set_viewport_metrics)\s*\(/.test(text)

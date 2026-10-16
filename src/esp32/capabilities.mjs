@@ -210,6 +210,10 @@ export function analyzeApp(ctx, app, { env = ctx.env || process.env } = {}) {
 
 export function resolveAppCapabilities(ctx, app, options = {}) {
   const analysis = analyzeApp(ctx, app, options)
+  return capabilitiesFromAnalysis(app, analysis)
+}
+
+export function capabilitiesFromAnalysis(app, analysis) {
   const bindings = new Set(analysis.bindings)
   const features = new Set(withNativeCssFeatures(app, analysis.features))
   const manifestBleOta = manifestRequestsBleOta(app.packageJson)
@@ -218,6 +222,8 @@ export function resolveAppCapabilities(ctx, app, options = {}) {
     ble: bindings.has('ble') || manifestBleOta,
     bleApi: bindings.has('ble'),
     audio: bindings.has('audio'),
+    camera: bindings.has('camera'),
+    aec: bindings.has('audio') && features.has('audio-capture') && features.has('audio-playback'),
     bindings: [...bindings].sort(),
     features: [...features].sort()
   }

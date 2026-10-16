@@ -212,7 +212,19 @@ export function resolveBuildConfig({ app, platform, board = '', targetsRoot = ''
     if (platform === 'esp32' && inferred.runtime.mode === 'canvas' && !managedDefines.some(d => d.startsWith('GEA_EMBEDDED_WIFI_DISABLED='))) managedDefines.push('GEA_EMBEDDED_WIFI_DISABLED=1')
   }
   defines.push(...managedDefines)
-  return { platform, board, inferred, settings: unflatten(flat), origins, inapplicable, defines, managedDefines, cssDevicePixelRatio, cssDevicePixelRatioOrigin: cssOrigin }
+  const selectedCapabilities = capabilities && {
+    ...capabilities,
+    aec: Boolean(capabilities.audio && (defines.includes('GEA_AUDIO_ECHO_CANCELLATION=1') ||
+      (capabilities.aec && !defines.includes('GEA_AUDIO_ECHO_CANCELLATION=0')))),
+    rtc: capabilities.network && !defines.includes('GEA_EMBEDDED_RTC_UNUSED=1'),
+    h264: capabilities.network && !defines.includes('GEA_EMBEDDED_H264_UNUSED=1'),
+  }
+  if (selectedCapabilities?.aec) {
+    for (const name of ['GEA_AUDIO_ECHO_CANCELLATION', 'GEA_AUDIO_FULL_DUPLEX']) {
+      if (!defines.some(define => define.startsWith(name + '='))) defines.push(name + '=1')
+    }
+  }
+  return { platform, board, inferred, settings: unflatten(flat), origins, inapplicable, defines, managedDefines, cssDevicePixelRatio, cssDevicePixelRatioOrigin: cssOrigin, ...(selectedCapabilities && { capabilities: selectedCapabilities }) }
 }
 
 function inferRuntime(app, platform, capabilities, target) {
@@ -222,10 +234,10 @@ function inferRuntime(app, platform, capabilities, target) {
     const proofs = features.filter(f => f.startsWith('runtime-analysis-'))
     const native = app?.manifest || {}
     const platformNative = typeof native.targets?.[platform] === 'object' ? native.targets[platform] : {}
-    const extensionKeys = ['nativeSources', 'componentDirs', 'componentRequires', 'linkOptions', 'compilerPlugins']
+    const extensionKeys = ['nativeSources', 'nativeLibraries', 'nativeIncludeDirectories', 'nativeSystemLibraries', 'nativeResources', 'frameworks', 'componentDirs', 'componentRequires', 'linkOptions', 'compilerPlugins']
     if (!proofs.length || proofs.some(p => p !== 'runtime-analysis-v1')) reason = 'no supported complete runtime analysis'
     else if (!features.includes('runtime-canvas-only')) reason = 'app requires the full runtime or source analysis is inconclusive'
-    else if (extensionKeys.some(key => native[key]?.length || platformNative[key]?.length)) reason = 'native extensions cannot be proven independent of the UI and services'
+    else if (extensionKeys.some(key => native[key]?.length || platformNative[key]?.length) || Object.keys(platformNative.nativeResources || {}).length) reason = 'native extensions cannot be proven independent of the UI and services'
     else if (capabilities.network || capabilities.ble || capabilities.audio || (capabilities.bindings || []).some(b => b !== 'display')) reason = 'app requires host services outside the canvas runtime'
     else return { runtime: { mode: 'canvas', reason: 'complete source analysis proves direct display drawing without UI or host services' } }
   }
@@ -253,14 +265,24 @@ export function renderBuildCmake(resolved) {
     lines.push(`set(${buildVariable(key)} "${typeof value === 'boolean' ? Number(value) : value}")`)
   }
   lines.push(`set(GEA_APP_CANVAS_ONLY "${Number(resolved.inferred?.runtime.mode === 'canvas')}")`)
+  if (resolved.capabilities) lines.push('set(GEA_APP_CAPABILITY_ANALYSIS_VERSION 1)')
+  for (const [name, enabled] of Object.entries(resolved.capabilities || {})) {
+    if (!/^[a-z][a-z0-9_]*$/.test(name) || typeof enabled !== 'boolean') continue
+    lines.push(`set(GEA_EMBEDDED_CAPABILITY_${name.toUpperCase()} ${Number(enabled)} CACHE BOOL "Analyzed app capability" FORCE)`)
+  }
+  if (resolved.capabilityDependencies) {
+    lines.push('set(GEA_APP_CAPABILITY_DEPENDENCIES 1)')
+    lines.push(`set(GEA_APP_CAPABILITY_DEPENDENCY_DIR "${resolved.capabilityDependencyDirectory.replaceAll('\\', '/').replaceAll('"', '\\"')}")`)
+  }
   return lines.join('\n') + '\n'
 }
-export function writeBuildConfig(buildDir, resolved) {
+export function writeBuildConfig(buildDir, resolved, { capabilityDependencyDirectory = '' } = {}) {
   fs.mkdirSync(buildDir, { recursive: true })
   const cmake = path.join(buildDir, 'gea-build-config.cmake')
   const json = path.join(buildDir, 'gea-build-config.json')
   const contents = JSON.stringify(resolved, null, 2) + '\n'
-  for (const [file, value] of [[cmake, renderBuildCmake(resolved)], [json, contents]]) {
+  const native = renderBuildCmake({ ...resolved, capabilityDependencies: Boolean(capabilityDependencyDirectory), capabilityDependencyDirectory })
+  for (const [file, value] of [[cmake, native], [json, contents]]) {
     if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== value) fs.writeFileSync(file, value)
   }
   return { cmake, json, hash: createHash('sha256').update(contents).digest('hex') }

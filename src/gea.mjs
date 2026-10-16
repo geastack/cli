@@ -101,6 +101,14 @@ export async function runGea(argv, io = {}) {
 
   // Xbox is both a platform and a concrete built-in UWP target.
   const target = option(parsed, 'target', '')
+  // Raspberry Pi OS builds a real SDL native executable. Running/deploying is
+  // intentionally not implicit in this build-only platform adapter.
+  if (command === 'build' && target === 'raspberry-pi-os') {
+    const app = parsed.options.app || rest[0] ? findAppById(ctx, String(parsed.options.app || rest[0])) : findCurrentApp(cwd)
+    if (!app?.targets?.['raspberry-pi-os']) fail(app ? `'${app.id}' does not declare gea.targets.raspberry-pi-os.` : 'No app selected.', ExitCode.usage)
+    const { runLinux } = await import('./linux/adapter.mjs')
+    return runLinux({ app, env, dryRun: flag(parsed, 'dry-run'), stdout })
+  }
   // macOS never reaches board selection: it has no alias and no catalog entry,
   // so an app declaring `targets.macos` is the whole configuration -- and on a
   // Mac a bare `gea build` inside such an app's folder is the command a user
@@ -294,6 +302,7 @@ ${heading('Run on this machine (no board needed):')}
   gea build --target web [app] [--out-dir d]     build the app as a real web app
 
 ${heading('Native desktop, mobile and watch apps (scripts ship in @geastack/apple, @geastack/windows and @geastack/pebble):')}
+  gea build --target raspberry-pi-os [app]       build an SDL Linux native executable (no launch)
   gea build --target macos [app]                 build a Mac .app (a bare gea build does this on a Mac for a Mac-only app)
   gea build --target ios [app] [--mode simulator|device]   generate the Xcode project and build the iOS .app
   gea run --target ios [app] [--mode simulator|device]     build, then install and launch on a simulator or iPhone

@@ -333,3 +333,104 @@ test('native debugger pause cancels a serial wait without closing the port or re
  await assert.rejects(read,/Native app paused/);assert.equal(serial.waiters.length,0);assert.equal(serial.closed,false)
  port.emit('data',Buffer.from('GEADEV:DEBUG END sequence=2\n'));assert.equal(await serial.readLine(100),'GEADEV:DEBUG END sequence=2')
 })
+
+// A byte-level model of an ESP32-S31 console after an interrupted USB install:
+// the dead transfer's receive loop may still be swallowing input (it gives up
+// after a silence and prints its ERR), and that ERR line can already sit in the
+// TX FIFO when the next host opens the port.
+function otaBoard({ staleLoop = false, staleMs = 30, queued = '', lateStale = '', echoNonce = true, failTransfers = 0 } = {}) {
+  const port = new EventEmitter()
+  port.path = '/dev/fake'
+  const emit = (text) => setImmediate(() => port.emit('data', Buffer.from(text)))
+  const board = { commands: [], installed: null }
+  let stale = staleLoop
+  let staleTimer = null
+  let receiving = null
+  let line = ''
+  if (queued) emit(queued)
+  const handleLine = (text) => {
+    const [prefix, verb, ...args] = text.trim().split(/\s+/)
+    if (prefix !== 'GEADEV') return
+    board.commands.push(text.trim())
+    if (verb === 'PING') emit(`GEADEV:PONG app=old ip=0.0.0.0 mac=00${echoNonce && args[0] ? ` nonce=${args[0]}` : ''}\n`)
+    if (verb === 'OTA') {
+      receiving = { size: Number(args[0]), crc: Number(args[1]), chunks: [], got: 0 }
+      emit(`${lateStale}GEADEV:OTA READY slot=ota_1 bytes=${args[0]}\n`)
+    }
+  }
+  port.write = (data, callback) => {
+    for (const byte of Buffer.from(data)) {
+      if (stale) {
+        clearTimeout(staleTimer)
+        staleTimer = setTimeout(() => {
+          stale = false
+          emit('GEADEV:OTA ERR transfer-failed got=5228992\n')
+        }, staleMs)
+        continue
+      }
+      if (receiving) {
+        receiving.chunks.push(byte)
+        if (++receiving.got < receiving.size) continue
+        const image = Buffer.from(receiving.chunks)
+        const crc = crc32(image)
+        receiving = null
+        if (failTransfers > 0) {
+          failTransfers--
+          emit(`GEADEV:OTA ERR transfer-failed got=${image.length - 1} want=${image.length}\n`)
+        } else {
+          board.installed = image
+          emit(`GEADEV:OTA OK slot=ota_1 bytes=${image.length} crc=0x${crc.toString(16).padStart(8, '0')}\n`)
+        }
+        continue
+      }
+      if (byte === 0x0a) {
+        handleLine(line)
+        line = ''
+      } else line += String.fromCharCode(byte)
+    }
+    callback()
+  }
+  port.drain = (callback) => callback()
+  port.close = (callback) => {
+    port.emit('close')
+    callback()
+  }
+  return { port, board }
+}
+
+test('USB in-app install survives an interrupted earlier transfer: stale loop and queued ERR line', async () => {
+  const { port, board } = otaBoard({ staleLoop: true, queued: 'GEADEV:OTA ERR transfer-failed got=5224305\n' })
+  const device = new SerialDevice(port, { path: '/dev/fake' })
+  const image = Buffer.from(Array.from({ length: 5000 }, (_, i) => (i * 7) & 0xff))
+  const result = await geadev.otaUpdate(device, image)
+  assert.match(result.line, /^GEADEV:OTA OK slot=ota_1 bytes=5000/)
+  assert.deepEqual(board.installed, image)
+  assert.equal(board.commands.filter((c) => c.startsWith('GEADEV OTA')).length, 1)
+
+  // A dead transfer that outlasts the drain swallows the first ping; the
+  // host re-pings once its closing ERR line arrives.
+  const slow = otaBoard({ staleLoop: true, staleMs: 1800 })
+  const slowResult = await geadev.otaUpdate(new SerialDevice(slow.port, { path: '/dev/fake' }), image)
+  assert.match(slowResult.line, /^GEADEV:OTA OK/)
+  assert.deepEqual(slow.board.installed, image)
+  assert.ok(slow.board.commands.filter((c) => c.startsWith('GEADEV PING')).length >= 1)
+})
+
+test('USB in-app install ignores a stale transfer-failed before READY on firmware without nonce echo', async () => {
+  const { port, board } = otaBoard({ echoNonce: false, lateStale: 'GEADEV:OTA ERR transfer-failed got=5228992\n' })
+  const device = new SerialDevice(port, { path: '/dev/fake' })
+  const image = Buffer.alloc(3000, 0x5a)
+  const result = await geadev.otaUpdate(device, image)
+  assert.match(result.line, /^GEADEV:OTA OK/)
+  assert.deepEqual(board.installed, image)
+})
+
+test('USB in-app install retries once after a real transfer error, then reports it', async () => {
+  const { port, board } = otaBoard({ failTransfers: 5 })
+  const device = new SerialDevice(port, { path: '/dev/fake' })
+  await assert.rejects(geadev.otaUpdate(device, Buffer.alloc(1000, 1)), /GEADEV:OTA ERR transfer-failed got=999 want=1000/)
+  assert.equal(board.commands.filter((c) => c.startsWith('GEADEV OTA')).length, 2)
+  const retried = otaBoard({ failTransfers: 1 })
+  const result = await geadev.otaUpdate(new SerialDevice(retried.port, { path: '/dev/fake' }), Buffer.alloc(1000, 2))
+  assert.match(result.line, /^GEADEV:OTA OK/)
+})

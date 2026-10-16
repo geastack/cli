@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { randomBytes } from 'node:crypto'
 
 import { crc32, decodeRgb565Raw, decodeRgb565Rle } from './image.mjs'
 
@@ -500,35 +501,29 @@ export const geadev = {
   // Installs an app image through the running app (GEADEV OTA): it lands in
   // the next OTA slot and the board restarts into it. Same throttled raw
   // stream as pushFile.
-  async otaUpdate(d, source, { timeoutMs = 120000, stderr = () => {} } = {}) {
-    const data = readFileSync(source)
-    // End whatever partial line the console holds first. A failed ROM-downloader
-    // attempt leaves esptool's sync bytes in it with no newline, and the command
-    // appended to them is refused as line-too-long -- every retry, until a bare
-    // newline clears it.
-    await d.writeRaw(Buffer.from('\n'))
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    await d.writeLine(`GEADEV OTA ${data.length} ${crc32(data)}`)
-    const ready = await waitFor(d, 'GEADEV:OTA READY', 'GEADEV:OTA ERR', 15000, 'OTA READY')
-    const startedAt = Date.now()
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    const burst = 2048
-    for (let offset = 0; offset < data.length; offset += burst) {
-      await d.writeRaw(data.subarray(offset, Math.min(offset + burst, data.length)))
-      await new Promise((resolve) => setTimeout(resolve, 4))
-      if (((offset / burst) | 0) % 128 === 0) stderr(`  upload ${Math.floor((offset * 100) / data.length)}%`)
+  //
+  // An interrupted install (host killed mid-upload, BOOT pressed) must not
+  // poison the next one. Two leftovers can greet the next host: the dead
+  // transfer's receive loop may still be running and swallow whatever is sent
+  // as payload, and its `OTA ERR transfer-failed` line -- printed after the
+  // host vanished -- waits in the TinyUSB TX FIFO (kept while DTR is low) and
+  // is delivered the moment the port opens. So every attempt resyncs the
+  // console first, streams only after a READY for this size, and takes as its
+  // result only a reply that can belong to this transfer. A failed attempt is
+  // retried once after another resync.
+  async otaUpdate(d, source, { timeoutMs = 120000, stderr = () => {}, attempts = 2 } = {}) {
+    const data = Buffer.isBuffer(source) ? source : readFileSync(source)
+    const crc = crc32(data)
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await otaAttempt(d, data, crc, { timeoutMs, stderr })
+      } catch (error) {
+        // uploaded: the image went out and the board may be restarting into it;
+        // noApp: nothing answers the console. Neither is helped by a retry here.
+        if (error.uploaded || error.noApp || attempt >= attempts) throw error
+        stderr(`  in-app install attempt ${attempt} failed (${error.message}); resyncing the console and retrying`)
+      }
     }
-    let line
-    try {
-      line = await waitFor(d, 'GEADEV:OTA OK', 'GEADEV:OTA ERR', timeoutMs, 'OTA OK')
-    } catch (error) {
-      // The board restarts right after the reply, and firmware whose console
-      // drops output on a full TX FIFO can lose it; the caller decides from
-      // what boots.
-      if (!error.message.startsWith('GEADEV:OTA ERR')) error.uploaded = true
-      throw error
-    }
-    return { ready, line, bytes: data.length, seconds: (Date.now() - startedAt) / 1000 }
   },
 
   async pullFile(d, source, destination, { timeoutMs = 300000 } = {}) {
@@ -551,6 +546,139 @@ export const geadev = {
     mkdirSync(path.dirname(path.resolve(destination)), { recursive: true })
     writeFileSync(destination, data)
     return `pulled ${source} -> ${destination} bytes=${data.length} crc=0x${actualCrc.toString(16).padStart(8, '0')}`
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Brings the console to a state where the next line it reads is a command:
+// ends any partial line (a failed ROM-downloader attempt leaves esptool's sync
+// bytes without a newline, and the command appended to them is refused as
+// line-too-long), drops whatever output was queued before the port opened, and
+// waits for a PONG to a fresh ping. Firmware that echoes `nonce=` is matched
+// exactly; older firmware's PONG carries none and any PONG after the drain is
+// taken. A board that stays silent is most likely still inside an earlier
+// OTA/PUSH receive loop that took the ping as payload: it gives up after a
+// silence (~3 s on current firmware, ~10 s on older), so stay silent that long
+// and ping again.
+export async function resyncConsole(d, { timeoutMs = 35000, pingTimeoutMs = 2500, quietMs = 12000, stderr = () => {} } = {}) {
+  const deadline = Date.now() + timeoutMs
+  let waited = false
+  while (Date.now() < deadline) {
+    await d.writeRaw(Buffer.from('\n'))
+    await d.drainInput(150, 1500)
+    const nonce = randomBytes(4).toString('hex')
+    await d.writeLine(`GEADEV PING ${nonce}`)
+    let transferEnded = false
+    const pong = await readFrame(d, Math.min(pingTimeoutMs, Math.max(0, deadline - Date.now())), (frame) => {
+      if (transferEndPattern.test(frame)) transferEnded = true
+      if (!frame.startsWith('GEADEV:PONG')) return false
+      const echoed = parseKeyValues(frame).nonce
+      return echoed === undefined || echoed === nonce
+    })
+    if (pong) {
+      // A PONG to a ping swallowed earlier can trail this one; drop it.
+      await d.drainInput(100, 500)
+      return pong
+    }
+    if (Date.now() >= deadline) break
+    // The dead transfer gave up while we waited for the PONG: ping again now.
+    if (transferEnded) continue
+    if (!waited) stderr('  the board is still inside an interrupted transfer; waiting for it to give up...')
+    waited = true
+    // Send nothing: every byte restarts the dead transfer's silence timer. Its
+    // closing ERR line means the command loop is back.
+    await readFrame(d, Math.min(quietMs, Math.max(0, deadline - Date.now())), (frame) => transferEndPattern.test(frame))
+    await sleep(200)
+  }
+  const error = new Error('no running gea app answered GEADEV PING on USB')
+  error.noApp = true
+  throw error
+}
+
+// The closing line of a receive loop that gave up (OTA, PUSH, PUSH64).
+const transferEndPattern = /^GEADEV:(?:OTA|PUSH|PUSH64) ERR\b/
+
+// Reads lines until one whose GEADEV frame satisfies `match`; null on timeout.
+async function readFrame(d, timeoutMs, match) {
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) return null
+    const line = await d.readLine(remaining)
+    if (line === null) return null
+    if (d.trace) d.stderr(line)
+    const frame = geadevFragment(line)
+    if (match(frame)) return frame
+  }
+}
+
+// Whether an `OTA ERR` line can be this transfer's reply. transfer-failed and
+// crc-mismatch only follow a payload, so before READY they are leftovers of an
+// earlier transfer; after it, their want= must match this image when present.
+function otaErrorIsOurs(frame, { size, crc, streamed }) {
+  const values = parseKeyValues(frame)
+  const kind = frame.slice('GEADEV:OTA ERR'.length).trim().split(/\s+/)[0] || ''
+  if (kind.startsWith('transfer-failed')) return streamed && (values.want === undefined || Number(values.want) === size)
+  if (kind.startsWith('crc-mismatch')) return streamed && (values.want === undefined || Number.parseInt(values.want, 16) === crc)
+  return true
+}
+
+async function otaAttempt(d, data, crc, { timeoutMs, stderr }) {
+  const size = data.length
+  await resyncConsole(d, { stderr })
+  await d.writeLine(`GEADEV OTA ${size} ${crc}`)
+  const readyDeadline = Date.now() + 15000
+  let ready = null
+  while (!ready) {
+    const frame = await readFrame(d, readyDeadline - Date.now(), (f) => f.startsWith('GEADEV:OTA ') || f.startsWith('GEADEV:ERR'))
+    if (frame === null) throw new Error('timed out waiting for OTA READY')
+    if (frame.startsWith('GEADEV:ERR')) throw new Error(frame)
+    if (frame.startsWith('GEADEV:OTA READY')) {
+      const bytes = parseKeyValues(frame).bytes
+      if (bytes === undefined || Number(bytes) === size) ready = frame
+      continue
+    }
+    if (frame.startsWith('GEADEV:OTA ERR')) {
+      if (otaErrorIsOurs(frame, { size, crc, streamed: false })) throw new Error(frame)
+      stderr(`  ignoring a stale reply from an earlier transfer: ${frame}`)
+    }
+  }
+  const startedAt = Date.now()
+  await sleep(300)
+  const burst = 2048
+  for (let offset = 0; offset < size; offset += burst) {
+    await d.writeRaw(data.subarray(offset, Math.min(offset + burst, size)))
+    await sleep(4)
+    if (((offset / burst) | 0) % 128 === 0) stderr(`  upload ${Math.floor((offset * 100) / size)}%`)
+  }
+  const doneDeadline = Date.now() + timeoutMs
+  while (true) {
+    let frame
+    try {
+      frame = await readFrame(d, doneDeadline - Date.now(), (f) => f.startsWith('GEADEV:OTA OK') || f.startsWith('GEADEV:OTA ERR'))
+    } catch (error) {
+      error.uploaded = true
+      throw error
+    }
+    if (frame === null) {
+      // The board restarts right after the reply, and firmware whose console
+      // drops output on a full TX FIFO can lose it; the caller decides from
+      // what boots.
+      const error = new Error('timed out waiting for OTA OK')
+      error.uploaded = true
+      throw error
+    }
+    if (frame.startsWith('GEADEV:OTA OK')) {
+      const values = parseKeyValues(frame)
+      const okCrc = values.crc === undefined ? crc : Number.parseInt(values.crc, 16)
+      if ((values.bytes === undefined || Number(values.bytes) === size) && okCrc === crc) {
+        return { ready, line: frame, bytes: size, seconds: (Date.now() - startedAt) / 1000 }
+      }
+    } else if (otaErrorIsOurs(frame, { size, crc, streamed: true })) {
+      throw new Error(frame)
+    }
+    stderr(`  ignoring a stale reply from an earlier transfer: ${frame}`)
   }
 }
 

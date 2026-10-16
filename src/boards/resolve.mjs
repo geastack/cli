@@ -147,6 +147,7 @@ export function resolveBoardSelection({
 
   const selection = {
     boardName,
+    ...(adapter === 'linux-native' ? {linuxBoard: board} : {}),
     targetBase,
     target,
     adapter,

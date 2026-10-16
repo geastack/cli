@@ -34,11 +34,13 @@ test('camera binding enables capture in CMake and component-manager dependency r
   }
   const camera = prepareEsp32Build({ ctx, selection, app, dryRun: true })
   assert.ok(camera.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_CAMERA=1'))
-  assert.equal(camera.childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA, '1')
+  assert.equal(camera.capabilities.camera, true)
+  assert.equal(camera.childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA, undefined)
   writeFileSync(compiler, original)
   const ordinary = prepareEsp32Build({ ctx, selection, app, dryRun: true })
   assert.ok(ordinary.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_CAMERA=0'))
-  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA, '0')
+  assert.equal(ordinary.capabilities.camera, false)
+  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA, undefined)
 })
 
 test('explicit RTC and H264 exclusion reach native defines and dependency resolution', (t) => {
@@ -52,20 +54,25 @@ test('explicit RTC and H264 exclusion reach native defines and dependency resolu
     idfTarget: 'esp32s3', flashSize: '16MB'
   }
   const ordinary = prepareEsp32Build({ ctx, selection, app, dryRun: true })
-  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, '1')
-  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_H264, '1')
+  assert.equal(ordinary.capabilities.rtc, true)
+  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, undefined)
+  assert.equal(ordinary.capabilities.h264, true)
+  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_H264, undefined)
   assert.doesNotMatch(ordinary.childEnv.GEA_EMBEDDED_APP_DEFINES ?? '', /GEA_EMBEDDED_RTC_UNUSED/)
   writeFileSync(compiler, original.replace('bindings=audio;fetch', 'bindings=audio;rtc'))
   const rtc = prepareEsp32Build({ ctx, selection, app, dryRun: true })
-  assert.equal(rtc.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, '1')
+  assert.equal(rtc.capabilities.rtc, true)
+  assert.equal(rtc.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, undefined)
   assert.ok(rtc.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_RTC=1'))
   assert.doesNotMatch(rtc.childEnv.GEA_EMBEDDED_APP_DEFINES ?? '', /GEA_EMBEDDED_RTC_UNUSED/)
   app.defines.push('GEA_EMBEDDED_H264_UNUSED=1', 'GEA_EMBEDDED_RTC_UNUSED=1')
   assert.throws(() => prepareEsp32Build({ ctx, selection, app, dryRun: true }), /conflicts with the app RTC binding/)
   writeFileSync(compiler, original)
   const pcmAndJpeg = prepareEsp32Build({ ctx, selection, app, dryRun: true })
-  assert.equal(pcmAndJpeg.childEnv.GEA_EMBEDDED_CAPABILITY_H264, '0')
-  assert.equal(pcmAndJpeg.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, '0')
+  assert.equal(pcmAndJpeg.capabilities.h264, false)
+  assert.equal(pcmAndJpeg.childEnv.GEA_EMBEDDED_CAPABILITY_H264, undefined)
+  assert.equal(pcmAndJpeg.capabilities.rtc, false)
+  assert.equal(pcmAndJpeg.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, undefined)
   assert.match(pcmAndJpeg.childEnv.GEA_EMBEDDED_APP_DEFINES, /GEA_EMBEDDED_RTC_UNUSED=1/)
   assert.ok(pcmAndJpeg.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_H264=0'))
   assert.match(pcmAndJpeg.childEnv.GEA_EMBEDDED_APP_DEFINES, /GEA_EMBEDDED_H264_UNUSED=1/)
@@ -545,7 +552,7 @@ test('app capabilities come from the compiler analysis plus the manifest', (t) =
   const ctx = createContext(parseArgs([]), fixture.env, fixture.appDir)
   const app = findCurrentApp(fixture.appDir)
   const capabilities = resolveAppCapabilities(ctx, app, { env: fixture.env })
-  assert.deepEqual(capabilities, { network: true, ble: false, bleApi: false, audio: true, bindings: ['audio', 'fetch'], features: [] })
+  assert.deepEqual(capabilities, { network: true, ble: false, bleApi: false, audio: true, camera: false, aec: false, bindings: ['audio', 'fetch'], features: [] })
   const call = fixture.calls().find((line) => line.startsWith('compiler '))
   assert.equal(call, `compiler analyze ${path.join(fixture.appDir, 'index.tsx')} --plugin ${path.join(fixture.installed('geatsc-plugin-gea'), 'dist', 'index.js')}`)
 })
@@ -558,7 +565,7 @@ test('Wi-Fi OTA keeps an offline app reachable without adding network bindings',
   writeFileSync(compiler, readFileSync(compiler, 'utf8').replace('bindings=audio;fetch', 'bindings='))
   app.packageJson.gea.ota = { wifi: true }
   assert.deepEqual(resolveAppCapabilities(ctx, app, { env: fixture.env }), {
-    network: true, ble: false, bleApi: false, audio: false, bindings: [], features: []
+    network: true, ble: false, bleApi: false, audio: false, camera: false, aec: false, bindings: [], features: []
   })
   for (const wifi of [false, undefined, 'true']) {
     app.packageJson.gea.ota = { wifi }

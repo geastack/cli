@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { withRendererFeatureDefines } from '../src/esp32/capabilities.mjs'
 
@@ -47,6 +48,37 @@ test('native UI mutation conservatively retains CSS without app switches', () =>
 test('read-only native tree inspection and audio code introduce no CSS operations', () => {
   assert.equal(nativeCssSourceNeedsSupport('#include "ui/tree_inspection.h"\nTreeInspection::hasMountedText(label);'), false)
   assert.equal(nativeCssSourceNeedsSupport('#include "audio/effects.h"\nprocess(samples, count);'), false)
+})
+
+test('native refresh diagnostics introduce no CSS operations without hiding mutations', () => {
+  const trace = '#include "ui/refresh_trace.h"\nlog(refreshTraceStageName(), refreshTraceIndex());'
+  assert.equal(nativeCssSourceNeedsSupport(trace), false)
+  assert.equal(nativeCssSourceNeedsSupport('#include "ui/refresh_trace.h"\nrefreshTraceSet(RefreshTraceStage::Layout);'), false)
+  assert.equal(nativeCssSourceNeedsSupport(trace + '\n#include "ui/style.h"'), true)
+  assert.equal(nativeCssSourceNeedsSupport(trace + '\nnode.style().setProperty(key, value);'), true)
+  assert.equal(nativeCssSourceNeedsSupport('#include "ui/unknown_diagnostics.h"'), true)
+})
+
+test('adding refresh diagnostics preserves analyzed app feature definitions', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-refresh-feature-proof-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const source = path.join(root, 'diagnostics.cpp')
+  const app = { root, nativeSources: ['diagnostics.cpp'] }
+  const analyzed = ['renderer-analysis-v1', 'css-analysis-v19', 'node-analysis-v1', 'css-padding', 'css-scrolling']
+  fs.writeFileSync(source, '#include "audio/effects.h"\nvoid sample_audio() {}\n')
+  const original = withRendererFeatureDefines('', withNativeCssFeatures(app, analyzed))
+  fs.appendFileSync(source, '#include "ui/refresh_trace.h"\nvoid sample_ui() { log(refreshTraceStageName(), refreshTraceIndex()); }\n')
+  const diagnostic = withRendererFeatureDefines('', withNativeCssFeatures(app, analyzed))
+  assert.equal(diagnostic, original)
+  assert.match(diagnostic, /GEA_CSS_PADDING=1/)
+  assert.match(diagnostic, /GEA_CSS_SCROLLING=1/)
+  assert.match(diagnostic, /GEA_CSS_GRID=0/)
+  assert.match(diagnostic, /GEA_CSS_ANIMATIONS=0/)
+  assert.match(diagnostic, /GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS=0/)
+  fs.appendFileSync(source, 'void mutate_ui() { node.style().setProperty(key, value); }\n')
+  const mutable = withRendererFeatureDefines('', withNativeCssFeatures(app, analyzed))
+  assert.match(mutable, /GEA_CSS_GRID=1/)
+  assert.match(mutable, /GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS=1/)
 })
 
 test('missing native input cannot prove CSS families absent', () => {

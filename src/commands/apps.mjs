@@ -1,3 +1,4 @@
+import { syncNativeResources } from '../native-resources.mjs'
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
 
@@ -14,6 +15,12 @@ export async function appsCommand(ctx, parsed, rest, options) {
   const args = rest.slice(1)
   switch (sub) {
     case 'list': return listApps(ctx, parsed, options)
+    case 'sync-native-resources': {
+      const app=resolveRequestedApp(ctx,parsed,args);assertValidApp(app);const target=option(parsed,'target',''),output=option(parsed,'output','');
+      if(!target||!output)fail('sync-native-resources requires --target and --output',ExitCode.usage);
+      if(!app.targets[target]||!['macos','raspberry-pi-os'].includes(target))fail('Unsupported or disabled native resource target',ExitCode.usage);
+      options.stdout(JSON.stringify(syncNativeResources(app.root,target,app.targetConfig[target]?.nativeResources||{},path.resolve(output))));return 0
+    }
     case 'inspect': return inspectApp(ctx, parsed, args, options)
     case 'index': return appIndex(ctx, parsed, options)
     case 'launcher': return launcher(ctx, parsed, options)

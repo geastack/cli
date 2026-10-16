@@ -17,6 +17,8 @@ import { assertTargetEnabled, assertValidApp, discoverApps, resolveRequestedApp,
 import { buildRp2350, flashRp2350, rp2350BuildDir } from '../rp2350/adapter.mjs'
 import { runXbox } from '../xbox/adapter.mjs'
 import { success } from '../report.mjs'
+import {runLinux} from '../linux/adapter.mjs'
+import {deployLinux} from '../linux/deploy.mjs'
 
 // Every board-facing command: resolve the alias, pick the adapter, run.
 
@@ -101,7 +103,7 @@ function io(parsed, options) {
 // without one (its script-mode pass would otherwise analyze a directory), so
 // those adapters need an app even for --configure-only; the geaos adapter has
 // app-less actions.
-const appRequiredAdapters = new Set(['esp32-idf', 'rp2350-pico', 'xbox-uwp'])
+const appRequiredAdapters = new Set(['esp32-idf', 'rp2350-pico', 'xbox-uwp', 'linux-native'])
 
 function requireAppForAdapter(ctx, parsed, selection, app) {
   if (app || !appRequiredAdapters.has(selection.adapter)) return app
@@ -121,6 +123,8 @@ export async function buildCommand(ctx, parsed, rest, options) {
   const base = io(parsed, options)
   const env = createChildEnv(ctx, base.env)
   switch (selection.adapter) {
+    case 'linux-native':
+      return runLinux({app,env,dryRun:base.dryRun,stdout:base.stdout})
     case 'xbox-uwp':
       return runXbox({ app, action: 'build', env, dryRun: base.dryRun, stdout: base.stdout })
     case 'esp32-idf': {
@@ -235,8 +239,19 @@ async function usbAppUpdate({ selection, image, appLabel, env, stdout, stderr })
         return true
       }
     }
-    stderr(`USB app update failed: ${error.message}. Falling back to the ROM downloader (hold BOOT while powering on).`)
-    return false
+    if (error.noApp) {
+      stderr('No running gea app answered on USB; falling back to the ROM downloader (hold BOOT while powering on).')
+      return false
+    }
+    // The app answered but the install failed (already retried once after a
+    // console resync). Falling into the ROM downloader here would retry
+    // forever on a board that needs BOOT to enter it, so stop and say so.
+    fail(
+      `USB app update of '${appLabel}' failed: ${error.message}. ` +
+        (error.uploaded ? 'The image was sent but the board did not come back running it. ' : 'The running app was left in place. ') +
+        'Run gea flash again, or pass --manual-boot to use the ROM downloader (hold BOOT while powering on).',
+      ExitCode.deployFailed
+    )
   } finally {
     if (device) await device.close().catch(() => {})
   }
@@ -272,6 +287,15 @@ export async function flashCommand(ctx, parsed, rest, options, { monitor = false
   const base = io(parsed, options)
   const env = createChildEnv(ctx, base.env)
   switch (selection.adapter) {
+    case 'linux-native': {
+      if (monitor) fail('Linux native run/monitor is not yet supported; use gea flash and the transaction receipt.', ExitCode.usage)
+      if (option(parsed,'host','')) fail('Linux deployment uses only the registered SSH identity; --host is refused.', ExitCode.usage)
+      const action=flag(parsed,'inspect-transaction')?'inspect':flag(parsed,'rollback')?'rollback':'deploy'
+      if(flag(parsed,'inspect-transaction')&&flag(parsed,'rollback'))fail('Select inspection or rollback, not both.',ExitCode.usage)
+      if(action!=='deploy'&&!option(parsed,'transaction',''))fail('Explicit --transaction is required for inspection/rollback.',ExitCode.usage)
+      const app=optionalApp(ctx,parsed,rest,selection,{required:true})
+      return deployLinux({app,selection,env,action,dryRun:base.dryRun,stdout:base.stdout,authorizationFile:option(parsed,'authorization',''),...(option(parsed,'transaction','') ? {transaction:option(parsed,'transaction')} : {})})
+    }
     case 'xbox-uwp': {
       const app = optionalApp(ctx, parsed, rest, selection, { required: true })
       return runXbox({ app, action: 'deploy', env, host: option(parsed, 'host', '') || selection.otaHost,
@@ -434,7 +458,7 @@ export async function screenshotCommand(ctx, parsed, rest, options) {
 const devctlUsage = `gea devctl <verb> [args] [--board <alias>] [--transport auto|usb|wifi]
 
 Verbs (USB, GEADEV protocol):
-  ping | app | state | mem | summary | i2cscan | reboot
+  ping | app | state | mem | summary | i2cscan | netdiag | taskstats | reboot
   node <class>            hit <x> <y>            tap <x> <y> [holdMs]
   drag <x1> <y1> <x2> <y2> [steps] [delayMs]      swipe <x> <y1> <y2>
   back                    key <code>             notify <text>
@@ -547,6 +571,20 @@ export async function devctlCommand(ctx, parsed, rest, options) {
       case 'mem': print(await geadev.mem(d)); break
       case 'summary': print(await geadev.summary(d)); break
       case 'i2cscan': print(await geadev.i2cScan(d)); break
+      case 'netdiag':
+      case 'taskstats': {
+        const command = verb.toUpperCase()
+        // Keep the driver's unprefixed diagnostic lines inside the report,
+        // while ignoring unrelated console output before its BEGIN marker.
+        const { begin, lines } = await d.collect(`GEADEV ${command}`, {
+          begin: `GEADEV:${command} BEGIN`,
+          data: '\0',
+          end: `GEADEV:${command} END`,
+          timeoutMs: 8000
+        })
+        print([begin, ...lines].join('\n'))
+        break
+      }
       case 'reboot': print(await geadev.reboot(d)); break
       case 'node': need(1); print(await geadev.node(d, args[0])); break
       case 'hit': need(2); print(await geadev.hit(d, num(args[0], 'x'), num(args[1], 'y'))); break

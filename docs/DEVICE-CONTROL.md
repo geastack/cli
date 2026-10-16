@@ -90,7 +90,19 @@ All of these need the USB transport.
 | `mem` | heap and PSRAM figures |
 | `summary` | a combined status report |
 | `i2cscan` | addresses responding on the I2C bus |
+| `netdiag` | network task counters and the native Wi-Fi driver's diagnostic dump |
+| `taskstats` | state, priority, core and CPU counters for the target's known runtime and media tasks |
 | `reboot` | restart the board |
+
+`netdiag` and `taskstats` print the complete report between its `BEGIN` and
+`END` markers, including native driver output. They require firmware that
+implements the corresponding diagnostic command. Task CPU deltas cover the
+interval since the preceding sample; the first sample has zero deltas.
+
+```sh
+npx gea devctl netdiag --board mosaico --transport usb
+npx gea devctl taskstats --board mosaico --transport usb
+```
 
 ### Input injection
 
