@@ -131,9 +131,9 @@ function macUsbCalloutPortsForSerial(serial, ioreg = runIoreg) {
   return [...matches].sort()
 }
 
-// Every USB callout port the registry knows, with the serial and product
-// name inherited from the enclosing USB device: the inverse of
-// macUsbCalloutPortsForSerial, for `gea boards discover` and the setup
+// Every USB callout port the registry knows, with the serial, product name
+// and vendor/product IDs inherited from the enclosing USB device: the inverse
+// of macUsbCalloutPortsForSerial, for `gea boards discover` and the setup
 // wizard. The /dev name carries no identity (the usbmodem number changes on
 // every enumeration and identical boards share it), so this is the only
 // place a port's serial can come from on macOS.
@@ -154,7 +154,7 @@ export function listMacUsbCalloutPorts(ioreg = runIoreg) {
       // interface would look shallower than the device holding its serial.
       const depth = node[1].length
       while (stack.length > 0 && stack[stack.length - 1].depth >= depth) stack.pop()
-      stack.push({ depth, serial: '', product: '' })
+      stack.push({ depth, serial: '', product: '', vendorId: 0, productId: 0 })
       continue
     }
     if (stack.length === 0) continue
@@ -163,6 +163,8 @@ export function listMacUsbCalloutPorts(ioreg = runIoreg) {
     if (serialValue) current.serial = serialValue
     const productValue = ioregStringProperty(line, 'kUSBProductString') || ioregStringProperty(line, 'USB Product Name')
     if (productValue) current.product = productValue
+    current.vendorId ||= ioregNumberProperty(line, 'idVendor')
+    current.productId ||= ioregNumberProperty(line, 'idProduct')
     const callout = ioregStringProperty(line, 'IOCalloutDevice')
     if (!callout || !path.basename(callout).startsWith('cu.')) continue
     // A callout with no USB serial above it is not a USB device at all
@@ -170,9 +172,15 @@ export function listMacUsbCalloutPorts(ioreg = runIoreg) {
     const serial = [...stack].reverse().find((entry) => entry.serial)?.serial || ''
     if (!serial) continue
     const label = [...stack].reverse().find((entry) => entry.product)?.product || ''
-    ports.set(callout, { path: callout, serial, label })
+    const usbDevice = [...stack].reverse().find((entry) => entry.vendorId) || {}
+    ports.set(callout, { path: callout, serial, label, vendorId: usbIdHex(usbDevice.vendorId), productId: usbIdHex(usbDevice.productId) })
   }
   return [...ports.values()].sort((a, b) => a.path.localeCompare(b.path))
+}
+
+// ioreg prints USB IDs in decimal; lsusb, sysfs and Windows spell them as four hex digits.
+function usbIdHex(value) {
+  return value ? value.toString(16).padStart(4, '0') : ''
 }
 
 function runIoreg(args, options = {}) {

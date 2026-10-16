@@ -8,6 +8,7 @@ import {
   readBoardConfigFile,
   writeBoardConfigFile
 } from '../boards/config.mjs'
+import { boardById, boardByUsbDevice } from '../board-catalog.mjs'
 import { normalizedSerial } from '../boards/usb.mjs'
 import { SerialDevice, geadev } from '../device/serial.mjs'
 import { ExitCode, fail } from '../errors.mjs'
@@ -155,8 +156,9 @@ export function parsePong(reply) {
 }
 
 // Pure: pairs detected serial devices with configured aliases by USB serial
-// (the MAC on ESP32 boards, so a PONG's mac= confirms the same thing), and
-// records what each device answered.
+// (the MAC on ESP32 boards, so a PONG's mac= confirms the same thing), names
+// the catalog board a device's USB IDs identify (an STM32 board's ST-LINK),
+// and records what each device answered.
 export async function discoverBoards({ devices, boards, probe }) {
   const results = []
   for (const device of devices) {
@@ -172,6 +174,7 @@ export async function discoverBoards({ devices, boards, probe }) {
       serial: device.serial || probed.mac || '',
       alias: alias || '',
       target: alias ? boards[alias].target || '' : '',
+      knownBoard: boardByUsbDevice(device)?.id || '',
       configuredHost: alias ? boards[alias].transports?.ota?.host || '' : '',
       responds: probed.ok,
       app: probed.app || '',
@@ -184,7 +187,7 @@ export async function discoverBoards({ devices, boards, probe }) {
 }
 
 export function formatDiscovery(result) {
-  const who = result.alias ? `${result.alias} (${result.target})` : 'not configured'
+  const who = result.alias ? `${result.alias} (${result.target})` : unconfiguredLabel(result)
   const bits = [result.path, who]
   if (result.serial) bits.push(`serial ${result.serial}`)
   if (result.responds) {
@@ -194,6 +197,11 @@ export function formatDiscovery(result) {
     bits.push('no GEADEV reply')
   }
   return bits.join('  ')
+}
+
+function unconfiguredLabel(result) {
+  const board = boardById(result.knownBoard)
+  return board ? `not configured, ${board.label}` : 'not configured'
 }
 
 // ---- command --------------------------------------------------------------------

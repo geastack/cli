@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { knownBoards } from './board-catalog.mjs'
+import { boardByUsbDevice, knownBoards } from './board-catalog.mjs'
 import { boardConfigWritePath, loadBoardConfig } from './boards/config.mjs'
 import { discoverBoards, probeSerialDevice } from './commands/boards.mjs'
 import { discoverApps, findCurrentApp, resolveRequestedApp, targetEnabledForApp } from './manifest.mjs'
@@ -15,6 +15,7 @@ import { exists, readJson, writeJson } from './fs-utils.mjs'
 import { BACK, ask, choose, confirm, createPrompt, ui } from './prompts.mjs'
 import { runExternal, runQuiet } from './run.mjs'
 import { detectSerialDevices } from './serial-devices.mjs'
+import { stm32ToolChecks } from './stm32/toolchain.mjs'
 import { commandVersion } from './toolchain.mjs'
 
 const espIdfInstallTargets = 'esp32,esp32s3,esp32p4'
@@ -86,19 +87,16 @@ export async function runSetupWizard(ctx, parsed, io) {
       return 0
     }
 
-    renderStep(io, 'Toolchain', ['Checking ESP-IDF before board initialization.'])
-    if (boardSetup?.target && espIdfVersionForTarget(boardSetup.target) === s31EspIdf.version) {
-      await maybeSetupS31EspIdf(ctx, parsed, io, prompt)
-    } else {
-      await maybeSetupEspIdf(ctx, parsed, io, prompt, { targetVersion: targetIdfVersion })
-    }
+    const toolsReady = await setupBoardToolchain(ctx, parsed, io, prompt, boardSetup, targetIdfVersion)
     if (option(parsed, 'install') === true) {
       await maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force: true })
     }
-    await maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup)
+    if (toolsReady) await maybeInitializeBoardTarget(ctx, parsed, io, prompt, boardSetup)
     if (boardSetup?.flashReady) {
       const appFlag = boardSetup.app && boardSetup.app.root !== findCurrentApp(ctx.cwd)?.root ? ` --app ${boardSetup.app.id}` : ''
-      ui(io).outro(`Ready: gea flash${boardFlag(ctx, boardSetup.alias)}${appFlag} --monitor`)
+      const flags = `${boardFlag(ctx, boardSetup.alias)}${appFlag}`
+      if (boardSetup.adapter === 'stm32-cube') ui(io).message(`Build only: gea build${flags}`)
+      ui(io).outro(toolsReady ? `Ready: gea flash${flags} --monitor` : `Install the missing tools, then: gea flash${flags} --monitor`)
     } else {
       ui(io).outro('Profile saved. Add or select a target backend before flashing this board.')
     }
@@ -109,7 +107,8 @@ export async function runSetupWizard(ctx, parsed, io) {
 }
 
 async function setupKnownBoard(ctx, parsed, io, prompt) {
-  renderStep(io, 'Board', ['Pick a board GeaStack can already flash.'])
+  const detected = detectKnownBoard(io)
+  renderStep(io, 'Board', ['Pick a board GeaStack can already flash.', detected ? `Detected over USB: ${detected.label}` : ''])
   const boardId = await choose(prompt, {
     message: 'Which board do you have?',
     choices: knownBoards.map((board) => ({
@@ -117,7 +116,7 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
       label: board.label,
       description: boardDescription(board)
     })),
-    defaultValue: knownBoards[0].id,
+    defaultValue: detected?.id || knownBoards[0].id,
     back: true
   })
   if (boardId === BACK) return BACK
@@ -133,9 +132,11 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
   })
   renderStep(io, 'Connection', ['Use a detected serial device, enter one manually, or skip it for now.'])
   const usbIdentity = await selectUsbIdentity(prompt, io, ctx, {
-    message: 'The USB serial identifies this board whatever port it lands on.'
+    message: 'The USB serial identifies this board whatever port it lands on.',
+    board
   })
-  const otaHost = await ask(prompt, {
+  // STM32 boards have no network stack to update over.
+  const otaHost = board.adapter === 'stm32-cube' ? '' : await ask(prompt, {
     message: 'OTA host/IP (optional)',
     defaultValue: '',
     validate: validateOtaHost
@@ -159,7 +160,14 @@ async function setupKnownBoard(ctx, parsed, io, prompt) {
   writeJsonEnsured(configPath, config)
   ui(io).success(`Wrote board alias '${alias}' to ${configPath}`)
   ui(io).message(`Target: ${board.target}`)
-  return { alias, target: board.target, flashReady: true }
+  return { alias, target: board.target, adapter: board.adapter, flashReady: true }
+}
+
+// The catalog board a connected device enumerates as (an STM32 board's
+// ST-LINK), offered as the default answer; null when none is recognised.
+function detectKnownBoard(io) {
+  const devices = detectSerialDevices({ env: io.env || process.env })
+  return devices.map(boardByUsbDevice).find(Boolean) || null
 }
 
 async function setupCustomBoard(ctx, parsed, io, prompt) {
@@ -369,6 +377,33 @@ function describeObject(value) {
       return [`${key}: ${entry}`]
     })
   return entries.length ? entries.join('; ') : 'not set'
+}
+
+// STM32 boards check their build and flash tools; every other board checks
+// ESP-IDF. True when the board's tools are in place, so its build directory
+// can be configured.
+async function setupBoardToolchain(ctx, parsed, io, prompt, boardSetup, targetIdfVersion) {
+  if (boardSetup?.adapter === 'stm32-cube') return checkStm32Tools(io)
+
+  renderStep(io, 'Toolchain', ['Checking ESP-IDF before board initialization.'])
+  if (boardSetup?.target && espIdfVersionForTarget(boardSetup.target) === s31EspIdf.version) {
+    await maybeSetupS31EspIdf(ctx, parsed, io, prompt)
+  } else {
+    await maybeSetupEspIdf(ctx, parsed, io, prompt, { targetVersion: targetIdfVersion })
+  }
+  return true
+}
+
+// The same checks as `gea doctor`, each missing tool with its install command.
+function checkStm32Tools(io) {
+  renderStep(io, 'Toolchain', ['Checking the STM32 build and flash tools (gea doctor runs the same checks).'])
+  const checks = stm32ToolChecks(io.env || process.env)
+  for (const check of checks) {
+    const line = `${check.name}: ${check.detail}`
+    if (check.ok) ui(io).success(line)
+    else ui(io).warn(line)
+  }
+  return checks.every((check) => check.ok)
 }
 
 async function maybeInstallNpmDependencies(ctx, parsed, io, prompt, { force = false } = {}) {
@@ -604,7 +639,7 @@ function detectEspIdf(env, targetVersion, explicitDir = '') {
 // across replugging and distinguishes two identical boards, but devices that
 // publish none -- the ESP32-S3's built-in USB Serial/JTAG among them -- used to
 // be filtered out here and could not be registered at all.
-async function selectUsbIdentity(prompt, io, ctx, { message }) {
+async function selectUsbIdentity(prompt, io, ctx, { message, board = null }) {
   const env = io.env || process.env
   ui(io).message(message)
   const connected = await confirm(prompt, { message: 'Is the board connected over USB right now?', defaultValue: true })
@@ -638,6 +673,7 @@ async function selectUsbIdentity(prompt, io, ctx, { message }) {
       ui(io).success(`Detected ${describe(results[0])}`)
       return identityOf(results[0])
     }
+    const recognised = results.findIndex((result) => board && result.knownBoard === board.id)
     const selected = await choose(prompt, {
       message: 'Several USB devices are connected. Which one is this board?',
       choices: [
@@ -645,7 +681,7 @@ async function selectUsbIdentity(prompt, io, ctx, { message }) {
         { value: 'retry', label: 'Unplug the others and detect again' },
         { value: 'skip', label: 'Skip for now' }
       ],
-      defaultValue: 'device-0'
+      defaultValue: `device-${Math.max(0, recognised)}`
     })
     if (selected === 'skip') return {}
     if (selected === 'retry') continue

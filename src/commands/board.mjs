@@ -15,6 +15,7 @@ import { manifestRequestsBleOta } from '../esp32/capabilities.mjs'
 import { runGeaos } from '../geaos/adapter.mjs'
 import { assertTargetEnabled, assertValidApp, discoverApps, resolveRequestedApp, targetEnabledForApp } from '../manifest.mjs'
 import { buildRp2350, flashRp2350, rp2350BuildDir } from '../rp2350/adapter.mjs'
+import { buildStm32, flashStm32, stm32BuildDir } from '../stm32/adapter.mjs'
 import { runXbox } from '../xbox/adapter.mjs'
 import { success } from '../report.mjs'
 
@@ -130,6 +131,9 @@ export async function buildCommand(ctx, parsed, rest, options) {
     case 'rp2350-pico':
       buildRp2350({ ctx, selection, app, env, dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr, configureOnly: flag(parsed, 'configure-only'), output: option(parsed, 'output', '') })
       return 0
+    case 'stm32-cube':
+      buildStm32({ ctx, selection, app, env, dryRun: base.dryRun, stdout: base.stdout, configureOnly: flag(parsed, 'configure-only') })
+      return 0
     case 'geaos-linux':
     case 'geaos-arm64':
       return runGeaos({ ctx, selection, action: 'build', app, positionals: rest, env, dryRun: base.dryRun, stdout: base.stdout })
@@ -146,8 +150,9 @@ export async function cleanCommand(ctx, parsed, rest, options) {
     fullCleanEsp32({ ctx, selection, app, env: base.env, stdout: base.stdout })
     return 0
   }
-  if (selection.adapter === 'rp2350-pico') {
-    const dir = rp2350BuildDir(ctx, selection)
+  const armBuildDirs = { 'rp2350-pico': rp2350BuildDir, 'stm32-cube': stm32BuildDir }
+  if (armBuildDirs[selection.adapter]) {
+    const dir = armBuildDirs[selection.adapter](ctx, selection)
     base.stdout(`Removing build artifacts in ${dir}...`)
     const { rmSync } = await import('node:fs')
     rmSync(dir, { recursive: true, force: true })
@@ -283,6 +288,12 @@ export async function flashCommand(ctx, parsed, rest, options, { monitor = false
       const app = optionalApp(ctx, parsed, rest, selection)
       const { uf2 } = buildRp2350({ ctx, selection, app, env, dryRun: base.dryRun, stdout: base.stdout, stderr: base.stderr })
       flashRp2350({ selection, uf2, env, dryRun: base.dryRun, stdout: base.stdout })
+      return monitor ? monitorCommand(ctx, parsed, rest, options, selection) : 0
+    }
+    case 'stm32-cube': {
+      const app = optionalApp(ctx, parsed, rest, selection)
+      const { elf } = buildStm32({ ctx, selection, app, env, dryRun: base.dryRun, stdout: base.stdout })
+      flashStm32({ selection, elf, env, dryRun: base.dryRun, stdout: base.stdout })
       return monitor ? monitorCommand(ctx, parsed, rest, options, selection) : 0
     }
     case 'geaos-linux':

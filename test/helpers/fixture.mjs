@@ -14,7 +14,7 @@ export const venvBinDir = windows ? 'Scripts' : 'bin'
 export const venvPython = windows ? path.join('Scripts', 'python.exe') : path.join('bin', 'python')
 
 // A complete fake project: installed @geastack packages (targets with one
-// ESP32 and one RP2350 project, a chips catalog, a compiler whose `analyze`
+// ESP32, one RP2350 and one STM32 project, a chips catalog, a compiler whose `analyze`
 // reports fixed bindings), a fake ESP-IDF install whose python/cmake/ninja
 // record every invocation, and a boards.json with USB, WiFi and manual-restart
 // boards. Tests drive the real CLI against it and read the call log.
@@ -48,7 +48,7 @@ export function createFixture(t, options = {}) {
   writeApp(root, 'apps/watch', {
     id: 'watch',
     name: 'Watch',
-    targets: { web: true, esp32: true, rp2350: false, geaos: true, macos: true, ios: true, android: true, windows: true }
+    targets: { web: true, esp32: true, rp2350: false, stm32: true, geaos: true, macos: true, ios: true, android: true, windows: true }
   })
   writeApp(root, 'apps/web-only', {
     id: 'web-only',
@@ -76,6 +76,9 @@ export function createFixture(t, options = {}) {
   const rp2350Target = path.join(installed('targets'), 'targets/rp2350-tufty-2350')
   fs.mkdirSync(rp2350Target, { recursive: true })
   fs.writeFileSync(path.join(rp2350Target, 'CMakeLists.txt'), 'project(gea_rp2350)\n')
+  const stm32Target = path.join(installed('targets'), 'targets/stm32f746g-disco')
+  fs.mkdirSync(stm32Target, { recursive: true })
+  fs.writeFileSync(path.join(stm32Target, 'CMakeLists.txt'), 'project(gea_stm32)\n')
 
   writeJson(path.join(installed('targets'), 'targets.json'), {
     'esp32-s3': {
@@ -100,6 +103,12 @@ export function createFixture(t, options = {}) {
       flashSize: '16MB',
       appPlatform: 'rp2350',
       compatibleAppPlatforms: ['esp32']
+    },
+    'stm32f746g-disco': {
+      adapter: 'stm32-cube',
+      targetPath: 'targets/stm32f746g-disco',
+      flashSize: '1MB',
+      appPlatform: 'stm32'
     },
     // A target whose project lives in ANOTHER package states that package and
     // a path relative to it, so nothing depends on how npm lays the two out.
@@ -139,6 +148,11 @@ export function createFixture(t, options = {}) {
       tufty: {
         target: 'rp2350-tufty-2350',
         adapter: 'rp2350-pico'
+      },
+      disco: {
+        target: 'stm32f746g-disco',
+        adapter: 'stm32-cube',
+        transports: { usbSerial: { serial: 'STLINK123' } }
       },
       linux: {
         target: 'geaos',

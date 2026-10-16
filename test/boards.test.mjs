@@ -18,6 +18,7 @@ const targets = {
   'esp32-p4-waveshare-touch-lcd-7': { adapter: 'esp32-idf', targetDir: '/pkg/targets/esp32-p4-waveshare-touch-lcd-7', flashSize: '32MB', appPlatform: 'esp32', idfTarget: 'esp32p4', esptoolChip: 'esp32p4', ipcTaskStackSize: '4096' },
   'rp2350-waveshare-touch-amoled-2.41': { adapter: 'rp2350-pico', targetDir: '/pkg/targets/rp2350-waveshare-touch-amoled-2.41', flashSize: '16MB', appPlatform: 'rp2350' },
   'rp2350-tufty-2350': { adapter: 'rp2350-pico', targetDir: '/pkg/targets/rp2350-tufty-2350', flashSize: '16MB', appPlatform: 'rp2350', compatibleAppPlatforms: ['esp32'] },
+  'stm32f746g-disco': { adapter: 'stm32-cube', targetDir: '/pkg/targets/stm32f746g-disco', flashSize: '1MB', appPlatform: 'stm32' },
   geaos: { adapter: 'geaos-linux', targetDir: '/geaos/targets/geaos', appPlatform: 'geaos' },
   'lokmat-applpmax': { adapter: 'geaos-arm64', targetDir: '/geaos/targets/geaos', appPlatform: 'geaos' }
 }
@@ -51,6 +52,10 @@ test('target metadata replaces one-script-per-board wrappers', () => {
   const tufty = resolveBoardSelection({ targetName: 'rp2350-tufty-2350', targets, config, usbSerialResolver: neverTouchHardware })
   assert.equal(tufty.adapter, 'rp2350-pico')
   assert.deepEqual(tufty.compatibleAppPlatforms, ['esp32'])
+
+  const disco = resolveBoardSelection({ targetName: 'stm32f746g-disco', targets, config, usbSerialResolver: neverTouchHardware })
+  assert.equal(disco.adapter, 'stm32-cube')
+  assert.equal(disco.appPlatform, 'stm32')
 
   const lokmat = resolveBoardSelection({ boardName: 'lokmat', targets, config, usbSerialResolver: neverTouchHardware })
   assert.equal(lokmat.adapter, 'geaos-arm64')

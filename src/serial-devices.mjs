@@ -5,9 +5,11 @@ import path from 'node:path'
 import { listMacUsbCalloutPorts } from './boards/usb.mjs'
 
 // Serial devices with, where the OS can tell, the USB serial that identifies
-// the board. A /dev name is never that identity -- `cu.usbmodem1101` is a
-// slot number that changes on every enumeration -- so a device whose serial
-// the registry does not know reports an empty one and the caller asks.
+// the board and the USB vendor/product IDs that say what kind of device it is
+// (four lowercase hex digits each). A /dev name is never that identity --
+// `cu.usbmodem1101` is a slot number that changes on every enumeration -- so a
+// device whose serial the registry does not know reports an empty one and the
+// caller asks.
 export function detectSerialDevices({ env = process.env, platform = process.platform, ioreg = undefined } = {}) {
   if (env.GEA_SERIAL_DEVICES) return parseSerialDevices(env.GEA_SERIAL_DEVICES)
   if (platform === 'win32') return detectWindowsSerialDevices(env)
@@ -32,8 +34,9 @@ function parseSerialDevices(value) {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => {
-      const [devicePath, label = '', serial = ''] = entry.split('|').map((part) => part.trim())
-      return normalizeDevice({ path: devicePath, label, serial })
+      const [devicePath, label = '', serial = '', usbId = ''] = entry.split('|').map((part) => part.trim())
+      const [vendorId, productId] = usbId.split(':')
+      return normalizeDevice({ path: devicePath, label, serial, vendorId, productId })
     })
     .filter((device) => device.path)
 }
@@ -54,7 +57,9 @@ export function mergeRegistryDevices(devices, registry) {
     devices.set(entry.path, normalizeDevice({
       path: entry.path,
       label: entry.label || known?.label || entry.path,
-      serial: entry.serial || known?.serial || ''
+      serial: entry.serial || known?.serial || '',
+      vendorId: entry.vendorId || known?.vendorId,
+      productId: entry.productId || known?.productId
     }))
   }
   return devices
@@ -68,7 +73,8 @@ function addLinuxByIdDevices(devices) {
     devices.set(devicePath, normalizeDevice({
       path: devicePath,
       label: name,
-      serial: serialFromLinuxById(name)
+      serial: serialFromLinuxById(name),
+      ...linuxUsbIds(devicePath)
     }))
   }
 }
@@ -123,10 +129,13 @@ function detectWindowsSerialDevices(env) {
 // ID; the serial is the parent device's.
 export function windowsSerialPortDevice(entry) {
   const id = entry.PNPDeviceID || ''
+  const usbIds = id.match(/VID_([0-9A-F]{4})&PID_([0-9A-F]{4})/i) || []
   return normalizeDevice({
     path: entry.DeviceID || '',
     label: entry.Name || '',
-    serial: serialFromDeviceName(id) || (/&MI_[0-9A-F]{2}\\/i.test(id) ? serialFromDeviceName(entry.Parent || '') : '')
+    serial: serialFromDeviceName(id) || (/&MI_[0-9A-F]{2}\\/i.test(id) ? serialFromDeviceName(entry.Parent || '') : ''),
+    vendorId: usbIds[1],
+    productId: usbIds[2]
   })
 }
 
@@ -135,10 +144,29 @@ function normalizeDevice(input) {
   const devicePath = String(input.path || '').trim()
   const label = String(input.label || devicePath).trim()
   const serial = String(input.serial || '').trim()
+  const vendorId = String(input.vendorId || '').trim().toLowerCase()
+  const productId = String(input.productId || '').trim().toLowerCase()
   return {
     path: devicePath,
     label,
-    serial
+    serial,
+    vendorId,
+    productId
+  }
+}
+
+// A tty's sysfs `device` is its USB interface; the USB device holding the
+// vendor and product IDs is the directory above it.
+function linuxUsbIds(devicePath) {
+  try {
+    const tty = path.basename(fs.realpathSync(devicePath))
+    const usbInterface = fs.realpathSync(path.join('/sys/class/tty', tty, 'device'))
+    const usbDevice = path.dirname(usbInterface)
+    const vendorId = fs.readFileSync(path.join(usbDevice, 'idVendor'), 'utf8')
+    const productId = fs.readFileSync(path.join(usbDevice, 'idProduct'), 'utf8')
+    return { vendorId, productId }
+  } catch {
+    return {}
   }
 }
 

@@ -1,3 +1,8 @@
+// ST's on-board ST-LINK debug probe (VID 0x0483): V2 0x3748, V2-1 0x374B and
+// 0x3752, V3 0x374E. The probe, not the board model, is what enumerates, so
+// these IDs say "an STM32 board" rather than which one.
+const stlinkUsb = Object.freeze({ vendorId: '0483', productIds: ['3748', '374b', '3752', '374e'] })
+
 export const knownBoards = Object.freeze([
   {
     id: 'waveshare-lcd-35b',
@@ -259,6 +264,24 @@ export const knownBoards = Object.freeze([
       gps: false,
       sensors: ['PCF85063 RTC', 'buttons', 'battery sense', 'rear lighting']
     }
+  },
+  {
+    id: 'st-stm32f746g-disco',
+    label: 'STMicroelectronics STM32F746G-Discovery',
+    alias: 'stm32f746g-disco',
+    target: 'stm32f746g-disco',
+    adapter: 'stm32-cube',
+    mcu: 'STM32F746NG',
+    usb: stlinkUsb,
+    capabilities: {
+      display: '4.3 inch 480x272 RGB LCD (LTDC)',
+      touch: 'FT5336 capacitive touch',
+      wireless: [],
+      storage: ['1 MB flash', '16 MB QSPI flash', '8 MB SDRAM', 'microSD'],
+      audio: ['WM8994 codec'],
+      gps: false,
+      sensors: ['user button']
+    }
   }
 ])
 
@@ -303,4 +326,12 @@ export function boardById(id) {
 
 export function boardByTarget(target) {
   return knownBoards.find((board) => board.target === target) || null
+}
+
+// The catalog board a serial device enumerates as, by its USB vendor and
+// product IDs; null when no board claims them.
+export function boardByUsbDevice(device) {
+  if (!device.vendorId) return null
+
+  return knownBoards.find((board) => board.usb?.vendorId === device.vendorId && board.usb.productIds.includes(device.productId)) || null
 }
