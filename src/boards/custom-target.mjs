@@ -175,6 +175,57 @@ export function normalizeCustomTarget(raw, catalog) {
   const expanderMaxPin = expander?.driver === 'tca9554' ? 7 : expander?.driver === 'ch422g' ? 11 : 15
   const expanderPin = (value, label) => (absent(value) ? -1 : integer(value, label, { min: 0, max: expanderMaxPin }))
 
+  // The card slot comes in two wirings. SD_MMC 1-bit is the base's own: CLK,
+  // CMD and DATA0 on the SDMMC host. SPI is the other common one on Waveshare's
+  // RGB boards: MOSI, MISO and SCK on an SPI host, with the chip-select either on
+  // a GPIO or, when the board ran out of them, held low on the I/O expander (the
+  // card is alone on that bus, so a permanently asserted select is what the
+  // vendor's own demo does; the SDSPI slot then gets no CS pin at all).
+  let storageMicroSD = null
+  if (microSD !== null) {
+    const sdInterface = absent(microSD.interface) ? 'sdmmc-1bit' : text(microSD.interface, 'storage.microSD.interface').toLowerCase()
+    if (!['sdmmc-1bit', 'spi'].includes(sdInterface)) {
+      throw new Error(`storage.microSD.interface must be 'sdmmc-1bit' or 'spi', not '${sdInterface}'.`)
+    }
+    if (sdInterface === 'spi') {
+      const sdSpiHost = String(microSD.spiHost ?? 'spi2').toLowerCase()
+      if (!['spi2', 'spi3'].includes(sdSpiHost)) throw new Error("storage.microSD.spiHost must be 'spi2' or 'spi3'.")
+      const cs = pin(storagePins.cs, 'storage.microSD.pins.cs', { optional: true })
+      const expanderCardSelect = expanderOutputs ? expanderPin(expanderOutputs.cardSelect, 'chips.expander.outputs.cardSelect') : -1
+      if (cs < 0 && expanderCardSelect < 0) {
+        throw new Error('storage.microSD on SPI needs a chip-select: storage.microSD.pins.cs (a GPIO) or chips.expander.outputs.cardSelect (an expander line held low).')
+      }
+      if (cs >= 0 && expanderCardSelect >= 0) {
+        throw new Error('storage.microSD names both pins.cs and chips.expander.outputs.cardSelect; the card has one select line.')
+      }
+      storageMicroSD = {
+        interface: 'spi',
+        spiHost: sdSpiHost,
+        // SDSPI tops out at 20 MHz on the S3 without the vendor's timing work;
+        // a board may ask for less (long traces) and the init still steps the
+        // card up from 400 kHz.
+        maxFreqKhz: absent(microSD.maxFreqKhz) ? 20000 : integer(microSD.maxFreqKhz, 'storage.microSD.maxFreqKhz', { min: 400, max: 40000 }),
+        pins: {
+          mosi: pin(storagePins.mosi, 'storage.microSD.pins.mosi'),
+          miso: pin(storagePins.miso, 'storage.microSD.pins.miso'),
+          sck: pin(storagePins.sck, 'storage.microSD.pins.sck'),
+          cs
+        }
+      }
+    } else {
+      storageMicroSD = {
+        interface: 'sdmmc-1bit',
+        pins: {
+          clk: pin(storagePins.clk, 'storage.microSD.pins.clk', { optional: true }),
+          cmd: pin(storagePins.cmd, 'storage.microSD.pins.cmd', { optional: true }),
+          data0: pin(storagePins.data0, 'storage.microSD.pins.data0', { optional: true })
+        }
+      }
+    }
+  } else if (expanderOutputs && !absent(expanderOutputs.cardSelect)) {
+    throw new Error('chips.expander.outputs.cardSelect names a card-select line but the board declares no storage.microSD.')
+  }
+
   // Flash size and the partition table are board geometry, not app policy: a
   // module with 16MB of flash cannot borrow its base's 32MB layout, and every
   // app built for it would otherwise inherit a table that does not fit. Both
@@ -352,7 +403,8 @@ export function normalizeCustomTarget(raw, catalog) {
           powerAmplifier: expanderPin(expanderOutputs.powerAmplifier, 'chips.expander.outputs.powerAmplifier'),
           backlight: expanderPin(expanderOutputs.backlight, 'chips.expander.outputs.backlight'),
           touchReset: expanderPin(expanderOutputs.touchReset, 'chips.expander.outputs.touchReset'),
-          displayReset: expanderPin(expanderOutputs.displayReset, 'chips.expander.outputs.displayReset')
+          displayReset: expanderPin(expanderOutputs.displayReset, 'chips.expander.outputs.displayReset'),
+          cardSelect: expanderPin(expanderOutputs.cardSelect, 'chips.expander.outputs.cardSelect')
         }
       },
       power: power === null ? null : {
@@ -386,16 +438,7 @@ export function normalizeCustomTarget(raw, catalog) {
         }
       }
     },
-    storage: {
-      microSD: microSD === null ? null : {
-        interface: exact(microSD.interface, 'sdmmc-1bit', 'storage.microSD.interface'),
-        pins: {
-          clk: pin(storagePins.clk, 'storage.microSD.pins.clk', { optional: true }),
-          cmd: pin(storagePins.cmd, 'storage.microSD.pins.cmd', { optional: true }),
-          data0: pin(storagePins.data0, 'storage.microSD.pins.data0', { optional: true })
-        }
-      }
-    },
+    storage: { microSD: storageMicroSD },
     controls: {
       launcherButton: launcherButton === null ? null : {
         pin: pin(launcherButton.pin, 'controls.launcherButton.pin', { optional: true }),
@@ -447,7 +490,13 @@ function validatePinAssignments(target) {
       ['audio DIN', audio.pins.din],
       ['audio amplifier', audio.pins.powerAmplifier]
     ] : []),
-    ...(sd ? [
+    ...(sd && sd.interface === 'spi' ? [
+      ['microSD MOSI', sd.pins.mosi],
+      ['microSD MISO', sd.pins.miso],
+      ['microSD SCK', sd.pins.sck],
+      ['microSD CS', sd.pins.cs]
+    ] : []),
+    ...(sd && sd.interface === 'sdmmc-1bit' ? [
       ['microSD CLK', sd.pins.clk],
       ['microSD CMD', sd.pins.cmd],
       ['microSD DATA0', sd.pins.data0]
@@ -481,7 +530,10 @@ export function renderBoardHeader(target) {
   const displayPins = display ? display.pins : noPins
   const touchPins = touch ? touch.pins : noPins
   const audioPins = audio ? audio.pins : noPins
-  const sdPins = target.storage.microSD ? target.storage.microSD.pins : noPins
+  const sdSpi = target.storage.microSD && target.storage.microSD.interface === 'spi' ? target.storage.microSD : null
+  // The SD_MMC constants exist on every board (sdcard_mount.cpp checks them for
+  // GPIO_NUM_NC); an SPI slot adds its own struct beside them.
+  const sdPins = target.storage.microSD && !sdSpi ? target.storage.microSD.pins : noPins
   const launcher = target.controls.launcherButton || { pin: -1, activeLevel: 0 }
   // Only the drivers this board uses are included. `driver/i2s_types.h` lives in
   // the esp_driver_i2s component, which is not linked when no codec is selected,
@@ -490,7 +542,7 @@ export function renderBoardHeader(target) {
   const includes = [
     '#include "driver/gpio.h"',
     audio ? '#include "driver/i2s_types.h"' : '',
-    qspi ? '#include "driver/spi_master.h"' : ''
+    qspi || sdSpi ? '#include "driver/spi_master.h"' : ''
   ].filter(Boolean).join('\n')
   return `#pragma once
 
@@ -505,6 +557,7 @@ ${includes}
 #define GEA_BOARD_HAS_IMU ${target.chips.imu ? 1 : 0}
 #define GEA_BOARD_HAS_AUDIO ${audio ? 1 : 0}
 #define GEA_BOARD_HAS_MICROSD ${target.storage.microSD ? 1 : 0}
+#define GEA_BOARD_MICROSD_SPI ${sdSpi ? 1 : 0}
 #define GEA_BOARD_HAS_LAUNCHER_BUTTON ${target.controls.launcherButton ? 1 : 0}
 #define GEA_BOARD_HAS_EXPANDER ${expander ? 1 : 0}
 #define GEA_BOARD_HAS_RGB_CONTROLLER ${rgb?.controller ? 1 : 0}
@@ -518,16 +571,20 @@ namespace gea::platform::board {
 // is only read by that chip's binding, which is not compiled when the chip is
 // absent — so those are emitted only when the board really has one.
 struct I2cBusConfig { gpio_num_t sda; gpio_num_t scl; };
-struct SdMmcConfig { gpio_num_t clk; gpio_num_t cmd; gpio_num_t data0; };
+struct SdMmcConfig { gpio_num_t clk; gpio_num_t cmd; gpio_num_t data0; };${sdSpi ? `
+// The card slot on an SPI bus. cs is GPIO_NUM_NC when the expander holds the
+// select line low (expander.cardSelect), the card being alone on that bus.
+struct SdSpiConfig { spi_host_device_t spiHost; gpio_num_t mosi; gpio_num_t miso; gpio_num_t sck; gpio_num_t cs; int maxFreqKhz; };` : ''}
 struct LauncherButtonConfig { gpio_num_t pin; int activeLevel; };
 ${qspi ? 'struct Co5300DisplayConfig { spi_host_device_t spiHost; gpio_num_t cs; gpio_num_t pclk; gpio_num_t data0; gpio_num_t data1; gpio_num_t data2; gpio_num_t data3; gpio_num_t reset; gpio_num_t te; };' : ''}${rgb ? `// A bare parallel RGB panel: no controller, the LCD peripheral scans the
 // framebuffer out with these timings. data[0..4] are blue, [5..10] green,
 // [11..15] red (RGB565 lane order). backlight is a PWM-capable GPIO, or
 // GPIO_NUM_NC when the expander drives it.
-struct RgbPanelDisplayConfig { gpio_num_t de; gpio_num_t hsync; gpio_num_t vsync; gpio_num_t pclk; gpio_num_t disp; gpio_num_t backlight; gpio_num_t data[16]; int pclkHz; int hsyncPulseWidth; int hsyncBackPorch; int hsyncFrontPorch; int vsyncPulseWidth; int vsyncBackPorch; int vsyncFrontPorch; bool pclkActiveNeg; bool backlightActiveLow; };` : ''}${touch ? '\nstruct Ft3168TouchConfig { gpio_num_t reset; gpio_num_t interrupt; };' : ''}${expander ? '\n// Expander pin numbers (0-based, the chip\'s own), -1 where a line is not routed through it.\nstruct IoExpanderConfig { int initialOutputs; int backlight; int touchReset; int displayReset; int address; int initialDirections; int powerAmplifier; };' : ''}${audio ? '\nstruct Es8311AudioConfig { int i2sPort; gpio_num_t mclk; gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t din; gpio_num_t powerAmplifier; int es7210Address; };' : ''}
+struct RgbPanelDisplayConfig { gpio_num_t de; gpio_num_t hsync; gpio_num_t vsync; gpio_num_t pclk; gpio_num_t disp; gpio_num_t backlight; gpio_num_t data[16]; int pclkHz; int hsyncPulseWidth; int hsyncBackPorch; int hsyncFrontPorch; int vsyncPulseWidth; int vsyncBackPorch; int vsyncFrontPorch; bool pclkActiveNeg; bool backlightActiveLow; };` : ''}${touch ? '\nstruct Ft3168TouchConfig { gpio_num_t reset; gpio_num_t interrupt; };' : ''}${expander ? '\n// Expander pin numbers (0-based, the chip\'s own), -1 where a line is not routed through it.\nstruct IoExpanderConfig { int initialOutputs; int backlight; int touchReset; int displayReset; int address; int initialDirections; int powerAmplifier; int cardSelect; };' : ''}${audio ? '\nstruct Es8311AudioConfig { int i2sPort; gpio_num_t mclk; gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t din; gpio_num_t powerAmplifier; int es7210Address; };' : ''}
 
 inline constexpr I2cBusConfig i2c{ .sda = ${gpio(i2c.sda)}, .scl = ${gpio(i2c.scl)} };
-inline constexpr SdMmcConfig storage{ .clk = ${gpio(sdPins.clk)}, .cmd = ${gpio(sdPins.cmd)}, .data0 = ${gpio(sdPins.data0)} };
+inline constexpr SdMmcConfig storage{ .clk = ${gpio(sdPins.clk)}, .cmd = ${gpio(sdPins.cmd)}, .data0 = ${gpio(sdPins.data0)} };${sdSpi ? `
+inline constexpr SdSpiConfig storageSpi{ .spiHost = ${sdSpi.spiHost === 'spi3' ? 'SPI3_HOST' : 'SPI2_HOST'}, .mosi = ${gpio(sdSpi.pins.mosi)}, .miso = ${gpio(sdSpi.pins.miso)}, .sck = ${gpio(sdSpi.pins.sck)}, .cs = ${gpio(sdSpi.pins.cs)}, .maxFreqKhz = ${sdSpi.maxFreqKhz} };` : ''}
 inline constexpr LauncherButtonConfig launcherButton{ .pin = ${gpio(launcher.pin)}, .activeLevel = ${launcher.activeLevel} };
 ${rgb ? `inline constexpr RgbPanelDisplayConfig display{
   .de = ${gpio(rgb.pins.de)}, .hsync = ${gpio(rgb.pins.hsync)}, .vsync = ${gpio(rgb.pins.vsync)}, .pclk = ${gpio(rgb.pins.pclk)},
@@ -545,7 +602,7 @@ ${rgb ? `inline constexpr RgbPanelDisplayConfig display{
   .reset = ${gpio(displayPins.reset)}, .te = ${gpio(displayPins.te)}
 };` : ''}${touch ? `
 inline constexpr Ft3168TouchConfig touch{ .reset = ${gpio(touchPins.reset)}, .interrupt = ${gpio(touchPins.interrupt)} };` : ''}${expander ? `
-inline constexpr IoExpanderConfig expander{ .initialOutputs = ${expander.initialOutputs}, .backlight = ${expander.outputs.backlight}, .touchReset = ${expander.outputs.touchReset}, .displayReset = ${expander.outputs.displayReset}, .address = ${expander.address}, .initialDirections = ${expander.initialDirections}, .powerAmplifier = ${expander.outputs.powerAmplifier} };` : ''}${audio ? `
+inline constexpr IoExpanderConfig expander{ .initialOutputs = ${expander.initialOutputs}, .backlight = ${expander.outputs.backlight}, .touchReset = ${expander.outputs.touchReset}, .displayReset = ${expander.outputs.displayReset}, .address = ${expander.address}, .initialDirections = ${expander.initialDirections}, .powerAmplifier = ${expander.outputs.powerAmplifier}, .cardSelect = ${expander.outputs.cardSelect} };` : ''}${audio ? `
 inline constexpr Es8311AudioConfig audio{
   .i2sPort = I2S_NUM_AUTO, .mclk = ${gpio(audioPins.mclk)}, .bclk = ${gpio(audioPins.bclk)},
   .ws = ${gpio(audioPins.ws)}, .dout = ${gpio(audioPins.dout)}, .din = ${gpio(audioPins.din)},
@@ -609,7 +666,13 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     ...sourcesFor(audio),
     ...sourcesFor(expander)
   ]
-  const requires = [...new Set([display, touch, power, imu, audio, expander].flatMap((chip) => (chip ? chip.requires : [])))]
+  const sdSpi = target.storage.microSD && target.storage.microSD.interface === 'spi'
+  // The base links the SDMMC host and FAT for its own slot; an SPI slot needs
+  // the SDSPI host and the SPI master driver on top.
+  const requires = [...new Set([
+    ...[display, touch, power, imu, audio, expander].flatMap((chip) => (chip ? chip.requires : [])),
+    ...(sdSpi ? ['esp_driver_sdspi', 'esp_driver_spi'] : [])
+  ])]
   const surface = display || target.canvas
   const hasSurface = Boolean(surface)
   // An app that declares a display size has said something more specific than
@@ -648,6 +711,7 @@ set(GEA_CUSTOM_TARGET_DISPLAY_INTERFACE "${display ? display.interface : ''}")
 set(GEA_CUSTOM_TARGET_TOUCH_DRIVER "${touch ? touch.driver : ''}")
 set(GEA_CUSTOM_TARGET_HAS_EXPANDER ${expander ? 1 : 0})
 set(GEA_CUSTOM_TARGET_HAS_MICROSD ${target.storage.microSD ? 1 : 0})
+set(GEA_CUSTOM_TARGET_MICROSD_INTERFACE "${target.storage.microSD ? target.storage.microSD.interface : ''}")
 set(GEA_CUSTOM_TARGET_DISPLAY_SOURCES
 ${displaySources.join('\n')}
 )

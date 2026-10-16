@@ -390,6 +390,25 @@ carries each line; a display with no `pins.backlight` lights up through
 through `outputs.touchReset`. `initialOutputs` is the level mask latched at
 boot.
 
+A card slot is declared under `storage.microSD`. The base's own wiring is
+`"interface": "sdmmc-1bit"` with `clk`/`cmd`/`data0` pins on the SDMMC host.
+`"interface": "spi"` puts the card on an SPI host (`spiHost` `spi2` or `spi3`,
+`maxFreqKhz` up to 40000, default 20000) with `mosi`/`miso`/`sck` pins and one
+select line: `pins.cs` when it is a GPIO, or `outputs.cardSelect` on the
+expander when the board routed it there, in which case the line is held low for
+the mount and the card must be alone on that bus. The Waveshare 7-inch and 4.3B
+boards are wired this way:
+
+```json
+  "storage": {
+    "microSD": { "interface": "spi", "pins": { "mosi": 11, "miso": 13, "sck": 12 } }
+  },
+  "chips": {
+    "expander": { "driver": "ch422g", "interface": "i2c", "initialOutputs": 30,
+                  "outputs": { "touchReset": 1, "backlight": 2, "displayReset": 3, "cardSelect": 4 } }
+  }
+```
+
 ## Common Verification Flow
 
 After installing tools:
