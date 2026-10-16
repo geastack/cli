@@ -19,9 +19,13 @@ import { exists, readJson, writeJson } from '../fs-utils.mjs'
 // development convenience that described one developer's bench, and every
 // npm install would have to overwrite it.
 
+// The CLI's per-user directory: GEA_HOME, else ~/.geastack.
+export function geastackHome(env = process.env) {
+  return env.GEA_HOME || path.join(env.HOME || env.USERPROFILE || os.homedir(), '.geastack')
+}
+
 export function homeBoardsConfigPath(env = process.env) {
-  const home = env.GEA_HOME || path.join(env.HOME || env.USERPROFILE || os.homedir(), '.geastack')
-  return path.join(home, 'boards.json')
+  return path.join(geastackHome(env), 'boards.json')
 }
 
 // Every file that contributes aliases, lowest precedence first. The list is

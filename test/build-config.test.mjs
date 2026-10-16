@@ -218,7 +218,7 @@ test('gea config uses the same resolver as real ESP32 preparation', async (t) =>
   await runGea(['config', '--target', 'esp32-s3-touch-amoled-2.06'], { cwd: fixture.appDir, env: {}, stdout: x => output.push(x) })
   const reported = JSON.parse(output.at(-1))
   const ctx = createContext(parseArgs([]), {}, fixture.appDir)
-  const prepared = prepareEsp32Build({ ctx, selection: { target: 'esp32-s3-touch-amoled-2.06', targetDir: fixture.esp32Target }, app: normalizeApp(fixture.appDir, pkg), env: {}, dryRun: true })
+  const prepared = prepareEsp32Build({ ctx, selection: { target: 'esp32-s3-touch-amoled-2.06', targetDir: fixture.esp32Target }, app: normalizeApp(fixture.appDir, pkg), env: { HOME: fixture.root }, dryRun: true })
   const built = JSON.parse(fs.readFileSync(path.join(prepared.buildDir, 'gea-build-config.json')))
   assert.deepEqual(reported, built)
   assert.ok(prepared.idfArgs.some(arg => arg.startsWith('-DGEA_BUILD_CONFIG_HASH=')))

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 
 import { parseArgs } from '../src/args.mjs'
 import { createContext } from '../src/context.mjs'
-import { applySdkconfigPolicy, cmakeValue, ensureConfigured, esp32BuildDir, prepareEsp32Build, publishEsp32Output, requireEspIdf } from '../src/esp32/build.mjs'
+import { applySdkconfigPolicy, cmakeValue, ensureConfigured, esp32BinaryDir, esp32BuildDir, linkEsp32BinaryDir, prepareEsp32Build, publishEsp32Output, requireEspIdf } from '../src/esp32/build.mjs'
 import { manifestRequestsBleOta, parseAnalysis, resolveAppCapabilities } from '../src/esp32/capabilities.mjs'
 import { activateEspIdf, esptoolCommand, findEspIdf, findIdfPythonEnv } from '../src/esp32/idf-env.mjs'
 import { DEFAULT_ESP_IDF_VERSION, espIdfVersionForTarget, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
@@ -369,6 +369,37 @@ test('build directories are per target and per app, with an optional variant', (
   assert.equal(esp32BuildDir(ctx, selection, 'my app!'), path.join(fixture.root, '.gea/build/esp32-s3-touch-amoled-2.06/app-builds/my_app_'))
   assert.equal(esp32BuildDir(ctx, selection, 'watch', { GEA_IDF_BUILD_VARIANT: 'ninja' }), path.join(fixture.root, '.gea/build/esp32-s3-touch-amoled-2.06/app-builds/watch__variant-ninja'))
   assert.throws(() => esp32BuildDir(ctx, selection, 'watch', { GEA_IDF_BUILD_VARIANT: 'bad variant' }), /GEA_IDF_BUILD_VARIANT/)
+})
+
+test('on Windows CMake builds in a short directory named by the build directory, elsewhere in place', () => {
+  const buildDir = 'C:\\Users\\me\\code\\examples\\apps\\counter-jsx\\.gea\\build\\esp32-s3-touch-lcd-1.54\\app-builds\\counter-jsx'
+  const env = { GEA_HOME: 'C:\\Users\\me\\.geastack' }
+  const short = esp32BinaryDir(buildDir, env, 'win32')
+  assert.match(short, /^C:\\Users\\me\\\.geastack\\build\\[0-9a-f]{16}$/)
+  assert.equal(esp32BinaryDir(buildDir.toUpperCase(), env, 'win32'), short, 'the same directory however it is spelled')
+  assert.notEqual(esp32BinaryDir(`${buildDir}__variant-x`, env, 'win32'), short)
+  assert.equal(esp32BinaryDir('C:\\gb\\t\\app-builds\\a', { ...env, GEA_PROJECT_BUILD_ROOT: 'C:\\gb' }, 'win32'), 'C:\\gb\\t\\app-builds\\a', 'a chosen build root is used as it is')
+  assert.equal(esp32BinaryDir('/home/me/app/.gea/build/t/app-builds/a', env, 'linux'), '/home/me/app/.gea/build/t/app-builds/a')
+  assert.equal(esp32BinaryDir('/Users/me/app/.gea/build/t/app-builds/a', env, 'darwin'), '/Users/me/app/.gea/build/t/app-builds/a')
+})
+
+test('the build directory links to the short one, kept across builds and fresh after a delete', { skip: process.platform !== 'win32' && 'junctions are Windows-only' }, (t) => {
+  const fixture = createFixture(t)
+  const env = { GEA_HOME: path.join(fixture.root, 'home') }
+  const buildDir = path.join(fixture.root, '.gea/build/board/app-builds/watch')
+  const binaryDir = esp32BinaryDir(buildDir, env)
+  mkdirSync(buildDir, { recursive: true })
+  writeFileSync(path.join(buildDir, 'CMakeCache.txt'), 'from before the move')
+  linkEsp32BinaryDir(buildDir, binaryDir)
+  assert.ok(!existsSync(path.join(buildDir, 'CMakeCache.txt')), 'an in-place build is replaced')
+  writeFileSync(path.join(buildDir, 'gea_embedded.bin'), 'image')
+  assert.equal(readFileSync(path.join(binaryDir, 'gea_embedded.bin'), 'utf8'), 'image')
+  linkEsp32BinaryDir(buildDir, binaryDir)
+  assert.ok(existsSync(path.join(binaryDir, 'gea_embedded.bin')), 'a rebuild reuses the short directory')
+  rmSync(path.join(fixture.root, '.gea'), { recursive: true, force: true })
+  assert.ok(existsSync(path.join(binaryDir, 'gea_embedded.bin')), 'deleting the build directory removes only the link')
+  linkEsp32BinaryDir(buildDir, binaryDir)
+  assert.ok(!existsSync(path.join(binaryDir, 'gea_embedded.bin')), 'and the next build starts clean')
 })
 
 function policy(t, { boardName = 'amoled', idfTarget = 'esp32s3', defaults = '', appDefaults = '', existing = '', app = { id: 'watch' }, capabilities = {}, bleOta = false }) {

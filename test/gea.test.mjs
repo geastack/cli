@@ -5,6 +5,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { CliError, ExitCode } from '../src/errors.mjs'
+import { esp32BinaryDir } from '../src/esp32/build.mjs'
 import { runGea } from '../src/gea.mjs'
 import { formatCommand } from '../src/run.mjs'
 import { onPath } from '../src/toolchain.mjs'
@@ -210,6 +211,8 @@ test('an app that declares no CSS device pixel ratio passes neither flag', async
 test('build configures and builds the app in its own ESP-IDF build directory', async (t) => {
   const fixture = createFixture(t)
   const buildDir = fixture.buildDir('esp32-s3-touch-amoled-2.06', 'watch')
+  // What CMake is told: on Windows the short directory buildDir links to.
+  const binaryDir = esp32BinaryDir(buildDir, fixture.env)
 
   const dry = await gea(['build', '--board', 'amoled', '--dry-run'], fixture)
   assert.equal(dry.code, 0)
@@ -217,8 +220,8 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
   const ccache = onPath('ccache', fixture.env)
   const configureHead = formatCommand([
     fixture.python, path.join(fixture.env.IDF_PATH, 'tools', 'idf.py'), ...(ccache ? ['--ccache'] : []), '-G', 'Ninja',
-    '-B', cmakePath(buildDir), `-DSDKCONFIG=${cmakePath(buildDir)}/sdkconfig`, `-DSDKCONFIG_DEFAULTS=${cmakePath(fixture.esp32Target)}/sdkconfig.defaults`,
-    '-DIDF_TARGET=esp32s3', `-DGEA_BUILD_CONFIG_FILE=${cmakePath(buildDir)}/gea-build-config.cmake`, `-DGEA_BUILD_CONFIG_JSON=${cmakePath(buildDir)}/gea-build-config.json`
+    '-B', cmakePath(binaryDir), `-DSDKCONFIG=${cmakePath(binaryDir)}/sdkconfig`, `-DSDKCONFIG_DEFAULTS=${cmakePath(fixture.esp32Target)}/sdkconfig.defaults`,
+    '-DIDF_TARGET=esp32s3', `-DGEA_BUILD_CONFIG_FILE=${cmakePath(binaryDir)}/gea-build-config.cmake`, `-DGEA_BUILD_CONFIG_JSON=${cmakePath(binaryDir)}/gea-build-config.json`
   ])
   const configureTail = formatCommand([
     '-DGEA_EMBEDDED_APP=watch', `-DGEA_EMBEDDED_APP_META=${cmakePath(fixture.appDir)};index.tsx;gea`,
@@ -226,7 +229,7 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
     '-DGEA_EMBEDDED_CAPABILITY_CAMERA=0', '-DGEA_EMBEDDED_CAPABILITY_RTC=1', '-DGEA_EMBEDDED_CAPABILITY_H264=1', 'reconfigure'
   ])
   assert.match(dry.out, new RegExp(`^${escapeRegex(configureHead)} -DGEA_BUILD_CONFIG_HASH=[a-f0-9]{64} ${escapeRegex(configureTail)}$`, 'm'))
-  assert.match(dry.out, new RegExp(`^${escapeRegex(formatCommand(['cmake', '--build', buildDir, '--parallel', '8']))}$`, 'm'))
+  assert.match(dry.out, new RegExp(`^${escapeRegex(formatCommand(['cmake', '--build', binaryDir, '--parallel', '8']))}$`, 'm'))
   if (!ccache) assert.doesNotMatch(dry.out, /--ccache/, 'ccache is only passed when it is on PATH')
   assert.equal(fs.existsSync(path.join(buildDir, 'CMakeCache.txt')), false, 'dry-run never configures')
   // Preparation still happens in dry-run so the printed command is real.
@@ -239,7 +242,7 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
   const configure = calls.find((line) => / reconfigure$/.test(line))
   assert.ok(configure, `expected a reconfigure call, got:\n${calls.join('\n')}`)
   assert.match(configure, /-DGEA_EMBEDDED_APP=watch/)
-  assert.ok(calls.some((line) => line === `cmake --build ${buildDir} --parallel 8`), calls.join('\n'))
+  assert.ok(calls.some((line) => line === `cmake --build ${binaryDir} --parallel 8`), calls.join('\n'))
   assert.ok(fs.existsSync(path.join(buildDir, 'gea_embedded.bin')))
   assert.equal(fs.readFileSync(path.join(buildDir, '.gea-configure-args'), 'utf8').includes('-DGEA_EMBEDDED_APP=watch'), true)
 
@@ -248,7 +251,7 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
   const again = await gea(['build', '--board', 'amoled', '--jobs', '2'], fixture, { env: { ...fixture.env, GEA_IDF_JOBS: '2' } })
   assert.equal(again.code, 0)
   const second = fixture.calls().filter((line) => !line.includes('idf_tools.py export') && !line.startsWith('compiler '))
-  assert.deepEqual(second, [`cmake --build ${buildDir} --parallel 2`])
+  assert.deepEqual(second, [`cmake --build ${binaryDir} --parallel 2`])
 
   // CMake lists app sources at configure time, so a file added afterwards
   // has to trigger a reconfigure or it is never compiled.
@@ -709,7 +712,9 @@ test('custom setup composes a flash-ready target from the chip catalog', async (
   // The custom target is materialized into the build directory and handed to CMake.
   const built = await gea(['build', '--board', 'from-scratch', '--dry-run'], fixture)
   assert.equal(built.code, 0, built.err)
-  const customDir = path.join(fixture.appDir, '.gea/build/from-scratch/app-builds/watch/gea-custom-target')
+  // CMake is told the directory it builds in, which on Windows is the short
+  // one the app's build directory links to.
+  const customDir = path.join(esp32BinaryDir(path.join(fixture.appDir, '.gea/build/from-scratch/app-builds/watch'), fixture.env), 'gea-custom-target')
   assert.match(built.out, new RegExp(commandText(`-DGEA_BOARD_DEFINITION=${cmakePath(path.join(fixture.appDir, '.gea/targets/from-scratch.json'))}`, `-DGEA_CUSTOM_TARGET_DIR=${cmakePath(customDir)}`)))
   assert.match(fs.readFileSync(path.join(customDir, 'board.h'), 'utf8'), /\.cs = GPIO_NUM_12/)
   assert.match(fs.readFileSync(path.join(customDir, 'target.cmake'), 'utf8'), /GEA_EMBEDDED_DISPLAY_WIDTH=410/)

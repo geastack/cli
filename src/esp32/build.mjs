@@ -1,9 +1,11 @@
 import { debugFps } from '../debug-fps.mjs'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { appForNativeDebugger, resolveBuildConfig, writeBuildConfig } from '../build-config.mjs'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
+import { geastackHome } from '../boards/config.mjs'
 import { loadChipCatalogFromDir, writeCustomTarget } from '../boards/custom-target.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { appCmakeMeta, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
@@ -39,6 +41,80 @@ export function esp32BuildDir(ctx, selection, appId, env = ctx.env || process.en
     key = `${key}__variant-${variant}`
   }
   return path.join(ctx.buildRoot, selection.target, 'app-builds', key)
+}
+
+// Where CMake actually builds. Windows' toolchain still lives under MAX_PATH
+// (260 characters): GCC cannot open the dependency file of an object nested
+// a few components deep (esp-idf/mbedtls/.../tfpsacrypto.dir/...) once the
+// build directory is an app's .gea/build/<target>/app-builds/<app>, which
+// is already over 100 characters. So on Windows CMake builds in a short
+// directory under the CLI's home (~\.geastack\build), named by a hash of the
+// build directory it stands in for -- the same one on every rebuild, so
+// builds stay incremental -- and the build directory is a junction to it
+// (see linkEsp32BinaryDir), which keeps the firmware, logs and everything the
+// flash, monitor and debugger steps read where they always were. A build
+// root chosen with GEA_PROJECT_BUILD_ROOT is used as it is: whoever set it
+// has already decided where builds live (and how long that path is). Other
+// hosts always build in place.
+export function esp32BinaryDir(buildDir, env = process.env, platform = process.platform) {
+  if (platform !== 'win32' || env.GEA_PROJECT_BUILD_ROOT) return buildDir
+  return path.win32.join(esp32ShortBuildRoot(env), createHash('sha256').update(windowsPathKey(buildDir)).digest('hex').slice(0, 16))
+}
+
+// Not under %LOCALAPPDATA%: a packaged (MSIX) app's writes there are
+// redirected into its own private LocalCache, which both lengthens the path
+// again and leaves the junction dangling for every process outside the
+// package. The user profile itself is not redirected.
+function esp32ShortBuildRoot(env) {
+  return path.win32.join(geastackHome(env), 'build')
+}
+
+// Windows paths compare without regard to case or separator spelling.
+function windowsPathKey(file) {
+  return path.win32.resolve(file).toLowerCase()
+}
+
+function linkTarget(file) {
+  try {
+    return lstatSync(file).isSymbolicLink() ? readlinkSync(file) : null
+  } catch {
+    return null
+  }
+}
+
+// Makes buildDir a junction to binaryDir. An existing link to it is kept, so
+// the build is incremental. Anything else at buildDir -- a build from before
+// builds moved, or a link to another directory -- is replaced; its CMake
+// cache names a different binary directory, so it could not be reused. When
+// buildDir is missing (deleted to force a clean build), binaryDir starts
+// empty as well, so deleting the build directory still means a clean build.
+export function linkEsp32BinaryDir(buildDir, binaryDir, log = () => {}) {
+  if (binaryDir === buildDir) return
+  const current = linkTarget(buildDir)
+  if (current !== null && windowsPathKey(current) === windowsPathKey(binaryDir) && existsSync(binaryDir)) return
+  if (current !== null) {
+    unlinkSync(buildDir)
+  } else if (existsSync(buildDir)) {
+    log(`Replacing ${buildDir} with a link to ${binaryDir}`)
+    rmSync(buildDir, { recursive: true, force: true })
+  }
+  rmSync(binaryDir, { recursive: true, force: true })
+  mkdirSync(binaryDir, { recursive: true })
+  mkdirSync(path.dirname(buildDir), { recursive: true })
+  symlinkSync(binaryDir, buildDir, 'junction')
+}
+
+// The short directories the build directories under `dir` link to. Only
+// links into the CLI's own short root count; a link a user made elsewhere is
+// never followed into.
+function linkedBinaryDirs(dir, env) {
+  const root = windowsPathKey(esp32ShortBuildRoot(env)) + path.win32.sep
+  const candidates = [dir, path.join(dir, 'default')]
+  const appBuilds = path.join(dir, 'app-builds')
+  if (existsSync(appBuilds) && !linkTarget(appBuilds)) {
+    for (const entry of readdirSync(appBuilds)) candidates.push(path.join(appBuilds, entry))
+  }
+  return candidates.map(linkTarget).filter((target) => target && windowsPathKey(target).startsWith(root))
 }
 
 export function buildImages(buildDir) {
@@ -332,17 +408,23 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   const resolvedBuild = resolveBuildConfig({ app: env.GEA_NATIVE_DEBUGGER === '1' ? appForNativeDebugger(app, 'esp32') : app, platform: 'esp32', board: selection.target, targetBase: selection.targetBase, targetsRoot: ctx.targetsRoot, env, capabilities: buildCapabilities })
   const idfTarget = selection.idfTarget || 'esp32s3'
   const buildDir = esp32BuildDir(ctx, selection, app?.id, env)
+  // Everything CMake is told about -- its binary directory and the files the
+  // CLI generates for it -- is spelled with the short path, so no object or
+  // dependency file is ever named through the long one.
+  const binaryDir = esp32BinaryDir(buildDir, env)
+  linkEsp32BinaryDir(buildDir, binaryDir, log)
+  if (binaryDir !== buildDir) log(`CMake builds in ${binaryDir}, linked from ${buildDir}`)
   // gea.targets.esp32.sdkconfig: the app's own Kconfig defaults, layered over
   // the board's. IDF reads a ';'-separated SDKCONFIG_DEFAULTS list in order, so
   // the app's file is last and wins wherever the two disagree.
   const appEsp32Config = app ? appTargetConfig(app, 'esp32') : null
   const appSdkconfigFile = appEsp32Config?.sdkconfig ? path.join(app.root, appEsp32Config.sdkconfig) : ''
-  const { file: sdkconfigFile, defaultsFile, regenerated } = prepareBuildLocalSdkconfig(selection.targetDir, buildDir, appSdkconfigFile)
+  const { file: sdkconfigFile, defaultsFile, regenerated } = prepareBuildLocalSdkconfig(selection.targetDir, binaryDir, appSdkconfigFile)
   if (regenerated) log('sdkconfig defaults changed; the generated sdkconfig was rebuilt from them')
   log(`Using ESP32 target '${selection.target}' at ${selection.targetDir} (idf=${idfTarget} chip=${selection.esptoolChip || idfTarget} flash=${selection.flashSize})`)
 
   const childEnv = { ...env }
-  const buildConfig = writeBuildConfig(buildDir, resolvedBuild)
+  const buildConfig = writeBuildConfig(binaryDir, resolvedBuild)
   const idfArgs = [`-DIDF_TARGET=${idfTarget}`, `-DGEA_BUILD_CONFIG_FILE=${cmakeValue(buildConfig.cmake)}`, `-DGEA_BUILD_CONFIG_JSON=${cmakeValue(buildConfig.json)}`, `-DGEA_BUILD_CONFIG_HASH=${buildConfig.hash}`]
   childEnv.GEA_BUILD_CONFIG_FILE = cmakeValue(buildConfig.cmake)
   childEnv.GEA_BUILD_CONFIG_JSON = cmakeValue(buildConfig.json)
@@ -352,7 +434,7 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   if (selection.targetDefinition) {
     // The board header and target.cmake are generated here, once; CMake only
     // includes them.
-    const outDir = path.join(buildDir, 'gea-custom-target')
+    const outDir = path.join(binaryDir, 'gea-custom-target')
     if (!ctx.chipsPackageDir) fail('@geastack/chips is not installed in this project; custom boards need its chip catalog.', ExitCode.missingDependency)
     const generated = writeCustomTarget({
       definitionPath: selection.targetDefinition,
@@ -447,7 +529,7 @@ function preparePartitions(app, config, buildDir, targetId) {
     // Runs before the partition table is read and before configure, because it
     // is what produces the files embedFiles and a partition's data refer to.
     runAppPrebuild(app, esp32Config, { dryRun, log })
-    const partitions = preparePartitions(app, esp32Config, buildDir, selection.target)
+    const partitions = preparePartitions(app, esp32Config, binaryDir, selection.target)
     appPartitionCsv = partitions.csv
     const partitionPayloads = partitions.payloads
     const appNative = {
@@ -494,7 +576,7 @@ function preparePartitions(app, config, buildDir, targetId) {
     childEnv.GEA_EMBEDDED_CAPABILITY_H264 = h264Used ? '1' : '0'
     if (bleOta) childEnv.GEA_EMBEDDED_BLE_OTA = '1'
     log(`App capabilities: network=${capabilities.network ? 1 : 0} ble=${capabilities.ble ? 1 : 0} audio=${capabilities.audio ? 1 : 0}`)
-    generateWifiConfig(app.root, path.join(buildDir, 'apps', app.id, 'wifi_config.h'))
+    generateWifiConfig(app.root, path.join(binaryDir, 'apps', app.id, 'wifi_config.h'))
   }
 
   applySdkconfigPolicy(new Sdkconfig(sdkconfigFile, defaultsFile, appSdkconfigFile), {
@@ -511,7 +593,7 @@ function preparePartitions(app, config, buildDir, targetId) {
 
   const defaultsArg = [defaultsFile, appSdkconfigFile].filter(Boolean).join(';')
   const sourceSet = app ? listAppSources(app.root) : []
-  return { buildDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, sourceSet, images: buildImages(buildDir) }
+  return { buildDir, binaryDir, sdkconfigFile, defaultsFile, appSdkconfigFile, defaultsArg, idfArgs, childEnv, capabilities, sourceSet, images: buildImages(buildDir) }
 }
 
 // A path handed to CMake on its command line, or through the environment
@@ -543,7 +625,7 @@ export function configureArguments(prepared, env) {
     }
     args.push('-G', generator)
   }
-  args.push('-B', cmakeValue(prepared.buildDir), `-DSDKCONFIG=${cmakeValue(prepared.sdkconfigFile)}`, `-DSDKCONFIG_DEFAULTS=${cmakeValue(prepared.defaultsArg || prepared.defaultsFile)}`)
+  args.push('-B', cmakeValue(prepared.binaryDir || prepared.buildDir), `-DSDKCONFIG=${cmakeValue(prepared.sdkconfigFile)}`, `-DSDKCONFIG_DEFAULTS=${cmakeValue(prepared.defaultsArg || prepared.defaultsFile)}`)
   return args
 }
 
@@ -646,7 +728,7 @@ export async function buildEsp32Firmware({ ctx, selection, app = null, env = ctx
 
     detail(app ? `Building firmware for app '${app.id}' in ${prepared.buildDir}...` : 'Building firmware...')
     await ensureConfigured({ idf, prepared, env: buildEnv, dryRun, verbose, stdout, stderr })
-    await runInTarget('cmake', ['--build', prepared.buildDir, '--parallel', buildJobs(buildEnv)], {
+    await runInTarget('cmake', ['--build', prepared.binaryDir, '--parallel', buildJobs(buildEnv)], {
       cwd: selection.targetDir,
       env: buildEnv,
       dryRun,
@@ -697,5 +779,6 @@ function buildSummaryLine(idf, selection, capabilities) {
 export function fullCleanEsp32({ ctx, selection, app = null, env = ctx.env || process.env, stdout = console.log }) {
   const dir = app ? esp32BuildDir(ctx, selection, app.id, env) : path.join(ctx.buildRoot, selection.target)
   stdout(`Removing build artifacts in ${dir}...`)
+  for (const binaryDir of linkedBinaryDirs(dir, env)) rmSync(binaryDir, { recursive: true, force: true })
   spawnSync('rm', ['-rf', dir], { stdio: 'inherit' })
 }
