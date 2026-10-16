@@ -12,8 +12,9 @@ const DEFAULT_REGISTRY = 'https://registry.npmjs.org/'
 // Every repository that publishes an @geastack package. A repo missing here is
 // a release pushed by hand that can drift from the versions the others expect:
 // `targets` was missing once, then `node-compat` (a hard dependency of the
-// compiler), `native-webgl-angle` and `windows`.
-const DEFAULT_REPOS = ['core', 'compiler', 'node-compat', 'apple', 'windows', 'native-webgl-angle', 'simulator', 'targets', 'cli']
+// compiler), `native-webgl-angle`, `windows` and `debugger` (a hard dependency of
+// the CLI).
+const DEFAULT_REPOS = ['core', 'compiler', 'node-compat', 'apple', 'windows', 'native-webgl-angle', 'simulator', 'targets', 'debugger', 'cli']
 // Build output and scratch trees carry copies of package.json files that would
 // shadow the real packages: `generated` (the simulator's staged framework
 // sources), `.work` (benchmark checkouts), `.state` (sweep source contexts),

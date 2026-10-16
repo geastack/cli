@@ -31,6 +31,23 @@ test('publish plan ignores transient .state package copies', () => {
   }
 })
 
+test('publish plan includes the debugger repo ahead of the CLI that depends on it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-publish-debugger-'))
+  try {
+    writePublishable(root, 'debugger/package.json', '@geastack/debugger')
+    writePublishable(root, 'cli/package.json', '@geastack/cli', {
+      dependencies: { '@geastack/debugger': '^0.1.0' }
+    })
+
+    const result = spawnSync(process.execPath, [scriptPath, '--root', root, '--plan'], { encoding: 'utf8' })
+
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /@geastack\/debugger@0\.1\.0[\s\S]*@geastack\/cli@0\.1\.0/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('real publish mode tags existing package versions instead of skipping them', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-publish-existing-'))
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-publish-npm-'))
