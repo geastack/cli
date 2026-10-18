@@ -175,7 +175,7 @@ export class SerialDevice {
     await this.writeRaw(data)
   }
 
-  async writeRaw(data) {
+  async writeRaw(data, timeoutMs = 5000) {
     if (this.error) throw this.error
     if (this.closed) throw new Error(`serial device ${this.path} is closed`)
     // A USB removal can leave write/drain callbacks permanently pending.
@@ -194,7 +194,7 @@ export class SerialDevice {
       }
       const closed = () => finish(new Error(`serial device ${this.path} closed during write`))
       const failed = (error) => finish(error)
-      const timer = setTimeout(() => finish(new Error(`serial write timed out for ${this.path}`)), 5000)
+      const timer = setTimeout(() => finish(new Error(`serial write timed out for ${this.path}`)), timeoutMs)
       this.port.once('close', closed)
       this.port.once('error', failed)
       try {
@@ -327,6 +327,7 @@ export const geadev = {
   setDefault: (d, appId) => d.command(`GEADEV SETDEFAULT ${appId}`, ['GEADEV:OK SETDEFAULT', 'GEADEV:ERR SETDEFAULT']),
   setTime: (d, epoch) => d.command(`GEADEV SETTIME ${epoch}`, ['GEADEV:OK SETTIME', 'GEADEV:ERR SETTIME']),
   reboot: (d) => d.command('GEADEV REBOOT', ['GEADEV:OK REBOOT']),
+  download: (d) => d.command('GEADEV DOWNLOAD', ['GEADEV:OK DOWNLOAD']),
   notify: (d, text) => d.command(`GEADEV NOTIFY ${text}`, ['GEADEV:OK NOTIFY']),
   rm: (d, devicePath) => d.command(`GEADEV RM ${devicePath}`, ['GEADEV:RM OK', 'GEADEV:RM ERR']),
   // Erases and re-formats a board's file volume (everything on it is lost); a chip erase takes a while.
@@ -511,7 +512,7 @@ export const geadev = {
   // console first, streams only after a READY for this size, and takes as its
   // result only a reply that can belong to this transfer. A failed attempt is
   // retried once after another resync.
-  async otaUpdate(d, source, { timeoutMs = 120000, stderr = () => {}, attempts = 2 } = {}) {
+  async otaUpdate(d, source, { timeoutMs = 600000, stderr = () => {}, attempts = 2 } = {}) {
     const data = Buffer.isBuffer(source) ? source : readFileSync(source)
     const crc = crc32(data)
     for (let attempt = 1; ; attempt++) {
@@ -520,7 +521,7 @@ export const geadev = {
       } catch (error) {
         // uploaded: the image went out and the board may be restarting into it;
         // noApp: nothing answers the console. Neither is helped by a retry here.
-        if (error.uploaded || error.noApp || attempt >= attempts) throw error
+        if (error.uploaded || error.noApp || error.restarting || attempt >= attempts) throw error
         stderr(`  in-app install attempt ${attempt} failed (${error.message}); resyncing the console and retrying`)
       }
     }
@@ -634,6 +635,13 @@ async function otaAttempt(d, data, crc, { timeoutMs, stderr }) {
     const frame = await readFrame(d, readyDeadline - Date.now(), (f) => f.startsWith('GEADEV:OTA ') || f.startsWith('GEADEV:ERR'))
     if (frame === null) throw new Error('timed out waiting for OTA READY')
     if (frame.startsWith('GEADEV:ERR')) throw new Error(frame)
+    if (frame.startsWith('GEADEV:OTA RESTART')) {
+      // The board restarts into update mode (its app held down) and takes the
+      // install there; the caller reopens the port and sends it again.
+      const error = new Error(frame)
+      error.restarting = true
+      throw error
+    }
     if (frame.startsWith('GEADEV:OTA READY')) {
       const bytes = parseKeyValues(frame).bytes
       if (bytes === undefined || Number(bytes) === size) ready = frame
@@ -648,7 +656,16 @@ async function otaAttempt(d, data, crc, { timeoutMs, stderr }) {
   await sleep(300)
   const burst = 2048
   for (let offset = 0; offset < size; offset += burst) {
-    await d.writeRaw(data.subarray(offset, Math.min(offset + burst, size)))
+    // A board rewriting its running slot erases flash between reads, and the
+    // write waits that out (the CDC endpoint stays un-armed meanwhile).
+    try {
+      await d.writeRaw(data.subarray(offset, Math.min(offset + burst, size)), 30000)
+    } catch (error) {
+      // A board that dies mid-transfer usually said why first (a panic dump).
+      const said = d.buffer.toString('latin1').trim()
+      if (said) stderr(`  the board printed before the transfer broke:\n${said.slice(-3000)}`)
+      throw error
+    }
     await sleep(4)
     if (((offset / burst) | 0) % 128 === 0) stderr(`  upload ${Math.floor((offset * 100) / size)}%`)
   }

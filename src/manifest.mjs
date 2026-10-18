@@ -111,6 +111,9 @@ export function validateApp(app) {
     if (config.sdkconfig && !exists(path.join(app.root, config.sdkconfig))) {
       errors.push(`${where('sdkconfig')} does not exist: ${config.sdkconfig}`)
     }
+    for (const [target, file] of Object.entries(config.sdkconfigByTarget ?? {})) {
+      if (!exists(path.join(app.root, file))) errors.push(`${where(`sdkconfigByTarget.${target}`)} does not exist: ${file}`)
+    }
     const checkPartitions = (table, field) => {
       if (typeof table === 'string' && !exists(path.join(app.root, table))) {
         errors.push(`${where(field)} does not exist: ${table}`)
@@ -416,7 +419,7 @@ export function normalizeDefines(raw) {
 
 
 function emptyTargetConfig() {
-  return { nativeSources: [], providers: {}, tsconfig: '', nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', prebuild: '', output: '' }
+  return { nativeSources: [], providers: {}, tsconfig: '', nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', sdkconfigByTarget: {}, prebuild: '', output: '' }
 }
 
 function normalizeStringList(raw) {
@@ -463,6 +466,18 @@ function normalizePartitions(raw) {
 // smaller chip cannot be written to it, and the app is the only party that knows
 // what its slots are for. Keyed by target id rather than board alias: an alias
 // is one machine's name for a board, a target id is the board.
+// The app's Kconfig defaults for one board in place of `sdkconfig`, keyed by
+// target id like partitionsByTarget: a setting that pays on one chip can
+// starve another (executing from PSRAM copies the image into it).
+function normalizeSdkconfigByTarget(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const byTarget = {}
+  for (const [target, file] of Object.entries(raw)) {
+    if (typeof file === 'string' && file.trim()) byTarget[target] = normalizeManifestRelativePath(file)
+  }
+  return byTarget
+}
+
 function normalizePartitionsByTarget(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
   const byTarget = {}
@@ -499,6 +514,7 @@ function normalizeTargetConfig(raw) {
       partitions: normalizePartitions(value.partitions),
       partitionsByTarget: normalizePartitionsByTarget(value.partitionsByTarget),
       sdkconfig: typeof value.sdkconfig === 'string' && value.sdkconfig.trim() ? normalizeManifestRelativePath(value.sdkconfig) : '',
+      sdkconfigByTarget: normalizeSdkconfigByTarget(value.sdkconfigByTarget),
       prebuild: typeof value.prebuild === 'string' ? value.prebuild.trim() : '',
       output: typeof value.output === 'string' && value.output.trim() ? normalizeManifestRelativePath(value.output) : ''
     }

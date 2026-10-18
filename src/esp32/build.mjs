@@ -419,7 +419,8 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   // the board's. IDF reads a ';'-separated SDKCONFIG_DEFAULTS list in order, so
   // the app's file is last and wins wherever the two disagree.
   const appEsp32Config = app ? appTargetConfig(app, 'esp32') : null
-  const appSdkconfigFile = appEsp32Config?.sdkconfig ? path.join(app.root, appEsp32Config.sdkconfig) : ''
+  const appSdkconfig = appEsp32Config?.sdkconfigByTarget?.[selection.target] || appEsp32Config?.sdkconfig
+  const appSdkconfigFile = appSdkconfig ? path.join(app.root, appSdkconfig) : ''
   const { file: sdkconfigFile, defaultsFile, regenerated } = prepareBuildLocalSdkconfig(selection.targetDir, binaryDir, appSdkconfigFile)
   if (regenerated) log('sdkconfig defaults changed; the generated sdkconfig was rebuilt from them')
   log(`Using ESP32 target '${selection.target}' at ${selection.targetDir} (idf=${idfTarget} chip=${selection.esptoolChip || idfTarget} flash=${selection.flashSize})`)

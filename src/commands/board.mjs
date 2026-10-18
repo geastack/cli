@@ -201,11 +201,20 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
     await stageImage({ ...common, image, slot, buildDir, appLabel })
     return 0
   }
-  if (selection.usbAppUpdate === 'geadev-ota' && !flag(parsed, 'manual-boot') && !base.dryRun && (await usbAppUpdate({ selection, image, appLabel, env: flashEnv, stdout: base.stdout, stderr: base.stderr }))) {
-    if (!monitor) return 0
-    return monitorCommand(ctx, parsed, rest, options, selection)
+  let flashCommon = common
+  if (selection.usbAppUpdate === 'geadev-ota' && !flag(parsed, 'manual-boot') && !base.dryRun) {
+    const updated = await usbAppUpdate({ selection, image, appLabel, env: flashEnv, stdout: base.stdout, stderr: base.stderr })
+    if (updated === true) {
+      if (!monitor) return 0
+      return monitorCommand(ctx, parsed, rest, options, selection)
+    }
+    if (updated === 'rom') {
+      // The app restarted the board into the ROM downloader, so esptool must
+      // connect without a reset sequence.
+      flashCommon = { ...common, options: { ...opts, before: 'no-reset', romEntered: true } }
+    }
   }
-  await flashFirmware({ ...common, images, appImage: image, appLabel })
+  await flashFirmware({ ...flashCommon, images, appImage: image, appLabel })
   if (!monitor) {
     postFlashRestartNote(selection, base.stderr)
     return 0
@@ -227,7 +236,21 @@ async function usbAppUpdate({ selection, image, appLabel, env, stdout, stderr })
   }
   try {
     stdout(`Installing '${appLabel}' through the running app over USB...`)
-    const result = await geadev.otaUpdate(device.serial, image, { stderr })
+    let result
+    try {
+      result = await geadev.otaUpdate(device.serial, image, { stderr })
+    } catch (error) {
+      if (!error.restarting) throw error
+      // A single-app-slot board rewrites its running slot only from update
+      // mode: it restarted with its app held down; install there.
+      stdout('The board restarted into update mode; installing there...')
+      await device.close().catch(() => {})
+      device = null
+      // Past the reset, so the reopen finds the re-enumerated port, not the old one.
+      await new Promise((resolve) => setTimeout(resolve, 4000))
+      device = await openDevice({ selection, transport: 'usb', env, stderr: () => {}, waitSeconds: 60 })
+      result = await geadev.otaUpdate(device.serial, image, { stderr })
+    }
     success(stdout, `Installed '${appLabel}' (${Math.round(result.bytes / 1024)} KB in ${result.seconds.toFixed(1)}s) into ${result.line.match(/slot=(\S+)/)?.[1] || 'the next OTA slot'}; the board is restarting.`)
     return true
   } catch (error) {
@@ -242,6 +265,18 @@ async function usbAppUpdate({ selection, image, appLabel, env, stdout, stderr })
     if (error.noApp) {
       stderr('No running gea app answered on USB; falling back to the ROM downloader (hold BOOT while powering on).')
       return false
+    }
+    // The app cannot overwrite the slot it runs from: a single-app-slot layout,
+    // or a new partition table that moved the slots. The ROM downloader writes
+    // the whole layout, and the app can restart into it without BOOT.
+    if (!error.uploaded && /PARTITION_CONFLICT|no-ota-slot|too-large/.test(error.message)) {
+      try {
+        await geadev.download(device.serial)
+        stdout(`The running app cannot install '${appLabel}' over itself; restarted the board into the ROM downloader.`)
+        return 'rom'
+      } catch (downloadError) {
+        stderr(`GEADEV DOWNLOAD failed (${downloadError.message}).`)
+      }
     }
     // The app answered but the install failed (already retried once after a
     // console resync). Falling into the ROM downloader here would retry
@@ -586,6 +621,7 @@ export async function devctlCommand(ctx, parsed, rest, options) {
         break
       }
       case 'reboot': print(await geadev.reboot(d)); break
+      case 'download': print(await geadev.download(d)); break
       case 'node': need(1); print(await geadev.node(d, args[0])); break
       case 'hit': need(2); print(await geadev.hit(d, num(args[0], 'x'), num(args[1], 'y'))); break
       case 'tap': need(2); print(await geadev.tap(d, num(args[0], 'x'), num(args[1], 'y'), args[2] ? num(args[2], 'holdMs') : 80)); break
