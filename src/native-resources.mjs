@@ -6,7 +6,7 @@ function fileHash(file){const fd=fs.openSync(file,'r'),hash=crypto.createHash('s
 const safeName=value=>typeof value==='string' && /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value) && !['Fonts','FontLicenses','Frameworks','MacOS'].includes(value)
 export function resolveNativeResources(root, target, raw = {}) {
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('nativeResources must be a destination-to-directory object')
- if(Object.keys(raw).length && !['macos','raspberry-pi-os'].includes(target))throw Error(`nativeResources are not supported by ${target}`)
+ if(Object.keys(raw).length && !['macos','raspberry-pi-os','windows'].includes(target))throw Error(`nativeResources are not supported by ${target}`)
  const base=fs.realpathSync(root),result={};let count=0,total=0
  for(const [name,value]of Object.entries(raw)){
   if(!safeName(name)||typeof value!=='string'||!value||path.isAbsolute(value)||value.split(/[\\/]/).includes('..')||/[\x00-\x1f\x7f]/.test(value))throw Error('Invalid nativeResources destination or source')

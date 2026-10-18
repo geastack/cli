@@ -12,7 +12,7 @@ export function resolveNativeLink(root, target, config = {}) {
   }
   if (libraries.length && !['macos', 'raspberry-pi-os'].includes(target)) throw new Error(`nativeLibraries are not supported by ${target}`)
   if (frameworks.length && target !== 'macos') throw new Error('frameworks are supported only by macos')
-  if ((includeDirectories.length || systemLibraries.length) && target !== 'raspberry-pi-os') throw new Error('Native include/system library extensions are supported only by raspberry-pi-os')
+  if ((includeDirectories.length || systemLibraries.length) && !['raspberry-pi-os', 'windows'].includes(target)) throw new Error('Native include/system library extensions are supported only by raspberry-pi-os and windows')
   const includes = includeDirectories.map(value => {
     if (path.isAbsolute(value) || value.split(/[\\/]/).includes('..') || /[\x00-\x1f\x7f]/.test(value)) throw new Error('Invalid nativeIncludeDirectories entry')
     const directory = fs.realpathSync(path.join(realRoot,value)), relative=path.relative(realRoot,directory)

@@ -32,9 +32,20 @@ export function runWindows({ app, env, dryRun = false, stdout, run = false }) {
   const plugins = geatscPluginsOf(app, require)
   if (plugins.length > 0) childEnv.GEA_EXTRA_GEATSC_PLUGINS = plugins.join(path.delimiter)
   const scriptArgs = [script, app.id, ...(run ? ['--run'] : [])]
+  // gea.targets.windows.prebuild: a command run in the app folder before the
+  // build reads anything, e.g. one generating assets the build stages or
+  // sources it compiles (the manifest is validated after it).
+  const prebuild = app.targetConfig?.windows?.prebuild ?? ''
   if (dryRun) {
+    if (prebuild) stdout(prebuild)
     stdout(formatCommand(['node', ...scriptArgs]))
     return 0
+  }
+  if (prebuild) {
+    stdout(`App prebuild: ${prebuild}`)
+    const step = spawnSync(prebuild, { cwd: app.root, env, shell: true, stdio: 'inherit' })
+    if (step.error) throw new CliError(`App prebuild failed to start: ${step.error.message}`, ExitCode.deployFailed)
+    if (step.status !== 0) throw new CliError(`App prebuild exited ${step.status ?? 1}: ${prebuild}`, ExitCode.deployFailed)
   }
   const result = spawnSync(process.execPath, scriptArgs, { cwd: app.root, env: childEnv, stdio: 'inherit' })
   if (result.error) throw result.error
@@ -42,18 +53,18 @@ export function runWindows({ app, env, dryRun = false, stdout, run = false }) {
   return 0
 }
 
-// Compiler plugins come from the packages the app depends on, exactly as the
-// macOS adapter collects them: each ships its own `./geatsc-plugin` export,
-// and an app-owned geatsc-plugin.mjs is the whole list when present.
-function geatscPluginsOf(app, require) {
-  const own = path.join(app.root, 'geatsc-plugin.mjs')
-  if (existsSync(own)) return [own]
+// Compiler plugins: every package the app depends on that ships a
+// `./geatsc-plugin` export, then the app's own geatsc-plugin.mjs, then its
+// gea.compilerPlugins (as on every native target). They compose: an app plugin
+// declaring the app's own host functions does not displace the plugins of the
+// packages the program uses, whose host functions it calls as well.
+export function geatscPluginsOf(app, require) {
   const plugins = []
   let manifest = {}
   try {
     manifest = JSON.parse(readFileSync(path.join(app.root, 'package.json'), 'utf8'))
   } catch {
-    return plugins
+    manifest = {}
   }
   for (const name of Object.keys({ ...manifest.dependencies, ...manifest.devDependencies })) {
     try {
@@ -62,5 +73,8 @@ function geatscPluginsOf(app, require) {
       // The package ships no plugin, which is the normal case.
     }
   }
-  return plugins
+  const own = path.join(app.root, 'geatsc-plugin.mjs')
+  if (existsSync(own)) plugins.push(own)
+  plugins.push(...(app.compilerPlugins ?? []).map((plugin) => path.join(app.root, plugin)))
+  return [...new Set(plugins)]
 }

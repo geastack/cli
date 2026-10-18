@@ -31,6 +31,21 @@ export const buildOptions = {
   'diagnostics.performanceCounters': { type: 'boolean', macro: 'GEA_EMBEDDED_PERF' },
   'diagnostics.frameTiming': { type: 'boolean', macro: 'GEA_EMBEDDED_FRAME_SCHEDULER_PERF_LITE' },
   'services.wifi': { values: ['auto', 'disabled'], macro: 'GEA_EMBEDDED_WIFI_DISABLED', encode: v => v === 'disabled' ? 1 : undefined },
+  // Native toolchain choices of desktop targets that compile and link the
+  // program themselves (see the target's documentation for each one's effect).
+  // Paths are relative to the app; patterns are regular expressions matched
+  // against a source's path with forward slashes.
+  'native.jobs': { type: 'integer', min: 0 },
+  'native.arch': { values: ['default', 'AVX2', 'AVX512'] },
+  'native.debugInfo': { type: 'boolean' },
+  'native.lto': { values: ['off', 'thin'] },
+  'native.ltoJobs': { type: 'integer', min: 0 },
+  'native.ltoCache': { type: 'string' },
+  'native.ltoExcludeSources': { type: 'string' },
+  'native.unoptimizedSources': { type: 'string' },
+  'native.pgo': { values: ['off', 'generate', 'use'] },
+  'native.pgoProfile': { type: 'string' },
+  'native.package': { values: ['none', 'zip'] },
 }
 const macros = new Map(Object.entries(buildOptions).filter(([, spec]) => spec.macro).map(([key, spec]) => [spec.macro, key]))
 const removedEnvironment = {

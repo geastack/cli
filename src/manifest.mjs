@@ -90,6 +90,14 @@ export function validateApp(app) {
   }
   for (const [target, config] of Object.entries(app.targetConfig)) {
     const where = (field) => `gea.targets.${target}.${field}`
+    if (config.nativeSources.length && !TARGET_NATIVE_SOURCE_TARGETS.includes(target)) errors.push(`${where('nativeSources')} is supported only by ${TARGET_NATIVE_SOURCE_TARGETS.join(', ')}; use gea.nativeSources for every target`)
+    for (const source of config.nativeSources) {
+      if (!resolveAppSourcePath(app.root, source)) errors.push(`${where('nativeSources')} entry does not exist: ${source}`)
+    }
+    if (config.providers !== null && (typeof config.providers !== 'object' || Array.isArray(config.providers))) errors.push(`${where('providers')} must be an object keyed by capability`)
+    else if (Object.keys(config.providers).length && !TARGET_PROVIDER_TARGETS.includes(target)) errors.push(`${where('providers')} is supported only by ${TARGET_PROVIDER_TARGETS.join(', ')}`)
+    if (config.tsconfig && !TARGET_NATIVE_SOURCE_TARGETS.includes(target)) errors.push(`${where('tsconfig')} is supported only by ${TARGET_NATIVE_SOURCE_TARGETS.join(', ')}`)
+    else if (config.tsconfig && !exists(path.join(app.root, config.tsconfig))) errors.push(`${where('tsconfig')} does not exist: ${config.tsconfig}`)
     try { resolveNativeResources(app.root, target, config.nativeResources); resolveNativeLink(app.root, target, config) } catch (error) { errors.push(`${where('nativeLibraries/frameworks')}: ${error.message}`) }
     for (const fragment of config.ldFragments) {
       if (!exists(path.join(app.root, fragment))) errors.push(`${where('ldFragments')} entry does not exist: ${fragment}`)
@@ -235,6 +243,8 @@ export function appSummary(ctx, app) {
     // Absolute, already resolved: a target consuming these must not re-join
     // them to the app root, because a package entry does not live there.
     nativeSourcePaths: app.nativeSources.map((source) => resolveAppSourcePath(app.root, source)).filter((resolved) => resolved !== null),
+    // The same for gea.targets.<target>.nativeSources, keyed by target.
+    targetNativeSourcePaths: Object.fromEntries(Object.entries(app.targetConfig).map(([target, config]) => [target, config.nativeSources.map((source) => resolveAppSourcePath(app.root, source)).filter((resolved) => resolved !== null)])),
     compilerPlugins: app.compilerPlugins,
     defines: app.defines,
     cssDevicePixelRatio: app.cssDevicePixelRatio,
@@ -350,6 +360,14 @@ export function resolveAppSourcePath(root, source) {
   }
 }
 
+// Targets whose build consumes per-target gea.targets.<target>.nativeSources,
+// gea.targets.<target>.providers (runtime implementations a package requires,
+// staged with the executable) and gea.targets.<target>.tsconfig (the
+// TypeScript project the compiler reads the program under). The other targets
+// take gea.nativeSources only.
+const TARGET_NATIVE_SOURCE_TARGETS = ['windows']
+const TARGET_PROVIDER_TARGETS = ['windows']
+
 export function normalizeNativeSources(raw) {
   if (!Array.isArray(raw)) return []
   // Shared native code can live beside an app's directory. These are explicit
@@ -398,7 +416,7 @@ export function normalizeDefines(raw) {
 
 
 function emptyTargetConfig() {
-  return { nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', prebuild: '', output: '' }
+  return { nativeSources: [], providers: {}, tsconfig: '', nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', prebuild: '', output: '' }
 }
 
 function normalizeStringList(raw) {
@@ -465,6 +483,9 @@ function normalizeTargetConfig(raw) {
   for (const [name, value] of Object.entries(raw)) {
     if (!name || !value || typeof value !== 'object' || value.enabled === false) continue
     configs[name] = {
+      nativeSources: normalizeNativeSources(value.nativeSources),
+      providers: value.providers ?? {},
+      tsconfig: typeof value.tsconfig === 'string' && value.tsconfig.trim() ? normalizeManifestRelativePath(value.tsconfig) : '',
       nativeIncludeDirectories: value.nativeIncludeDirectories ?? [],
       nativeSystemLibraries: value.nativeSystemLibraries ?? [],
       nativeResources: value.nativeResources ?? {},

@@ -287,9 +287,19 @@ same thing for any native target.
 
 - `nativeSources` — C/C++/ObjC sources compiled into the board's main component.
   Their directories become include paths.
+- `targets.windows.nativeSources`, `nativeIncludeDirectories`,
+  `nativeSystemLibraries`, `nativeResources`, `providers`, `tsconfig`,
+  `prebuild` — the Windows target's own native sources (`.mm` included),
+  include directories, system import libraries, resource directories staged
+  into `Resources/<name>`, runtime providers for capabilities a package
+  requires, the TypeScript project the compiler reads the program under, and a
+  command run in the app folder before the build. The Windows target documents
+  their semantics and its typed `build.native` settings.
 - `compilerPlugins` — the app's own geatsc plugins, e.g. one declaring the native
   host functions its TSX calls. They are passed to the compiler for every native
-  target, because the boundary they describe is the app's, not a board's.
+  target, because the boundary they describe is the app's, not a board's. On
+  Windows they follow the plugins of the app's dependencies and its own
+  `geatsc-plugin.mjs`, which compose rather than replace each other.
 - `defines` — preprocessor macros, as an object or as `NAME=value` strings; a
   value of `true` emits a bare define and `false` drops the entry. These apply
   to the **whole** native build: a macro that sizes a framework type changes
