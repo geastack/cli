@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 
 import { envPath } from './env-path.mjs'
 
@@ -46,4 +46,26 @@ function executableNames(name, env) {
   if (process.platform !== 'win32') return [name]
   const extensions = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
   return [name, ...extensions.map((extension) => name + extension.toLowerCase())]
+}
+
+// Expands `*` in any path segment, one directory level per segment:
+// `~/Tools/arm-gnu-toolchain-*/extract/Payload` matches every installed version.
+export function globDirs(pattern) {
+  const segments = pattern.split(path.sep)
+  let matches = [segments[0] || path.sep]
+  for (const segment of segments.slice(1)) {
+    if (!segment.includes('*')) {
+      matches = matches.map((dir) => path.join(dir, segment))
+      continue
+    }
+    const re = new RegExp(`^${segment.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
+    matches = matches.flatMap((dir) => {
+      try {
+        return readdirSync(dir).filter((name) => re.test(name)).sort().map((name) => path.join(dir, name))
+      } catch {
+        return []
+      }
+    })
+  }
+  return matches.filter((dir) => existsSync(dir))
 }

@@ -15,7 +15,9 @@ test('serial device detection supports deterministic setup wizard fixtures', () 
   assert.deepEqual(devices[0], {
     path: '/dev/cu.usbmodem101',
     label: 'ESP32-S3 USB/JTAG',
-    serial: 'USB123'
+    serial: 'USB123',
+    vendorId: '',
+    productId: ''
   })
   assert.equal(formatSerialDevice(devices[0]), '/dev/cu.usbmodem101 - ESP32-S3 USB/JTAG - serial USB123')
   assert.equal(devices[1].path, '/dev/ttyACM0')
@@ -43,8 +45,8 @@ test('macOS ports take their serial from the USB registry, never from the usbmod
   ].join('\n')
   const registry = listMacUsbCalloutPorts(ioreg)
   assert.deepEqual(registry, [
-    { path: '/dev/cu.usbmodem1101', serial: '80:B5:4E:DA:73:88', label: 'USB JTAG_serial debug unit' },
-    { path: '/dev/cu.usbmodem1201', serial: 'fa59949adbb4802f', label: 'Tufty 2350' }
+    { path: '/dev/cu.usbmodem1101', serial: '80:B5:4E:DA:73:88', label: 'USB JTAG_serial debug unit', vendorId: '', productId: '' },
+    { path: '/dev/cu.usbmodem1201', serial: 'fa59949adbb4802f', label: 'Tufty 2350', vendorId: '', productId: '' }
   ])
 
   const devices = new Map([

@@ -69,7 +69,7 @@ test('apps, targets and boards are listed from the current npm project', async (
 
   const targets = capture()
   await runGea(['targets', 'list'], { ...targets.io, cwd: fixture.root })
-  assert.deepEqual(targets.out.map((line) => line.split('\t')[0]), ['esp32-s3', 'esp32-s3-touch-amoled-2.06', 'geaos', 'rp2350-tufty-2350'])
+  assert.deepEqual(targets.out.map((line) => line.split('\t')[0]), ['esp32-s3', 'esp32-s3-touch-amoled-2.06', 'geaos', 'rp2350-tufty-2350', 'stm32f746g-disco'])
   assert.match(targets.out[1], new RegExp(`\tesp32-idf\t${escapeRegex(fixture.esp32Target)}$`))
 
   const boards = capture()
@@ -632,6 +632,22 @@ test('rp2350 boards build with the Pico SDK toolchain and flash a UF2', async (t
   assert.equal(config.platform, 'rp2350')
   assert.equal(config.board, 'rp2350-tufty-2350')
   assert.match(dry.out, new RegExp(`^${commandText(fixture.cmake, '--build', buildDir, '--target', 'gea_rp2350_tufty_2350_app')}$`, 'm'))
+})
+
+test('stm32 boards build with CMake and flash the ELF through openocd', async (t) => {
+  const fixture = createFixture(t)
+  const buildDir = escapeRegex(path.join(fixture.appDir, '.gea/build/stm32f746g-disco'))
+  const build = await gea(['build', '--board', 'disco', '--dry-run'], fixture)
+  assert.equal(build.code, 0, build.err)
+  assert.match(build.out, new RegExp(`^cmake -S ${escapeRegex(fixture.installed('targets'))}/targets/stm32f746g-disco -B ${buildDir} -DGEA_BUILD_CONFIG_FILE=${buildDir}/gea-build-config.cmake -DGEA_BUILD_CONFIG_JSON=${buildDir}/gea-build-config.json -DGEA_BUILD_CONFIG_HASH=[a-f0-9]{64} -DGEA_EMBEDDED_APP_DEFINES= -DGEA_EMBEDDED_APP=watch '-DGEA_EMBEDDED_APP_META=${escapeRegex(fixture.appDir)};index.tsx;gea'$`, 'm'))
+  assert.match(build.out, /^cmake --build .*stm32f746g-disco --target gea_stm32f746g_disco_app --parallel$/m)
+  const config = JSON.parse(fs.readFileSync(path.join(fixture.appDir, '.gea/build/stm32f746g-disco/gea-build-config.json')))
+  assert.equal(config.platform, 'stm32')
+  assert.equal(config.board, 'stm32f746g-disco')
+
+  const flash = await gea(['flash', '--board', 'disco', '--dry-run'], fixture)
+  assert.equal(flash.code, 0, flash.err)
+  assert.match(flash.out, new RegExp(`^openocd -f board/stm32f746g-disco\\.cfg -c 'adapter serial STLINK123' -c 'program \\{${buildDir}/gea_stm32f746g_disco_app\\.elf\\} verify reset exit'$`, 'm'))
 })
 
 test('setup builds a known target in configure-only mode and can write a local board alias', async (t) => {
