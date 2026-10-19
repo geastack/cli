@@ -95,6 +95,9 @@ const rangeFamilies = ['padding', 'gap', 'border', 'radius', 'font', 'line-heigh
 const compactStyleDefines = [['css-line-height', 'GEA_CSS_LINE_HEIGHT'], ['css-display-explicit', 'GEA_CSS_DISPLAY_EXPLICIT']]
 const nodeAuxFeatureDefines = [['node-listeners', 'GEA_UI_NODE_LISTENERS'], ['node-attributes', 'GEA_UI_NODE_ATTRIBUTES'], ['node-default-styles', 'GEA_UI_DEFAULT_STYLES']]
 const nodeFeatureDefines = [['node-images', 'GEA_UI_IMAGE_NODES'], ['node-inputs', 'GEA_UI_INPUT_NODES']]
+// A separate marker: analyzers older than it never report node-videos.
+const videoNodeAnalysis = 'node-video-analysis-v1'
+const videoNodeMacro = 'GEA_UI_VIDEO_NODES'
 const rangeMacro = family => `GEA_CSS_U8_${family.replaceAll('-', '_').toUpperCase()}`
 
 export function withRendererFeatureDefines(defines, features, { devicePixelRatio } = {}) {
@@ -102,11 +105,13 @@ export function withRendererFeatureDefines(defines, features, { devicePixelRatio
   // version marker is not proof of unreachability: retain engine defaults.
   const generatedNames = new Set([...rendererFeatureDefines, ...cssFeatureVersions.flat(), ...nodeFeatureDefines, ...nodeAuxFeatureDefines, ...compactStyleDefines].map(([, name]) => name).concat(triangleOcclusionMacro, circleCacheMacros, rangeFamilies.map(rangeMacro), ['GEA_UI_CLASS_INLINE_TOKENS', 'GEA_UI_CLASS_OVERFLOW']))
   generatedNames.add('GEA_RUNTIME_REALMS')
+  generatedNames.add(videoNodeMacro)
   const result = defines.split(';').filter((define) => define && !generatedNames.has(define.split('=')[0]))
   if (features.includes('worker-realms')) result.push('GEA_RUNTIME_REALMS=1')
   if (features.includes('node-analysis-v1')) {
     for (const [feature, name] of nodeFeatureDefines) result.push(`${name}=${features.includes(feature) ? 1 : 0}`)
   }
+  if (features.includes(videoNodeAnalysis)) result.push(`${videoNodeMacro}=${features.includes('node-videos') ? 1 : 0}`)
   const storageProofs = features.filter(feature => feature.startsWith('css-storage-'))
   if (storageProofs.length && storageProofs.every(proof => proof === 'css-storage-v1')) {
     for (const [feature, name] of compactStyleDefines)

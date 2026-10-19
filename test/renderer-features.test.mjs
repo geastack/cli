@@ -259,6 +259,16 @@ test('range storage is proof-generated, never an app opt-in', () => {
 })
 
 
+test('the video host is dropped only with the video node proof', () => {
+  assert.equal(withRendererFeatureDefines('', ['node-video-analysis-v1']), 'GEA_UI_VIDEO_NODES=0')
+  assert.equal(withRendererFeatureDefines('', ['node-video-analysis-v1', 'node-videos']), 'GEA_UI_VIDEO_NODES=1')
+  // An analyzer without the marker reports nothing about video: keep the default.
+  assert.equal(withRendererFeatureDefines('', ['node-analysis-v1']), 'GEA_UI_IMAGE_NODES=0;GEA_UI_INPUT_NODES=0')
+  assert.equal(withRendererFeatureDefines('GEA_UI_VIDEO_NODES=0', []), '')
+  const native = withNativeCssFeatures({ root: '/nonexistent-app', nativeSources: ['missing.cpp'] }, ['node-video-analysis-v1'])
+  assert.match(withRendererFeatureDefines('', native), /GEA_UI_VIDEO_NODES=1/)
+})
+
 test('node payloads prune only with the known automatic proof', () => {
   assert.equal(withRendererFeatureDefines('', ['node-analysis-v1']), 'GEA_UI_IMAGE_NODES=0;GEA_UI_INPUT_NODES=0')
   assert.equal(withRendererFeatureDefines('', ['node-analysis-v1', 'node-images']), 'GEA_UI_IMAGE_NODES=1;GEA_UI_INPUT_NODES=0')

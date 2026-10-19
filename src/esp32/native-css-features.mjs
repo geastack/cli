@@ -29,13 +29,14 @@ export function nativeCircleSourceNeedsSupport(text) {
 }
 
 export function withNativeCssFeatures(app, features) {
-  if (!features.includes('renderer-occlusion-v1') && !features.includes('node-analysis-v1') && !features.includes('node-aux-v1') && !features.includes('css-storage-v1') && !features.some(feature => /^node-class-capacity-v1-[123]$/.test(feature)) && !features.some(feature => /^css-analysis-v(?:[1-9]|1[0123456789])$/.test(feature))) return features
+  if (!features.includes('renderer-occlusion-v1') && !features.includes('node-analysis-v1') && !features.includes('node-video-analysis-v1') && !features.includes('node-aux-v1') && !features.includes('css-storage-v1') && !features.some(feature => /^node-class-capacity-v1-[123]$/.test(feature)) && !features.some(feature => /^css-analysis-v(?:[1-9]|1[0123456789])$/.test(feature))) return features
   const sources = app.nativeSources || []
   const components = app.targetConfig?.esp32?.componentDirs || []
   if (!sources.length && !components.length) return features
   // The TS proof cannot bound custom native triangle producers, including
-  // rendering hidden behind external headers or callback registration.
-  features = [...new Set([...features, 'renderer-occlusion-triangles', 'node-listeners', 'node-attributes', 'node-default-styles'])]
+  // rendering hidden behind external headers or callback registration. Native
+  // code can also drive the video host directly.
+  features = [...new Set([...features, 'renderer-occlusion-triangles', 'node-listeners', 'node-attributes', 'node-default-styles', 'node-videos'])]
   // Opaque native CSS writes can supply gradient/transform values even when
   // every source-visible custom property is a literal colour. Keep their
   // renderer caches as well as semantic fields.
