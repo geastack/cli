@@ -83,16 +83,38 @@ function linkTarget(file) {
   }
 }
 
+function traversable(link) {
+  try {
+    readdirSync(link)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Makes buildDir a junction to binaryDir. An existing link to it is kept, so
 // the build is incremental. Anything else at buildDir -- a build from before
 // builds moved, or a link to another directory -- is replaced; its CMake
 // cache names a different binary directory, so it could not be reused. When
 // buildDir is missing (deleted to force a clean build), binaryDir starts
 // empty as well, so deleting the build directory still means a clean build.
+//
+// A link to the right directory that this process cannot follow is made again,
+// keeping what it points at. Windows marks a junction made by a sandboxed or
+// lower-integrity process as an untrusted mount point, and refuses to traverse
+// it from any other (ERROR_UNTRUSTED_MOUNT_POINT, which Node reports as
+// UNKNOWN): a build first run from such a shell left a link every later build
+// failed on, at its first write through it.
 export function linkEsp32BinaryDir(buildDir, binaryDir, log = () => {}) {
   if (binaryDir === buildDir) return
   const current = linkTarget(buildDir)
-  if (current !== null && windowsPathKey(current) === windowsPathKey(binaryDir) && existsSync(binaryDir)) return
+  if (current !== null && windowsPathKey(current) === windowsPathKey(binaryDir) && existsSync(binaryDir)) {
+    if (traversable(buildDir)) return
+    log(`Re-creating ${buildDir}: this process cannot follow the link there`)
+    unlinkSync(buildDir)
+    symlinkSync(binaryDir, buildDir, 'junction')
+    return
+  }
   if (current !== null) {
     unlinkSync(buildDir)
   } else if (existsSync(buildDir)) {

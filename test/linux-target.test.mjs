@@ -14,7 +14,8 @@ test('Linux native target dispatches only the declared SDL target without board 
   fs.mkdirSync(path.dirname(script),{recursive:true});fs.writeFileSync(script,'exit 0\n')
   const out=capture()
   assert.equal(await runGea(['build','--target','raspberry-pi-os','--dry-run'],{...out.io,cwd:app,env:process.env}),0)
-  assert.match(out.out.join('\n'),/build-raspberry-pi-os\.sh watch/)
+  // The script path is shell-quoted where it needs it, as a Windows path with its backslashes does.
+  assert.match(out.out.join('\n'),/^bash '?.*build-raspberry-pi-os\.sh'? watch$/m)
   assert.doesNotMatch(out.out.join('\n'),/vite|build-web|flash/)
 })
 test('Linux native target refuses undeclared target', async t => {
