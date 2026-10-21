@@ -16,6 +16,22 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'waveshare-lcd-349',
+    label: 'Waveshare ESP32-S3 Touch LCD 3.49',
+    alias: 'lcd-349',
+    target: 'esp32-s3-touch-lcd-3.49',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3R8',
+    capabilities: {
+      display: '3.49 inch 172x640 IPS LCD (AXS15231B QSPI)',
+      touch: 'AXS15231B capacitive touch',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM', 'microSD'],
+      audio: ['ES8311 speaker', 'ES7210 microphone array'],
+      gps: false
+    }
+  },
+  {
     id: 'waveshare-amoled-241',
     label: 'Waveshare ESP32-S3 Touch AMOLED 2.41 (V1)',
     alias: 'amoled-241',
@@ -92,6 +108,22 @@ export const knownBoards = Object.freeze([
       wireless: ['WiFi', 'BLE'],
       storage: ['flash', 'PSRAM'],
       audio: [],
+      gps: false
+    }
+  },
+  {
+    id: 'waveshare-amoled-175c',
+    label: 'Waveshare ESP32-S3 Touch AMOLED 1.75C',
+    alias: 'amoled-175c',
+    target: 'esp32-s3-touch-amoled-1.75c',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3R8',
+    capabilities: {
+      display: '1.75 inch 466x466 AMOLED (CO5300 QSPI)',
+      touch: 'CST9217 capacitive touch',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['32 MB flash', '8 MB PSRAM'],
+      audio: ['ES8311 speaker', 'ES7210 dual microphones'],
       gps: false
     }
   },
