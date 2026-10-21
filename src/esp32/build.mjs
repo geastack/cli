@@ -7,6 +7,7 @@ import path from 'node:path'
 
 import { geastackHome } from '../boards/config.mjs'
 import { loadChipCatalogFromDir, writeCustomTarget } from '../boards/custom-target.mjs'
+import { resolveButtons, writeButtonsHeader } from '../boards/buttons.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { appCmakeMeta, appCmakeLdFragments, appTargetConfig, appTargetPaths } from '../manifest.mjs'
 import { quietSteps, runQuiet } from '../run.mjs'
@@ -461,6 +462,18 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   let boardPartitionCsv = ''
   let boardConsole = null
   let boardPsram = null
+  // Physical buttons: the board's JSON list with the app's changes, generated
+  // into a header the firmware's button service includes.
+  const buttons = resolveButtons({ board: selection.buttons || [], app, platform: 'esp32', boardId: selection.target })
+  if (buttons.length) {
+    const buttonsDir = writeButtonsHeader(path.join(binaryDir, 'gea-buttons'), buttons)
+    idfArgs.push(`-DGEA_BOARD_BUTTONS_DIR=${cmakeValue(buttonsDir)}`)
+    childEnv.GEA_BOARD_BUTTONS_DIR = buttonsDir
+    log(`Buttons: ${buttons.map((button) => `${button.code} (${button.source === 'pmu' ? 'PMU' : `GPIO${button.pin}${button.poll ? ', polled' : ''}`}${button.key ? ` = ${button.key}` : ''})`).join(', ')}`)
+  } else {
+    idfArgs.push('-DGEA_BOARD_BUTTONS_DIR=')
+    delete childEnv.GEA_BOARD_BUTTONS_DIR
+  }
   if (selection.targetDefinition) {
     // The board header and target.cmake are generated here, once; CMake only
     // includes them.

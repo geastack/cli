@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { boardConfigOrigins, boardConfigPath, loadBoardConfig, normalizeBoardConfig } from './config.mjs'
 import { loadTargets } from './targets.mjs'
+import { mergeButtons, normalizeButtons } from './buttons.mjs'
 import { resolveUsbSerialPort } from './usb.mjs'
 
 export const usbSerialAdapters = new Set(['esp32-idf', 'rp2350-pico'])
@@ -145,8 +146,19 @@ export function resolveBoardSelection({
     }
   }
 
+  // A composed definition describes its own module, so its buttons replace the
+  // base's; a registered alias then adds or changes buttons by name (a button
+  // someone wired onto this particular unit).
+  const boardButtons = mergeButtons(
+    definition
+      ? normalizeButtons(definition.buttons, `${targetDefinition} buttons`)
+      : normalizeButtons(targets[target]?.buttons, `targets.json ${target}.buttons`),
+    [{ raw: board?.buttons, where: `board '${boardName}' buttons` }]
+  )
+
   const selection = {
     boardName,
+    buttons: boardButtons,
     ...(adapter === 'linux-native' ? {linuxBoard: board} : {}),
     targetBase,
     target,
