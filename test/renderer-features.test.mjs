@@ -267,6 +267,15 @@ test('the video host is dropped only with the video node proof', () => {
   assert.equal(withRendererFeatureDefines('GEA_UI_VIDEO_NODES=0', []), '')
   const native = withNativeCssFeatures({ root: '/nonexistent-app', nativeSources: ['missing.cpp'] }, ['node-video-analysis-v1'])
   assert.match(withRendererFeatureDefines('', native), /GEA_UI_VIDEO_NODES=1/)
+  // Readable native code keeps the video host only when it names it.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-native-video-proof-'))
+  const source = path.join(root, 'native.cpp')
+  const app = { root, nativeSources: ['native.cpp'] }
+  fs.writeFileSync(source, '#include "esp_chip_info.h"\nint chip() { return 1; }\n')
+  assert.match(withRendererFeatureDefines('', withNativeCssFeatures(app, ['node-video-analysis-v1'])), /GEA_UI_VIDEO_NODES=0/)
+  fs.writeFileSync(source, '#include "host/video.h"\nvoid frame() { gea::host::video::presentFrames(); }\n')
+  assert.match(withRendererFeatureDefines('', withNativeCssFeatures(app, ['node-video-analysis-v1'])), /GEA_UI_VIDEO_NODES=1/)
+  fs.rmSync(root, { recursive: true, force: true })
 })
 
 test('node payloads prune only with the known automatic proof', () => {

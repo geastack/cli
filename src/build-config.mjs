@@ -125,7 +125,7 @@ export function validateBuildManifest(manifest) {
     if (!isObject(target.boards)) fail(where + '.boards must be an object')
     for (const [id, board] of Object.entries(target.boards)) {
       if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(id) || !isObject(board)) fail(where + '.boards must contain board IDs mapped to objects')
-      for (const key of Object.keys(board)) if (!['build', 'cssDevicePixelRatio', 'defines'].includes(key)) fail(`Unknown setting ${where}.boards.${id}.${key}`)
+      for (const key of Object.keys(board)) if (!['build', 'cssDevicePixelRatio', 'defines', 'buttons'].includes(key)) fail(`Unknown setting ${where}.boards.${id}.${key}`)
       boardDefines(board.defines, where + '.boards.' + id + '.defines')
       flatten(board.build, where + '.boards.' + id + '.build')
       if (board.cssDevicePixelRatio !== undefined) ratio(board.cssDevicePixelRatio, where + '.boards.' + id + '.cssDevicePixelRatio')

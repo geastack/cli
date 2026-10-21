@@ -28,19 +28,23 @@ export function nativeCircleSourceNeedsSupport(text) {
   return /#\s*include\s*[<"](?:[^>"\n]*\/)?(?:canvas|display|canvas_element)\.h[>"]|\b(?:Canvas|CanvasElement|CanvasContext|CircleEntry|Display)\b|\b(?:fillCircle\w*|strokeCircle|fillRoundedRect\w*|strokeRoundedRect|drawImageCircle|drawImageRounded)\b/.test(text)
 }
 
+// Native code drives the video host only through its headers or classes.
+export function nativeVideoSourceNeedsSupport(text) {
+  return /#\s*include\s*[<"](?:[^>"\n]*\/)?(?:video|video_\w+|mjpeg|mjpeg_parser|rtc_h264|h264_\w+)\.h[>"]|\b(?:HTMLVideoElement|VideoElement|presentFrames|esp_h264_\w+)\b|\bvideo::/.test(text)
+}
+
 export function withNativeCssFeatures(app, features) {
   if (!features.includes('renderer-occlusion-v1') && !features.includes('node-analysis-v1') && !features.includes('node-video-analysis-v1') && !features.includes('node-aux-v1') && !features.includes('css-storage-v1') && !features.some(feature => /^node-class-capacity-v1-[123]$/.test(feature)) && !features.some(feature => /^css-analysis-v(?:[1-9]|1[0123456789])$/.test(feature))) return features
   const sources = app.nativeSources || []
   const components = app.targetConfig?.esp32?.componentDirs || []
   if (!sources.length && !components.length) return features
   // The TS proof cannot bound custom native triangle producers, including
-  // rendering hidden behind external headers or callback registration. Native
-  // code can also drive the video host directly.
-  features = [...new Set([...features, 'renderer-occlusion-triangles', 'node-listeners', 'node-attributes', 'node-default-styles', 'node-videos'])]
+  // rendering hidden behind external headers or callback registration.
+  features = [...new Set([...features, 'renderer-occlusion-triangles', 'node-listeners', 'node-attributes', 'node-default-styles'])]
   // Opaque native CSS writes can supply gradient/transform values even when
   // every source-visible custom property is a literal colour. Keep their
   // renderer caches as well as semantic fields.
-  const retain = () => [...new Set([...features.filter(feature => !feature.startsWith('node-class-capacity-') && !feature.startsWith('node-class-storage-')), ...families, 'node-images', 'node-inputs', 'css-ranges-unknown', 'css-circle-cache-unbounded', 'renderer-circles', 'renderer-occlusion-triangles', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients'])].sort()
+  const retain = () => [...new Set([...features.filter(feature => !feature.startsWith('node-class-capacity-') && !feature.startsWith('node-class-storage-')), ...families, 'node-images', 'node-inputs', 'node-videos', 'css-ranges-unknown', 'css-circle-cache-unbounded', 'renderer-circles', 'renderer-occlusion-triangles', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients'])].sort()
   const root = path.resolve(app.root)
   const headers = new Map()
   const seen = new Set()
@@ -80,6 +84,9 @@ export function withNativeCssFeatures(app, features) {
       const text = fs.readFileSync(file, 'utf8')
       if (nativeCircleSourceNeedsSupport(text)) features = [...new Set([...features, 'css-circle-cache-unbounded', 'renderer-circles'])]
       if (nativeCssSourceNeedsSupport(text)) return retain()
+      // Native code can drive the video host directly; only code that names it
+      // keeps the H.264/MJPEG decoders.
+      if (nativeVideoSourceNeedsSupport(text)) features = [...new Set([...features, 'node-videos'])]
       // Follow app headers, including headers provided by another component's
       // include directory. ESP-IDF and C/C++ platform headers do not depend on
       // the UI engine. An external native package is opaque above.
