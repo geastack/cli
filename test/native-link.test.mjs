@@ -6,13 +6,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { resolveNativeLink } from '../src/native-link.mjs'
 import { normalizeApp, validateApp, appSummary } from '../src/manifest.mjs'
+// Windows creates a symbolic link only with Developer Mode or elevation; a junction needs neither, and lstat reports it as a symbolic link too.
 test('target archives resolve once inside app and frameworks remain typed names',t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'gea-link-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));fs.writeFileSync(path.join(root,'index.tsx'),'');fs.mkdirSync(path.join(root,'build space'));fs.writeFileSync(path.join(root,'build space/engine.a'),'!<arch>\n')
  const config={nativeLibraries:['build space/engine.a','build space/engine.a'],frameworks:['AudioToolbox','AudioToolbox']};const app=normalizeApp(root,{name:'fixture',gea:{targets:{macos:config}}});assert.deepEqual(validateApp(app),[]);assert.deepEqual(appSummary({projectRoot:root},app).nativeLink.macos,{nativeLibraries:[path.join(fs.realpathSync(root),'build space/engine.a')],frameworks:['AudioToolbox'],nativeIncludeDirectories:[],nativeSystemLibraries:[]})
  for(const bad of ['../engine.a','/tmp/engine.a','-Wl,evil','build space/engine.a\nother'])assert.throws(()=>resolveNativeLink(root,'macos',{nativeLibraries:[bad]}))
  for(const bad of ['-framework Evil','Cocoa;evil','../Cocoa'])assert.throws(()=>resolveNativeLink(root,'macos',{frameworks:[bad]}))
  assert.throws(()=>resolveNativeLink(root,'raspberry-pi-os',config),/only by macos/);assert.throws(()=>resolveNativeLink(root,'macos',{nativeLibraries:'engine.a'}),/array/)
- fs.symlinkSync('/tmp',path.join(root,'outside'));assert.throws(()=>resolveNativeLink(root,'macos',{nativeLibraries:['outside/missing.a']}));assert.deepEqual(resolveNativeLink(root,'macos'),{nativeLibraries:[],frameworks:[],nativeIncludeDirectories:[],nativeSystemLibraries:[]})
+ if(process.platform==='win32'){const outside=fs.mkdtempSync(path.join(os.tmpdir(),'gea-link-outside-'));t.after(()=>fs.rmSync(outside,{recursive:true,force:true}));fs.symlinkSync(outside,path.join(root,'outside'),'junction')}else fs.symlinkSync('/tmp',path.join(root,'outside'));assert.throws(()=>resolveNativeLink(root,'macos',{nativeLibraries:['outside/missing.a']}));assert.deepEqual(resolveNativeLink(root,'macos'),{nativeLibraries:[],frameworks:[],nativeIncludeDirectories:[],nativeSystemLibraries:[]})
 })
 test('enabled default target exposes empty native link record',t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'gea-link-default-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const app=normalizeApp(root,{name:'default',gea:{targets:{macos:true,'raspberry-pi-os':true}}});assert.deepEqual(appSummary({projectRoot:root},app).nativeLink,{macos:{nativeLibraries:[],frameworks:[],nativeIncludeDirectories:[],nativeSystemLibraries:[]},'raspberry-pi-os':{nativeLibraries:[],frameworks:[],nativeIncludeDirectories:[],nativeSystemLibraries:[]}})

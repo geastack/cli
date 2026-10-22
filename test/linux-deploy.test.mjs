@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import {createHash} from 'node:crypto'
@@ -46,9 +47,10 @@ test('reviewed hook, quiet profile and registered destination refuse ambiguous a
   const s=setup(t)
   for(const mutate of [b=>b.transports.ssh.host='x;touch bad',b=>b.transports.ssh.port=0,b=>b.linuxDeployment.hookSha256='0'.repeat(64),b=>b.linuxDeployment.profile.quiet=false,b=>b.linuxDeployment.releaseRoot='/']) {const b=structuredClone(s.board);mutate(b);assert.throws(()=>validateLinuxBoard(b))}
 })
+// Windows creates a symbolic link only with Developer Mode or elevation; a junction needs neither, and lstat reports it as a symbolic link too.
 test('regular exact release manifest refuses symlinks and wrong architecture',t=>{
   const s=setup(t),p=releasePayload(s.app);assert.equal(p.files.length,2);assert.equal(p.manifest[1].sha256,sha(Buffer.from('resource')))
-  fs.symlinkSync('authored.txt',path.join(s.root,'resources','alias'));assert.throws(()=>releasePayload(s.app),/nonregular/)
+  if(process.platform==='win32'){const outside=fs.mkdtempSync(path.join(os.tmpdir(),'gea-release-outside-'));t.after(()=>fs.rmSync(outside,{recursive:true,force:true}));fs.symlinkSync(outside,path.join(s.root,'resources','alias'),'junction')}else fs.symlinkSync('authored.txt',path.join(s.root,'resources','alias'));assert.throws(()=>releasePayload(s.app),/nonregular/)
   fs.unlinkSync(path.join(s.root,'resources','alias'));const bytes=fs.readFileSync(path.join(s.root,'watch'));bytes.writeUInt16LE(62,18);fs.writeFileSync(path.join(s.root,'watch'),bytes);assert.throws(()=>releasePayload(s.app),/AArch64/)
 })
 test('actual local transport stages exact bytes, returns pending, resumes only bound protected observation',t=>{
