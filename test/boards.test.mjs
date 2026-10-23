@@ -259,7 +259,7 @@ test('a parallel RGB panel board composes with a GT911 and an I/O expander', (t)
   // Touch lines are optional: reset goes through the expander here.
   assert.equal(target.chips.touch.pins.reset, -1)
   assert.equal(target.chips.touch.pins.interrupt, 4)
-  assert.deepEqual(target.chips.expander.outputs, { backlight: 2, touchReset: 1, displayReset: 3, powerAmplifier: -1 })
+  assert.deepEqual(target.chips.expander.outputs, { backlight: 2, touchReset: 1, displayReset: 3, powerAmplifier: -1, cardSelect: -1 })
   assert.equal(target.chips.expander.initialOutputs, 30)
 
   const header = renderBoardHeader(target)
@@ -268,7 +268,7 @@ test('a parallel RGB panel board composes with a GT911 and an I/O expander', (t)
   assert.match(header, /\.data = \{ GPIO_NUM_14, GPIO_NUM_38/)
   assert.match(header, /\.pclkActiveNeg = true/)
   assert.match(header, /\.backlight = GPIO_NUM_NC/)
-  assert.match(header, /IoExpanderConfig expander\{ \.initialOutputs = 30, \.backlight = 2, \.touchReset = 1, \.displayReset = 3, \.address = 32, \.initialDirections = 255, \.powerAmplifier = -1 \}/)
+  assert.match(header, /IoExpanderConfig expander\{ \.initialOutputs = 30, \.backlight = 2, \.touchReset = 1, \.displayReset = 3, \.address = 32, \.initialDirections = 255, \.powerAmplifier = -1, \.cardSelect = -1 \}/)
   assert.doesNotMatch(header, /Co5300DisplayConfig/)
   assert.doesNotMatch(header, /spi_master\.h/)
 
@@ -400,6 +400,69 @@ test("an app's own display size silences the board's canvas defines", () => {
 })
 
 
+test('a microSD slot on SPI composes with a GPIO or an expander chip-select', () => {
+  // Waveshare's RGB boards (the 7-inch, the 4.3B) put the card on SPI2 with
+  // its select line on the CH422G: the card is alone on the bus, the expander
+  // holds the line low and the SDSPI slot gets no CS pin. A board with a spare
+  // GPIO names pins.cs instead. Either way the SD_MMC constants stay (the base
+  // checks them for GPIO_NUM_NC) and the SPI slot adds its own struct.
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const base = JSON.parse(readFileSync(path.join(fixtureDir, 'rgb-panel-board.json'), 'utf8'))
+  const onExpander = structuredClone(base)
+  onExpander.storage = { microSD: { interface: 'spi', pins: { mosi: 11, miso: 13, sck: 12 } } }
+  onExpander.chips.expander.outputs.cardSelect = 4
+  const target = normalizeCustomTarget(onExpander, catalog)
+  assert.deepEqual(target.storage.microSD, { interface: 'spi', spiHost: 'spi2', maxFreqKhz: 20000, pins: { mosi: 11, miso: 13, sck: 12, cs: -1 } })
+  assert.equal(target.chips.expander.outputs.cardSelect, 4)
+
+  const header = renderBoardHeader(target)
+  assert.match(header, /#define GEA_BOARD_HAS_MICROSD 1/)
+  assert.match(header, /#define GEA_BOARD_MICROSD_SPI 1/)
+  assert.match(header, /#include "driver\/spi_master\.h"/)
+  assert.match(header, /SdMmcConfig storage\{ \.clk = GPIO_NUM_NC, \.cmd = GPIO_NUM_NC, \.data0 = GPIO_NUM_NC \}/)
+  assert.match(header, /SdSpiConfig storageSpi\{ \.spiHost = SPI2_HOST, \.mosi = GPIO_NUM_11, \.miso = GPIO_NUM_13, \.sck = GPIO_NUM_12, \.cs = GPIO_NUM_NC, \.maxFreqKhz = 20000 \}/)
+  assert.match(header, /\.powerAmplifier = -1, \.cardSelect = 4 \}/)
+
+  const cmake = renderTargetCmake(target, '/out')
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_HAS_MICROSD 1\)/)
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_MICROSD_INTERFACE "spi"\)/)
+  assert.match(cmake, /GEA_CUSTOM_TARGET_REQUIRES.* esp_driver_sdspi esp_driver_spi/)
+
+  // A GPIO select on the other host, with a slower clock for long traces.
+  const onGpio = structuredClone(base)
+  onGpio.storage = { microSD: { interface: 'spi', spiHost: 'spi3', maxFreqKhz: 10000, pins: { mosi: 11, miso: 13, sck: 12, cs: 6 } } }
+  const gpioTarget = normalizeCustomTarget(onGpio, catalog)
+  assert.equal(gpioTarget.storage.microSD.pins.cs, 6)
+  assert.match(renderBoardHeader(gpioTarget), /\.spiHost = SPI3_HOST, .*\.cs = GPIO_NUM_6, \.maxFreqKhz = 10000/)
+
+  // The SD_MMC wiring is untouched: no SPI struct, no SDSPI component.
+  const sdmmc = structuredClone(base)
+  sdmmc.storage = { microSD: { interface: 'sdmmc-1bit', pins: { clk: 6, cmd: 15, data0: 16 } } }
+  const sdmmcTarget = normalizeCustomTarget(sdmmc, catalog)
+  assert.match(renderBoardHeader(sdmmcTarget), /#define GEA_BOARD_MICROSD_SPI 0/)
+  assert.doesNotMatch(renderBoardHeader(sdmmcTarget), /SdSpiConfig/)
+  assert.doesNotMatch(renderTargetCmake(sdmmcTarget, '/out'), /esp_driver_sdspi/)
+  assert.doesNotMatch(renderBoardHeader(base && normalizeCustomTarget(base, catalog)), /GEA_BOARD_MICROSD_SPI 1/)
+
+  // One select line, and it has to exist.
+  const none = structuredClone(base)
+  none.storage = { microSD: { interface: 'spi', pins: { mosi: 11, miso: 13, sck: 12 } } }
+  assert.throws(() => normalizeCustomTarget(none, catalog), /needs a chip-select/)
+  const both = structuredClone(onExpander)
+  both.storage.microSD.pins.cs = 6
+  assert.throws(() => normalizeCustomTarget(both, catalog), /both pins\.cs and chips\.expander\.outputs\.cardSelect/)
+  const orphan = structuredClone(base)
+  orphan.chips.expander.outputs.cardSelect = 4
+  assert.throws(() => normalizeCustomTarget(orphan, catalog), /declares no storage\.microSD/)
+  // The bus pins are GPIOs like any other and cannot double as RGB lanes.
+  const clash = structuredClone(onExpander)
+  clash.storage.microSD.pins.mosi = 14
+  assert.throws(() => normalizeCustomTarget(clash, catalog), /GPIO 14 is assigned to both/)
+  const badHost = structuredClone(onExpander)
+  badHost.storage.microSD.spiHost = 'spi1'
+  assert.throws(() => normalizeCustomTarget(badHost, catalog), /spiHost must be 'spi2' or 'spi3'/)
+})
+
 test('RGB controller configuration keeps command bytes and active-low backlight', () => {
   const catalog = loadChipCatalogFromDir(fixtureDir)
   const definition = JSON.parse(readFileSync(path.join(fixtureDir, 'rgb-panel-board.json'), 'utf8'))
@@ -460,4 +523,42 @@ test('custom QSPI startup preserves command bytes, empty payloads, delays and bo
   const preset = normalizeCustomTarget(definition, catalog)
   assert.doesNotMatch(renderTargetCmake(preset, '/build'), /GEA_CUSTOM_QSPI_PANEL_CONFIG/)
   assert.doesNotMatch(renderQspiPanelHeader(preset), /#define GEA_QSPI_PANEL/)
+})
+
+test('a card that shares the QSPI panel host must ride the panel bus pins', () => {
+  // The base initialises a host once, with the first consumer's wiring, and
+  // both the panel and the card mount accept "already initialised", so a card
+  // declared on the panel's host with other pins would silently get the
+  // panel's bus and fail. Same host, same pins: accepted. Other host: no rule.
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const base = JSON.parse(readFileSync(path.join(fixtureDir, 'manual-amoled.json'), 'utf8'))
+  const other = structuredClone(base)
+  other.storage = { microSD: { interface: 'spi', spiHost: 'spi2', pins: { mosi: 17, miso: 18, sck: 19, cs: 20 } } }
+  assert.throws(() => normalizeCustomTarget(other, catalog), /shares spi2 with the QSPI display, so storage\.microSD\.pins\.mosi \(GPIO 17\) must be chips\.display\.pins\.data0 \(GPIO 4\)/)
+  const shared = structuredClone(base)
+  shared.storage = { microSD: { interface: 'spi', spiHost: 'spi2', pins: { mosi: 4, miso: 5, sck: 11, cs: 20 } } }
+  assert.deepEqual(normalizeCustomTarget(shared, catalog).storage.microSD.pins, { mosi: 4, miso: 5, sck: 11, cs: 20 })
+  const apart = structuredClone(base)
+  apart.storage = { microSD: { interface: 'spi', spiHost: 'spi3', pins: { mosi: 17, miso: 18, sck: 19, cs: 20 } } }
+  assert.equal(normalizeCustomTarget(apart, catalog).storage.microSD.spiHost, 'spi3')
+})
+
+test('two expander outputs cannot share a line', () => {
+  // The card-select contract holds its line low through the mount; a backlight
+  // on the same line would be held with it.
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const board = JSON.parse(readFileSync(path.join(fixtureDir, 'rgb-panel-board.json'), 'utf8'))
+  board.storage = { microSD: { interface: 'spi', pins: { mosi: 11, miso: 13, sck: 12 } } }
+  board.chips.expander.outputs.cardSelect = 2
+  assert.throws(() => normalizeCustomTarget(board, catalog), /Expander line 2 is assigned to both expander\.outputs\.backlight and expander\.outputs\.cardSelect\./)
+})
+
+test('an SPI card slot cannot ask for more than the 20 MHz SDSPI limit', () => {
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const board = JSON.parse(readFileSync(path.join(fixtureDir, 'rgb-panel-board.json'), 'utf8'))
+  board.storage = { microSD: { interface: 'spi', maxFreqKhz: 40000, pins: { mosi: 11, miso: 13, sck: 12 } } }
+  board.chips.expander.outputs.cardSelect = 4
+  assert.throws(() => normalizeCustomTarget(board, catalog), /storage\.microSD\.maxFreqKhz/)
+  board.storage.microSD.maxFreqKhz = 20000
+  assert.equal(normalizeCustomTarget(board, catalog).storage.microSD.maxFreqKhz, 20000)
 })
