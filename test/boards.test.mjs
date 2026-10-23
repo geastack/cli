@@ -524,3 +524,41 @@ test('custom QSPI startup preserves command bytes, empty payloads, delays and bo
   assert.doesNotMatch(renderTargetCmake(preset, '/build'), /GEA_CUSTOM_QSPI_PANEL_CONFIG/)
   assert.doesNotMatch(renderQspiPanelHeader(preset), /#define GEA_QSPI_PANEL/)
 })
+
+test('a card that shares the QSPI panel host must ride the panel bus pins', () => {
+  // The base initialises a host once, with the first consumer's wiring, and
+  // both the panel and the card mount accept "already initialised", so a card
+  // declared on the panel's host with other pins would silently get the
+  // panel's bus and fail. Same host, same pins: accepted. Other host: no rule.
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const base = JSON.parse(readFileSync(path.join(fixtureDir, 'manual-amoled.json'), 'utf8'))
+  const other = structuredClone(base)
+  other.storage = { microSD: { interface: 'spi', spiHost: 'spi2', pins: { mosi: 17, miso: 18, sck: 19, cs: 20 } } }
+  assert.throws(() => normalizeCustomTarget(other, catalog), /shares spi2 with the QSPI display, so storage\.microSD\.pins\.mosi \(GPIO 17\) must be chips\.display\.pins\.data0 \(GPIO 4\)/)
+  const shared = structuredClone(base)
+  shared.storage = { microSD: { interface: 'spi', spiHost: 'spi2', pins: { mosi: 4, miso: 5, sck: 11, cs: 20 } } }
+  assert.deepEqual(normalizeCustomTarget(shared, catalog).storage.microSD.pins, { mosi: 4, miso: 5, sck: 11, cs: 20 })
+  const apart = structuredClone(base)
+  apart.storage = { microSD: { interface: 'spi', spiHost: 'spi3', pins: { mosi: 17, miso: 18, sck: 19, cs: 20 } } }
+  assert.equal(normalizeCustomTarget(apart, catalog).storage.microSD.spiHost, 'spi3')
+})
+
+test('two expander outputs cannot share a line', () => {
+  // The card-select contract holds its line low through the mount; a backlight
+  // on the same line would be held with it.
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const board = JSON.parse(readFileSync(path.join(fixtureDir, 'rgb-panel-board.json'), 'utf8'))
+  board.storage = { microSD: { interface: 'spi', pins: { mosi: 11, miso: 13, sck: 12 } } }
+  board.chips.expander.outputs.cardSelect = 2
+  assert.throws(() => normalizeCustomTarget(board, catalog), /Expander line 2 is assigned to both expander\.outputs\.backlight and expander\.outputs\.cardSelect\./)
+})
+
+test('an SPI card slot cannot ask for more than the 20 MHz SDSPI limit', () => {
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const board = JSON.parse(readFileSync(path.join(fixtureDir, 'rgb-panel-board.json'), 'utf8'))
+  board.storage = { microSD: { interface: 'spi', maxFreqKhz: 40000, pins: { mosi: 11, miso: 13, sck: 12 } } }
+  board.chips.expander.outputs.cardSelect = 4
+  assert.throws(() => normalizeCustomTarget(board, catalog), /storage\.microSD\.maxFreqKhz/)
+  board.storage.microSD.maxFreqKhz = 20000
+  assert.equal(normalizeCustomTarget(board, catalog).storage.microSD.maxFreqKhz, 20000)
+})

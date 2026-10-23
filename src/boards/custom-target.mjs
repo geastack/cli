@@ -201,10 +201,11 @@ export function normalizeCustomTarget(raw, catalog) {
       storageMicroSD = {
         interface: 'spi',
         spiHost: sdSpiHost,
-        // SDSPI tops out at 20 MHz on the S3 without the vendor's timing work;
-        // a board may ask for less (long traces) and the init still steps the
-        // card up from 400 kHz.
-        maxFreqKhz: absent(microSD.maxFreqKhz) ? 20000 : integer(microSD.maxFreqKhz, 'storage.microSD.maxFreqKhz', { min: 400, max: 40000 }),
+        // SDSPI tops out at 20 MHz (SDMMC_FREQ_DEFAULT, the documented SDSPI
+        // limit); a board may ask for less (long traces) and the init still
+        // steps the card up from 400 kHz. More than 20 MHz is refused rather
+        // than handed to a driver that does not support it.
+        maxFreqKhz: absent(microSD.maxFreqKhz) ? 20000 : integer(microSD.maxFreqKhz, 'storage.microSD.maxFreqKhz', { min: 400, max: 20000 }),
         pins: {
           mosi: pin(storagePins.mosi, 'storage.microSD.pins.mosi'),
           miso: pin(storagePins.miso, 'storage.microSD.pins.miso'),
@@ -224,6 +225,25 @@ export function normalizeCustomTarget(raw, catalog) {
     }
   } else if (expanderOutputs && !absent(expanderOutputs.cardSelect)) {
     throw new Error('chips.expander.outputs.cardSelect names a card-select line but the board declares no storage.microSD.')
+  }
+
+  // A QSPI panel and an SPI card slot may share a host only on the same bus
+  // pins. The base initialises each host once, with the first consumer's wiring,
+  // and both consumers accept the "already initialised" answer (sdcard_mount.cpp
+  // and the QSPI panel both continue on ESP_ERR_INVALID_STATE), so a second
+  // wiring would be used by nobody and the later peripheral would fail on a bus
+  // it never got.
+  if (storageMicroSD?.interface === 'spi' && displayInterface === 'qspi' && storageMicroSD.spiHost === spiHost) {
+    const shared = [
+      ['storage.microSD.pins.mosi', storageMicroSD.pins.mosi, 'chips.display.pins.data0', pin(displayPins.data0, 'chips.display.pins.data0')],
+      ['storage.microSD.pins.miso', storageMicroSD.pins.miso, 'chips.display.pins.data1', pin(displayPins.data1, 'chips.display.pins.data1')],
+      ['storage.microSD.pins.sck', storageMicroSD.pins.sck, 'chips.display.pins.pclk', pin(displayPins.pclk, 'chips.display.pins.pclk')]
+    ]
+    for (const [sdLabel, sdPin, displayLabel, displayPin] of shared) {
+      if (sdPin !== displayPin) {
+        throw new Error(`storage.microSD shares ${spiHost} with the QSPI display, so ${sdLabel} (GPIO ${sdPin}) must be ${displayLabel} (GPIO ${displayPin}); put the card on the other host or on the panel's bus pins.`)
+      }
+    }
   }
 
   // Flash size and the partition table are board geometry, not app policy: a
@@ -490,12 +510,14 @@ function validatePinAssignments(target) {
       ['audio DIN', audio.pins.din],
       ['audio amplifier', audio.pins.powerAmplifier]
     ] : []),
-    ...(sd && sd.interface === 'spi' ? [
+    // A card that shares the QSPI panel's host rides the panel's bus pins by
+    // contract (checked at normalisation), so only its select is its own.
+    ...(sd && sd.interface === 'spi' && !(display && display.interface === 'qspi' && display.spiHost === sd.spiHost) ? [
       ['microSD MOSI', sd.pins.mosi],
       ['microSD MISO', sd.pins.miso],
-      ['microSD SCK', sd.pins.sck],
-      ['microSD CS', sd.pins.cs]
+      ['microSD SCK', sd.pins.sck]
     ] : []),
+    ...(sd && sd.interface === 'spi' ? [['microSD CS', sd.pins.cs]] : []),
     ...(sd && sd.interface === 'sdmmc-1bit' ? [
       ['microSD CLK', sd.pins.clk],
       ['microSD CMD', sd.pins.cmd],
@@ -509,6 +531,16 @@ function validatePinAssignments(target) {
     const previous = used.get(value)
     if (previous) throw new Error(`GPIO ${value} is assigned to both ${previous} and ${label}.`)
     used.set(value, label)
+  }
+  // Expander lines are a second pin space with the same rule. The card-select
+  // contract holds its line low through the mount, and a backlight or reset
+  // sharing that line would be held with it.
+  const expanderLines = new Map()
+  for (const [role, value] of Object.entries(target.chips.expander?.outputs ?? {})) {
+    if (value < 0) continue
+    const previous = expanderLines.get(value)
+    if (previous) throw new Error(`Expander line ${value} is assigned to both expander.outputs.${previous} and expander.outputs.${role}.`)
+    expanderLines.set(value, role)
   }
 }
 
