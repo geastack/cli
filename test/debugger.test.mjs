@@ -97,7 +97,7 @@ test('USB JTAG requires explicit source debugging and can be disabled over an en
   for (const value of ['0', '1', 'false', 'true'])
     assert.throws(() => sourceDebuggingRequested(parseArgs(['--debug-sources=' + value]), {}), /without a value/)
   const output = []
-  await runGea(['run', '--debug', '--attach', '--debug-sources', '--dry-run', '--no-open', '--board', 'amoled'], {
+  await runGea(['run', '--debug', '--attach', '--debug-sources', '--dry-run', '--no-open', '--board', 'amoled', '--project', path.join(root, 'examples'), '--app', 'bouncing-balls-jsx'], {
     env,
     cwd: path.join(root, 'examples/apps/bouncing-balls-jsx'),
     stdout: text => output.push(text),
