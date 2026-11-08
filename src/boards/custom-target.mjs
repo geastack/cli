@@ -232,8 +232,13 @@ export function normalizeCustomTarget(raw, catalog) {
   // and both consumers accept the "already initialised" answer (sdcard_mount.cpp
   // and the QSPI panel both continue on ESP_ERR_INVALID_STATE), so a second
   // wiring would be used by nobody and the later peripheral would fail on a bus
-  // it never got.
+  // it never got. The card's select must also be a GPIO the driver toggles: an
+  // expander line is held low for the whole mount, which leaves the card
+  // selected while the panel drives the shared bus.
   if (storageMicroSD?.interface === 'spi' && displayInterface === 'qspi' && storageMicroSD.spiHost === spiHost) {
+    if (storageMicroSD.pins.cs < 0) {
+      throw new Error(`storage.microSD shares ${spiHost} with the QSPI display, so its select must be storage.microSD.pins.cs (a GPIO); chips.expander.outputs.cardSelect is held low and would expose the card to display transfers. Use a GPIO select or put the card on the other host.`)
+    }
     const shared = [
       ['storage.microSD.pins.mosi', storageMicroSD.pins.mosi, 'chips.display.pins.data0', pin(displayPins.data0, 'chips.display.pins.data0')],
       ['storage.microSD.pins.miso', storageMicroSD.pins.miso, 'chips.display.pins.data1', pin(displayPins.data1, 'chips.display.pins.data1')],

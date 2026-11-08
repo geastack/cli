@@ -541,6 +541,15 @@ test('a card that shares the QSPI panel host must ride the panel bus pins', () =
   const apart = structuredClone(base)
   apart.storage = { microSD: { interface: 'spi', spiHost: 'spi3', pins: { mosi: 17, miso: 18, sck: 19, cs: 20 } } }
   assert.equal(normalizeCustomTarget(apart, catalog).storage.microSD.spiHost, 'spi3')
+  // An expander-held select keeps the card selected through panel transfers,
+  // so on the shared host only a GPIO select is accepted.
+  const held = structuredClone(base)
+  held.chips.expander = { driver: 'ch422g', interface: 'i2c', initialOutputs: 30, outputs: { cardSelect: 4 } }
+  held.storage = { microSD: { interface: 'spi', spiHost: 'spi2', pins: { mosi: 4, miso: 5, sck: 11 } } }
+  assert.throws(() => normalizeCustomTarget(held, catalog), /shares spi2 with the QSPI display, so its select must be storage\.microSD\.pins\.cs/)
+  held.storage.microSD.spiHost = 'spi3'
+  held.storage.microSD.pins = { mosi: 17, miso: 18, sck: 19 }
+  assert.equal(normalizeCustomTarget(held, catalog).chips.expander.outputs.cardSelect, 4)
 })
 
 test('two expander outputs cannot share a line', () => {

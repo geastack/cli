@@ -393,10 +393,11 @@ boot.
 A card slot is declared under `storage.microSD`. The base's own wiring is
 `"interface": "sdmmc-1bit"` with `clk`/`cmd`/`data0` pins on the SDMMC host.
 `"interface": "spi"` puts the card on an SPI host (`spiHost` `spi2` or `spi3`,
-`maxFreqKhz` up to 40000, default 20000) with `mosi`/`miso`/`sck` pins and one
+`maxFreqKhz` from 400 up to the 20000 SDSPI limit, the default) with `mosi`/`miso`/`sck` pins and one
 select line: `pins.cs` when it is a GPIO, or `outputs.cardSelect` on the
 expander when the board routed it there, in which case the line is held low for
-the mount and the card must be alone on that bus. The Waveshare 7-inch and 4.3B
+the mount and the card must be alone on that bus (a card sharing a QSPI
+panel's host needs a GPIO `pins.cs`). The Waveshare 7-inch and 4.3B
 boards are wired this way:
 
 ```json
