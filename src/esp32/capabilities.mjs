@@ -98,6 +98,9 @@ const nodeFeatureDefines = [['node-images', 'GEA_UI_IMAGE_NODES'], ['node-inputs
 // A separate marker: analyzers older than it never report node-videos.
 const videoNodeAnalysis = 'node-video-analysis-v1'
 const videoNodeMacro = 'GEA_UI_VIDEO_NODES'
+// Inline SVG follows the same marker contract as video.
+const svgNodeAnalysis = 'node-svg-analysis-v1'
+const svgNodeMacro = 'GEA_UI_SVG'
 const rangeMacro = family => `GEA_CSS_U8_${family.replaceAll('-', '_').toUpperCase()}`
 
 export function withRendererFeatureDefines(defines, features, { devicePixelRatio } = {}) {
@@ -106,12 +109,14 @@ export function withRendererFeatureDefines(defines, features, { devicePixelRatio
   const generatedNames = new Set([...rendererFeatureDefines, ...cssFeatureVersions.flat(), ...nodeFeatureDefines, ...nodeAuxFeatureDefines, ...compactStyleDefines].map(([, name]) => name).concat(triangleOcclusionMacro, circleCacheMacros, rangeFamilies.map(rangeMacro), ['GEA_UI_CLASS_INLINE_TOKENS', 'GEA_UI_CLASS_OVERFLOW']))
   generatedNames.add('GEA_RUNTIME_REALMS')
   generatedNames.add(videoNodeMacro)
+  generatedNames.add(svgNodeMacro)
   const result = defines.split(';').filter((define) => define && !generatedNames.has(define.split('=')[0]))
   if (features.includes('worker-realms')) result.push('GEA_RUNTIME_REALMS=1')
   if (features.includes('node-analysis-v1')) {
     for (const [feature, name] of nodeFeatureDefines) result.push(`${name}=${features.includes(feature) ? 1 : 0}`)
   }
   if (features.includes(videoNodeAnalysis)) result.push(`${videoNodeMacro}=${features.includes('node-videos') ? 1 : 0}`)
+  if (features.includes(svgNodeAnalysis)) result.push(`${svgNodeMacro}=${features.includes('node-svg') ? 1 : 0}`)
   const storageProofs = features.filter(feature => feature.startsWith('css-storage-'))
   if (storageProofs.length && storageProofs.every(proof => proof === 'css-storage-v1')) {
     for (const [feature, name] of compactStyleDefines)

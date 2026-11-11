@@ -33,8 +33,13 @@ export function nativeVideoSourceNeedsSupport(text) {
   return /#\s*include\s*[<"](?:[^>"\n]*\/)?(?:video|video_\w+|mjpeg|mjpeg_parser|rtc_h264|h264_\w+)\.h[>"]|\b(?:HTMLVideoElement|VideoElement|presentFrames|esp_h264_\w+)\b|\bvideo::/.test(text)
 }
 
+// Native code can build SVG through createElement("svg") or the engine header.
+export function nativeSvgSourceNeedsSupport(text) {
+  return /#\s*include\s*[<"](?:[^>"\n]*\/)?svg_\w+\.h[>"]|"svg"|\bsvg::/.test(text)
+}
+
 export function withNativeCssFeatures(app, features) {
-  if (!features.includes('renderer-occlusion-v1') && !features.includes('node-analysis-v1') && !features.includes('node-video-analysis-v1') && !features.includes('node-aux-v1') && !features.includes('css-storage-v1') && !features.some(feature => /^node-class-capacity-v1-[123]$/.test(feature)) && !features.some(feature => /^css-analysis-v(?:[1-9]|1[0123456789])$/.test(feature))) return features
+  if (!features.includes('renderer-occlusion-v1') && !features.includes('node-analysis-v1') && !features.includes('node-video-analysis-v1') && !features.includes('node-svg-analysis-v1') && !features.includes('node-aux-v1') && !features.includes('css-storage-v1') && !features.some(feature => /^node-class-capacity-v1-[123]$/.test(feature)) && !features.some(feature => /^css-analysis-v(?:[1-9]|1[0123456789])$/.test(feature))) return features
   const sources = app.nativeSources || []
   const components = app.targetConfig?.esp32?.componentDirs || []
   if (!sources.length && !components.length) return features
@@ -44,7 +49,7 @@ export function withNativeCssFeatures(app, features) {
   // Opaque native CSS writes can supply gradient/transform values even when
   // every source-visible custom property is a literal colour. Keep their
   // renderer caches as well as semantic fields.
-  const retain = () => [...new Set([...features.filter(feature => !feature.startsWith('node-class-capacity-') && !feature.startsWith('node-class-storage-')), ...families, 'node-images', 'node-inputs', 'node-videos', 'css-ranges-unknown', 'css-circle-cache-unbounded', 'renderer-circles', 'renderer-occlusion-triangles', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients'])].sort()
+  const retain = () => [...new Set([...features.filter(feature => !feature.startsWith('node-class-capacity-') && !feature.startsWith('node-class-storage-')), ...families, 'node-images', 'node-inputs', 'node-videos', 'node-svg', 'css-ranges-unknown', 'css-circle-cache-unbounded', 'renderer-circles', 'renderer-occlusion-triangles', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients'])].sort()
   const root = path.resolve(app.root)
   const headers = new Map()
   const seen = new Set()
@@ -87,6 +92,7 @@ export function withNativeCssFeatures(app, features) {
       // Native code can drive the video host directly; only code that names it
       // keeps the H.264/MJPEG decoders.
       if (nativeVideoSourceNeedsSupport(text)) features = [...new Set([...features, 'node-videos'])]
+      if (nativeSvgSourceNeedsSupport(text)) features = [...new Set([...features, 'node-svg'])]
       // Follow app headers, including headers provided by another component's
       // include directory. ESP-IDF and C/C++ platform headers do not depend on
       // the UI engine. An external native package is opaque above.
