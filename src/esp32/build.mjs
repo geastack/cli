@@ -256,6 +256,17 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
     board('CONFIG_ESPTOOLPY_FLASHSIZE', `"${flashSizeMb}MB"`)
   }
 
+  // Flash mode follows the board's module too. Only the choice is written:
+  // ESP-IDF derives CONFIG_ESPTOOLPY_FLASHMODE from it (QIO images still carry
+  // DIO in their header; the bootloader switches the chip to QIO itself).
+  const flashMode = (selection.flashMode || '').toUpperCase()
+  if (flashMode) {
+    for (const mode of ['QIO', 'QOUT', 'DIO', 'DOUT']) {
+      if (mode !== flashMode) unset(`CONFIG_ESPTOOLPY_FLASHMODE_${mode}`)
+    }
+    board(`CONFIG_ESPTOOLPY_FLASHMODE_${flashMode}`, 'y')
+  }
+
   // These four are all internal-DRAM decisions, which is the memory an app's
   // own DMA buffers and real-time arenas come from: the two task stacks are
   // allocated from it, and the two PSRAM settings decide how much of the rest
