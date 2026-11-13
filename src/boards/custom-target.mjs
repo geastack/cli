@@ -120,6 +120,7 @@ function headlessCanvas(definition) {
   }
 }
 
+/** Validate a composed-board definition against the chip catalog and return the normalized target; throws on any wiring the base cannot build. */
 export function normalizeCustomTarget(raw, catalog) {
   const definition = object(raw, 'Target definition')
   const id = text(definition.id, 'id')
@@ -475,6 +476,7 @@ export function normalizeCustomTarget(raw, catalog) {
   return target
 }
 
+/** Reject a normalized target that gives one GPIO, or one expander output line, to two roles; a card on the QSPI panel host shares the panel bus pins by design. */
 function validatePinAssignments(target) {
   const { display, touch, audio } = target.chips
   const { i2c } = target.buses
@@ -559,6 +561,7 @@ function gpio(value) {
 // peripheral up, so the constant has to exist even when the hardware does not.
 const noPins = new Proxy({}, { get: () => -1 })
 
+/** Render gea_board_config.h: the C++ constants the base's bindings read for every chip, bus and card slot, with -1 for hardware the board lacks. */
 export function renderBoardHeader(target) {
   const i2c = target.buses.i2c || noPins
   const { display, touch, audio, expander } = target.chips
@@ -681,6 +684,7 @@ function cmakeQuote(value) {
   return `"${String(value).replace(/\\/g, '/').replace(/"/g, '\\"')}"`
 }
 
+/** Render the target's CMake fragment: chip and binding sources, GEA_BOARD_HAS_* switches and board defines, skipping any define the app already sets. */
 export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
   const { display, touch, power, imu, audio, expander } = target.chips
   const chipSource = (source) => `    "\${GEA_CHIPS}/${source}"`
