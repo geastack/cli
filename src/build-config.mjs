@@ -37,7 +37,7 @@ export const buildOptions = {
   // against a source's path with forward slashes.
   'native.jobs': { type: 'integer', min: 0 },
   'native.arch': { values: ['default', 'AVX2', 'AVX512'] },
-  'native.debugInfo': { type: 'boolean' },
+  'native.debugInfo': { values: [false, true, 'lines'] },
   'native.lto': { values: ['off', 'thin'] },
   'native.ltoJobs': { type: 'integer', min: 0 },
   'native.ltoCache': { type: 'string' },
