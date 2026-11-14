@@ -223,8 +223,9 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
     '-B', cmakePath(binaryDir), `-DSDKCONFIG=${cmakePath(binaryDir)}/sdkconfig`, `-DSDKCONFIG_DEFAULTS=${cmakePath(fixture.esp32Target)}/sdkconfig.defaults`,
     '-DIDF_TARGET=esp32s3', `-DGEA_BUILD_CONFIG_FILE=${cmakePath(binaryDir)}/gea-build-config.cmake`, `-DGEA_BUILD_CONFIG_JSON=${cmakePath(binaryDir)}/gea-build-config.json`
   ])
+  // A board without buttons clears the variable, so a reconfigure drops a header an earlier board generated.
   const configureTail = formatCommand([
-    '-DGEA_EMBEDDED_APP=watch', `-DGEA_EMBEDDED_APP_META=${cmakePath(fixture.appDir)};index.tsx;gea`,
+    '-DGEA_BOARD_BUTTONS_DIR=', '-DGEA_EMBEDDED_APP=watch', `-DGEA_EMBEDDED_APP_META=${cmakePath(fixture.appDir)};index.tsx;gea`,
     '-DGEA_EMBEDDED_CAPABILITY_NETWORK=1', '-DGEA_EMBEDDED_CAPABILITY_BLE=0', '-DGEA_EMBEDDED_CAPABILITY_AUDIO=1',
     '-DGEA_EMBEDDED_CAPABILITY_CAMERA=0', '-DGEA_EMBEDDED_CAPABILITY_RTC=1', '-DGEA_EMBEDDED_CAPABILITY_H264=1', 'reconfigure'
   ])

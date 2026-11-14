@@ -68,7 +68,7 @@ test('windows-only native settings are refused elsewhere and checked for existen
 test('typed native build settings are validated against the target catalog', (t) => {
   const root = appRoot(t)
   write(path.join(root, 'build-config.json'), {
-    platforms: { windows: { supported: ['native.lto', 'native.ltoJobs', 'native.arch', 'native.pgo', 'native.ltoCache'], defaults: { native: { lto: 'off', arch: 'default' } } } },
+    platforms: { windows: { supported: ['native.lto', 'native.ltoJobs', 'native.arch', 'native.pgo', 'native.ltoCache', 'native.debugInfo'], defaults: { native: { lto: 'off', arch: 'default' } } } },
   })
   const resolve = (native) => resolveBuildConfig({
     app: normalizeApp(root, { name: 'fixture', gea: { entry: 'index.ts', targets: { windows: { build: { native } } } } }),
@@ -80,7 +80,10 @@ test('typed native build settings are validated against the target catalog', (t)
   assert.throws(() => resolve({ lto: 'full' }), /native\.lto must be off \| thin/)
   assert.throws(() => resolve({ ltoJobs: -1 }), /native\.ltoJobs must be a non-negative safe integer/)
   assert.throws(() => resolve({ ltoCache: 3 }), /native\.ltoCache must be string/)
-  assert.throws(() => resolve({ debugInfo: true }), /not supported by windows/)
+  assert.equal(resolve({ debugInfo: 'lines' }).settings.native.debugInfo, 'lines')
+  assert.equal(resolve({ debugInfo: true }).settings.native.debugInfo, true)
+  assert.throws(() => resolve({ debugInfo: 'full' }), /native\.debugInfo must be false \| true \| lines/)
+  assert.throws(() => resolve({ jobs: 4 }), /not supported by windows/)
 })
 
 test('windows compiler plugins compose: dependencies, then the app plugin, then gea.compilerPlugins', (t) => {
