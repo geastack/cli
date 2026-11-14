@@ -36,8 +36,16 @@ export function serialPortCandidates(env = process.env) {
 }
 
 // Windows port names are case-insensitive, so compare them that way.
+export function isNetworkSerialPort(port) {
+  return /^(rfc2217|socket):\/\//.test(String(port || ''))
+}
+
 export function serialPortPresent(port, env = process.env) {
   if (!port) return false
+  // esptool and pyserial open network ports (an RFC 2217 server such as
+  // scripts/ch34x-rfc2217.py, or a raw socket) by URL; there is no device
+  // node to look for.
+  if (isNetworkSerialPort(port)) return true
   if (process.platform !== 'win32') return existsSync(port)
   return serialPortCandidates(env).some((candidate) => candidate.toUpperCase() === port.toUpperCase())
 }

@@ -15,6 +15,11 @@ function object(value, label) {
   return value
 }
 
+function array(value, label) {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`)
+  return value
+}
+
 function text(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} must be a non-empty string.`)
   return value.trim()
@@ -133,6 +138,8 @@ export function normalizeCustomTarget(raw, catalog) {
   const power = optionalChip(chips, 'power', 'power', adapter, mcu, catalog)
   const imu = optionalChip(chips, 'imu', 'imu', adapter, mcu, catalog)
   const audio = optionalChip(chips, 'audio', 'audio', adapter, mcu, catalog)
+  // A battery-backed real-time clock: the system clock's source at boot.
+  const rtc = optionalChip(chips, 'rtc', 'rtc', adapter, mcu, catalog)
   // An I/O expander is not a peripheral of its own: it is where a board puts
   // the slow control lines (backlight enable, touch reset, panel reset) it ran
   // out of GPIOs for. The chips that need those lines look them up here.
@@ -149,9 +156,13 @@ export function normalizeCustomTarget(raw, catalog) {
     [touch, 'chips.touch'],
     [power, 'chips.power'],
     [imu, 'chips.imu'],
+    [rtc, 'chips.rtc'],
     [expander, 'chips.expander']
   ].filter(([chip]) => chip && chip.interface === 'i2c')
-  if (audio) i2cChips.push([audio, 'chips.audio (codec control)'])
+  // A codec is configured over I2C; a bare I2S amplifier (NS4168) has no
+  // control bus at all, only the I2S lines and an enable.
+  const audioHasCodec = audio !== null && audio.driver === 'es8311'
+  if (audioHasCodec) i2cChips.push([audio, 'chips.audio (codec control)'])
   if (absent(buses.i2c) && i2cChips.length > 0) {
     throw new Error(`buses.i2c is required because ${i2cChips.map(([, label]) => label).join(', ')} ${i2cChips.length > 1 ? 'are' : 'is'} on the I2C bus.`)
   }
@@ -172,8 +183,14 @@ export function normalizeCustomTarget(raw, catalog) {
   const spiHost = display && displayInterface === 'qspi' ? String(display.spiHost ?? 'spi2').toLowerCase() : 'spi2'
   if (display && displayInterface === 'qspi' && !['spi2', 'spi3'].includes(spiHost)) throw new Error("chips.display.spiHost must be 'spi2' or 'spi3'.")
   const expanderOutputs = expander ? (absent(expander.outputs) ? {} : object(expander.outputs, 'chips.expander.outputs')) : null
-  const expanderMaxPin = expander?.driver === 'tca9554' ? 7 : expander?.driver === 'ch422g' ? 11 : 15
+  const expanderMaxPin = ['tca9554', 'pca9557', 'elecrow_board_control'].includes(expander?.driver) ? 7 : expander?.driver === 'ch422g' ? 11 : 15
   const expanderPin = (value, label) => (absent(value) ? -1 : integer(value, label, { min: 0, max: expanderMaxPin }))
+  const audioExpanderLines = audio && !audioHasCodec && !absent(audio.expander) ? object(audio.expander, 'chips.audio.expander') : {}
+  if (Object.keys(audioExpanderLines).length > 0 && !expander) throw new Error('chips.audio.expander names expander lines, but the board has no chips.expander.')
+  const audioExpander = {
+    shutdown: expanderPin(audioExpanderLines.shutdown, 'chips.audio.expander.shutdown'),
+    mute: expanderPin(audioExpanderLines.mute, 'chips.audio.expander.mute')
+  }
 
   // Flash size and the partition table are board geometry, not app policy: a
   // module with 16MB of flash cannot borrow its base's 32MB layout, and every
@@ -181,6 +198,11 @@ export function normalizeCustomTarget(raw, catalog) {
   // stay optional — a board whose flash matches its base needs neither.
   const flashSize = absent(definition.flashSize) ? '' : text(definition.flashSize, 'flashSize')
   if (flashSize && !/^\d+MB$/i.test(flashSize)) throw new Error(`flashSize must look like '16MB', not '${flashSize}'.`)
+  // How the flash chip is wired: a module with all four data lines routed
+  // (most WROOM parts) runs QIO, which fetches code twice as fast as DIO.
+  const flashModes = ['qio', 'qout', 'dio', 'dout']
+  const flashMode = absent(definition.flashMode) ? '' : text(definition.flashMode, 'flashMode').toLowerCase()
+  if (flashMode && !flashModes.includes(flashMode)) throw new Error(`flashMode must be one of ${flashModes.join(', ')}, not '${flashMode}'.`)
   const partitions = absent(definition.partitions) ? null : object(definition.partitions, 'partitions')
 
   // Which physical port the log comes out of is the module's wiring, not the
@@ -206,6 +228,11 @@ export function normalizeCustomTarget(raw, catalog) {
     throw new Error(`psram.mode must be one of ${psramModes.join(', ')}, not '${psramMode}'.`)
   }
   const psramSpeed = psram && !absent(psram.speed) ? integer(psram.speed, 'psram.speed', { min: 40, max: 120 }) : 0
+  // Run code and read-only data from PSRAM instead of flash. Flash and PSRAM
+  // share one bus on the S3, so an instruction-cache miss holds PSRAM off; a
+  // parallel RGB panel's scanout (which reads PSRAM in real time) then drifts.
+  if (psram && !absent(psram.xip) && typeof psram.xip !== 'boolean') throw new Error('psram.xip must be true or false.')
+  const psramXip = Boolean(psram?.xip)
   if (psramSpeed && ![40, 80, 120].includes(psramSpeed)) {
     throw new Error(`psram.speed must be 40, 80 or 120 MHz, not ${psramSpeed}.`)
   }
@@ -265,9 +292,22 @@ export function normalizeCustomTarget(raw, catalog) {
     adapter,
     mcu,
     flashSize: flashSize.toUpperCase(),
+    flashMode,
     partitions,
+    // Peripherals a board multiplexes onto the same GPIOs with a hardware
+    // switch (a DIP switch or analog mux the firmware does not drive): only
+    // one of each listed group is connected at a time, so their pins may
+    // coincide. Anything not listed still has to own its pins outright.
+    pinSharing: absent(definition.pinSharing) ? [] : array(definition.pinSharing, 'pinSharing').map((group, index) => {
+      const roles = array(group, `pinSharing[${index}]`).map((role) => text(role, `pinSharing[${index}]`))
+      for (const role of roles) {
+        if (!pinRoles.includes(role)) throw new Error(`pinSharing[${index}] names '${role}'; the shareable roles are ${pinRoles.join(', ')}.`)
+      }
+      if (roles.length < 2) throw new Error(`pinSharing[${index}] needs at least two roles.`)
+      return roles
+    }),
     console: consoleTransport ? { transport: consoleTransport, baud: consoleBaud, uart: consoleUart } : null,
-    psram: psramMode ? { mode: psramMode, speed: psramSpeed } : null,
+    psram: psramMode ? { mode: psramMode, speed: psramSpeed, xip: psramXip } : null,
     buses: {
       i2c: i2c === null ? null : {
         sda: pin(i2c.sda, 'buses.i2c.sda'),
@@ -290,7 +330,11 @@ export function normalizeCustomTarget(raw, catalog) {
         vsyncBackPorch: integer(display.vsyncBackPorch ?? 8, 'chips.display.vsyncBackPorch', { min: 0, max: 1024 }),
         vsyncFrontPorch: integer(display.vsyncFrontPorch ?? 8, 'chips.display.vsyncFrontPorch', { min: 0, max: 1024 }),
         pclkActiveNeg: boolean(display.pclkActiveNeg, 'chips.display.pclkActiveNeg', true),
+        scanFramebuffers: integer(display.scanFramebuffers ?? 3, 'chips.display.scanFramebuffers', { min: 1, max: 3 }),
         backlightActiveLow: boolean(display.backlightActiveLow, 'chips.display.backlightActiveLow', false),
+        bounceRows: integer(display.bounceRows ?? 0, 'chips.display.bounceRows', { min: 0, max: 120 }),
+        // Restart the DMA at every VSYNC (CONFIG_LCD_RGB_RESTART_IN_VSYNC; see build.mjs).
+        restartInVsync: boolean(display.restartInVsync, 'chips.display.restartInVsync', true),
         controller: controllerConfig,
         nativeSources: display.nativeSources,
         bindingSources: display.bindingSources,
@@ -369,8 +413,16 @@ export function normalizeCustomTarget(raw, catalog) {
         bindingSources: imu.bindingSources,
         requires: imu.requires
       },
-      audio: audio === null ? null : {
+      rtc: rtc === null ? null : {
+        driver: rtc.driver,
+        interface: exact(rtc.interface, 'i2c', 'chips.rtc.interface'),
+        nativeSources: rtc.nativeSources,
+        bindingSources: rtc.bindingSources,
+        requires: rtc.requires
+      },
+      audio: audio === null ? null : audioHasCodec ? {
         driver: audio.driver,
+        kind: 'codec',
         interface: exact(audio.interface, 'i2s', 'chips.audio.interface'),
         es7210Address: integer(audio.es7210Address ?? 0, 'chips.audio.es7210Address', { min: 0, max: 119 }),
         nativeSources: audio.nativeSources,
@@ -384,10 +436,57 @@ export function normalizeCustomTarget(raw, catalog) {
           din: pin(audioPins.din, 'chips.audio.pins.din'),
           powerAmplifier: pin(audioPins.powerAmplifier, 'chips.audio.pins.powerAmplifier', { optional: true })
         }
+      } : {
+        // An I2S amplifier: the S3 is the I2S master and sends PCM straight to
+        // it. A separate I2S MEMS microphone, when the board has one, runs on
+        // its own pins and controller. The amplifier's shutdown and mute lines
+        // may sit on the I/O expander.
+        driver: audio.driver,
+        kind: 'i2s-amplifier',
+        interface: exact(audio.interface, 'i2s', 'chips.audio.interface'),
+        nativeSources: audio.nativeSources,
+        bindingSources: audio.bindingSources,
+        requires: audio.requires,
+        pins: {
+          mclk: -1,
+          bclk: pin(audioPins.bclk, 'chips.audio.pins.bclk'),
+          ws: pin(audioPins.ws, 'chips.audio.pins.ws'),
+          dout: pin(audioPins.dout, 'chips.audio.pins.dout'),
+          din: -1,
+          powerAmplifier: -1,
+          micBclk: pin(audioPins.micBclk, 'chips.audio.pins.micBclk', { optional: true }),
+          micWs: pin(audioPins.micWs, 'chips.audio.pins.micWs', { optional: true }),
+          micDin: pin(audioPins.micDin, 'chips.audio.pins.micDin', { optional: true })
+        },
+        // 'i2s' (a standard-I2S MEMS mic on micBclk/micWs/micDin), 'pdm' (clock
+        // on micBclk, data on micDin), or 'auto': chosen at boot from the board
+        // controller the expander binding found, for boards whose revisions
+        // differ only in that part.
+        microphone: (() => {
+          const value = absent(audio.microphone) ? 'i2s' : text(audio.microphone, 'chips.audio.microphone').toLowerCase()
+          if (!['i2s', 'pdm', 'auto'].includes(value)) throw new Error(`chips.audio.microphone must be i2s, pdm or auto, not '${value}'.`)
+          if (value === 'auto' && !expander) throw new Error("chips.audio.microphone 'auto' needs a chips.expander to ask.")
+          return value
+        })(),
+        expander: audioExpander
       }
     },
     storage: {
-      microSD: microSD === null ? null : {
+      // SD_MMC 1-bit, or SPI for a slot wired as one: SPI's chip select may be
+      // hard-wired (-1), which SD_MMC cannot use, since DAT3 low at CMD0 drops
+      // the card into SPI mode.
+      microSD: microSD === null ? null : text(microSD.interface, 'storage.microSD.interface').toLowerCase() === 'spi' ? {
+        interface: 'spi',
+        pins: {
+          clk: -1,
+          cmd: -1,
+          data0: -1,
+          sck: pin(storagePins.sck, 'storage.microSD.pins.sck'),
+          mosi: pin(storagePins.mosi, 'storage.microSD.pins.mosi'),
+          miso: pin(storagePins.miso, 'storage.microSD.pins.miso'),
+          cs: pin(storagePins.cs, 'storage.microSD.pins.cs', { optional: true })
+        }
+      } : {
         interface: exact(microSD.interface, 'sdmmc-1bit', 'storage.microSD.interface'),
         pins: {
           clk: pin(storagePins.clk, 'storage.microSD.pins.clk', { optional: true }),
@@ -407,6 +506,18 @@ export function normalizeCustomTarget(raw, catalog) {
   return target
 }
 
+const pinRoles = ['i2c', 'display', 'touch', 'audio', 'microphone', 'microSD', 'launcherButton']
+
+function pinRoleOf(label) {
+  if (label.startsWith('I2C ')) return 'i2c'
+  if (label.startsWith('display ')) return 'display'
+  if (label.startsWith('touch ')) return 'touch'
+  if (label.startsWith('audio ')) return 'audio'
+  if (label.startsWith('microphone ')) return 'microphone'
+  if (label.startsWith('microSD ')) return 'microSD'
+  return 'launcherButton'
+}
+
 function validatePinAssignments(target) {
   const { display, touch, audio } = target.chips
   const { i2c } = target.buses
@@ -415,7 +526,7 @@ function validatePinAssignments(target) {
   // Only the peripherals this board actually has contribute pins; an absent
   // role owns no GPIO and so can never collide with one.
   const pins = [
-    ...(i2c ? [['I2C SDA', i2c.sda], ['I2C SCL', i2c.scl]] : []),
+    ...(i2c ? [['I2C SDA', i2c.sda, 'i2c'], ['I2C SCL', i2c.scl, 'i2c']] : []),
     ...(display && display.interface === 'rgb' ? [
       ['display DE', display.pins.de],
       ['display HSYNC', display.pins.hsync],
@@ -445,21 +556,34 @@ function validatePinAssignments(target) {
       ['audio WS', audio.pins.ws],
       ['audio DOUT', audio.pins.dout],
       ['audio DIN', audio.pins.din],
-      ['audio amplifier', audio.pins.powerAmplifier]
+      ['audio amplifier', audio.pins.powerAmplifier],
+      ...(audio.kind === 'i2s-amplifier' ? [
+        ['microphone BCLK', audio.pins.micBclk],
+        ['microphone WS', audio.pins.micWs],
+        ['microphone DIN', audio.pins.micDin]
+      ] : [])
     ] : []),
     ...(sd ? [
       ['microSD CLK', sd.pins.clk],
       ['microSD CMD', sd.pins.cmd],
-      ['microSD DATA0', sd.pins.data0]
+      ['microSD DATA0', sd.pins.data0],
+      ...(sd.interface === 'spi' ? [
+        ['microSD SCK', sd.pins.sck],
+        ['microSD MOSI', sd.pins.mosi],
+        ['microSD MISO', sd.pins.miso],
+        ['microSD CS', sd.pins.cs]
+      ] : [])
     ] : []),
     ...(launcher ? [['launcher button', launcher.pin]] : [])
   ]
+  const shared = (a, b) => a !== b && target.pinSharing.some((group) => group.includes(a) && group.includes(b))
   const used = new Map()
   for (const [label, value] of pins) {
     if (value < 0) continue
+    const role = pinRoleOf(label)
     const previous = used.get(value)
-    if (previous) throw new Error(`GPIO ${value} is assigned to both ${previous} and ${label}.`)
-    used.set(value, label)
+    if (previous && !shared(previous.role, role)) throw new Error(`GPIO ${value} is assigned to both ${previous.label} and ${label}.`)
+    if (!previous) used.set(value, { label, role })
   }
 }
 
@@ -503,8 +627,10 @@ ${includes}
 #define GEA_BOARD_HAS_TOUCH ${touch ? 1 : 0}
 #define GEA_BOARD_HAS_POWER ${target.chips.power ? 1 : 0}
 #define GEA_BOARD_HAS_IMU ${target.chips.imu ? 1 : 0}
+#define GEA_BOARD_HAS_RTC ${target.chips.rtc ? 1 : 0}
 #define GEA_BOARD_HAS_AUDIO ${audio ? 1 : 0}
 #define GEA_BOARD_HAS_MICROSD ${target.storage.microSD ? 1 : 0}
+#define GEA_BOARD_MICROSD_SPI ${target.storage.microSD?.interface === 'spi' ? 1 : 0}
 #define GEA_BOARD_HAS_LAUNCHER_BUTTON ${target.controls.launcherButton ? 1 : 0}
 #define GEA_BOARD_HAS_EXPANDER ${expander ? 1 : 0}
 #define GEA_BOARD_HAS_RGB_CONTROLLER ${rgb?.controller ? 1 : 0}
@@ -524,10 +650,13 @@ ${qspi ? 'struct Co5300DisplayConfig { spi_host_device_t spiHost; gpio_num_t cs;
 // framebuffer out with these timings. data[0..4] are blue, [5..10] green,
 // [11..15] red (RGB565 lane order). backlight is a PWM-capable GPIO, or
 // GPIO_NUM_NC when the expander drives it.
-struct RgbPanelDisplayConfig { gpio_num_t de; gpio_num_t hsync; gpio_num_t vsync; gpio_num_t pclk; gpio_num_t disp; gpio_num_t backlight; gpio_num_t data[16]; int pclkHz; int hsyncPulseWidth; int hsyncBackPorch; int hsyncFrontPorch; int vsyncPulseWidth; int vsyncBackPorch; int vsyncFrontPorch; bool pclkActiveNeg; bool backlightActiveLow; };` : ''}${touch ? '\nstruct Ft3168TouchConfig { gpio_num_t reset; gpio_num_t interrupt; };' : ''}${expander ? '\n// Expander pin numbers (0-based, the chip\'s own), -1 where a line is not routed through it.\nstruct IoExpanderConfig { int initialOutputs; int backlight; int touchReset; int displayReset; int address; int initialDirections; int powerAmplifier; };' : ''}${audio ? '\nstruct Es8311AudioConfig { int i2sPort; gpio_num_t mclk; gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t din; gpio_num_t powerAmplifier; int es7210Address; };' : ''}
+struct RgbPanelDisplayConfig { gpio_num_t de; gpio_num_t hsync; gpio_num_t vsync; gpio_num_t pclk; gpio_num_t disp; gpio_num_t backlight; gpio_num_t data[16]; int pclkHz; int hsyncPulseWidth; int hsyncBackPorch; int hsyncFrontPorch; int vsyncPulseWidth; int vsyncBackPorch; int vsyncFrontPorch; bool pclkActiveNeg; int scanFramebuffers; bool backlightActiveLow; int bounceRows; };` : ''}${touch ? '\nstruct Ft3168TouchConfig { gpio_num_t reset; gpio_num_t interrupt; };' : ''}${expander ? '\n// Expander pin numbers (0-based, the chip\'s own), -1 where a line is not routed through it.\nstruct IoExpanderConfig { int initialOutputs; int backlight; int touchReset; int displayReset; int address; int initialDirections; int powerAmplifier; };' : ''}${audio?.kind === 'codec' ? '\nstruct Es8311AudioConfig { int i2sPort; gpio_num_t mclk; gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t din; gpio_num_t powerAmplifier; int es7210Address; };' : ''}${audio?.kind === 'i2s-amplifier' ? '\n// An I2S amplifier and an optional separate I2S microphone; expander lines are -1 when not routed through it.\nstruct I2sAmplifierAudioConfig { gpio_num_t bclk; gpio_num_t ws; gpio_num_t dout; gpio_num_t micBclk; gpio_num_t micWs; gpio_num_t micDin; int expanderShutdown; int expanderMute; int micFormat; };\n// micFormat: 0 standard I2S, 1 PDM, 2 decided at boot by the board controller.' : ''}
 
 inline constexpr I2cBusConfig i2c{ .sda = ${gpio(i2c.sda)}, .scl = ${gpio(i2c.scl)} };
-inline constexpr SdMmcConfig storage{ .clk = ${gpio(sdPins.clk)}, .cmd = ${gpio(sdPins.cmd)}, .data0 = ${gpio(sdPins.data0)} };
+inline constexpr SdMmcConfig storage{ .clk = ${gpio(sdPins.clk)}, .cmd = ${gpio(sdPins.cmd)}, .data0 = ${gpio(sdPins.data0)} };${target.storage.microSD?.interface === 'spi' ? `
+// The card slot is wired for SPI; cs is GPIO_NUM_NC when chip select is hard-wired.
+struct SdSpiConfig { gpio_num_t sck; gpio_num_t mosi; gpio_num_t miso; gpio_num_t cs; };
+inline constexpr SdSpiConfig storageSpi{ .sck = ${gpio(sdPins.sck)}, .mosi = ${gpio(sdPins.mosi)}, .miso = ${gpio(sdPins.miso)}, .cs = ${gpio(sdPins.cs)} };` : ''}
 inline constexpr LauncherButtonConfig launcherButton{ .pin = ${gpio(launcher.pin)}, .activeLevel = ${launcher.activeLevel} };
 ${rgb ? `inline constexpr RgbPanelDisplayConfig display{
   .de = ${gpio(rgb.pins.de)}, .hsync = ${gpio(rgb.pins.hsync)}, .vsync = ${gpio(rgb.pins.vsync)}, .pclk = ${gpio(rgb.pins.pclk)},
@@ -537,7 +666,9 @@ ${rgb ? `inline constexpr RgbPanelDisplayConfig display{
   .hsyncPulseWidth = ${rgb.hsyncPulseWidth}, .hsyncBackPorch = ${rgb.hsyncBackPorch}, .hsyncFrontPorch = ${rgb.hsyncFrontPorch},
   .vsyncPulseWidth = ${rgb.vsyncPulseWidth}, .vsyncBackPorch = ${rgb.vsyncBackPorch}, .vsyncFrontPorch = ${rgb.vsyncFrontPorch},
   .pclkActiveNeg = ${rgb.pclkActiveNeg ? 'true' : 'false'},
-  .backlightActiveLow = ${rgb.backlightActiveLow ? 'true' : 'false'}
+  .scanFramebuffers = ${rgb.scanFramebuffers},
+  .backlightActiveLow = ${rgb.backlightActiveLow ? 'true' : 'false'},
+  .bounceRows = ${rgb.bounceRows}
 };` : ''}${qspi ? `inline constexpr Co5300DisplayConfig display{
   .spiHost = ${display.spiHost === 'spi3' ? 'SPI3_HOST' : 'SPI2_HOST'}, .cs = ${gpio(displayPins.cs)}, .pclk = ${gpio(displayPins.pclk)},
   .data0 = ${gpio(displayPins.data0)}, .data1 = ${gpio(displayPins.data1)},
@@ -545,7 +676,13 @@ ${rgb ? `inline constexpr RgbPanelDisplayConfig display{
   .reset = ${gpio(displayPins.reset)}, .te = ${gpio(displayPins.te)}
 };` : ''}${touch ? `
 inline constexpr Ft3168TouchConfig touch{ .reset = ${gpio(touchPins.reset)}, .interrupt = ${gpio(touchPins.interrupt)} };` : ''}${expander ? `
-inline constexpr IoExpanderConfig expander{ .initialOutputs = ${expander.initialOutputs}, .backlight = ${expander.outputs.backlight}, .touchReset = ${expander.outputs.touchReset}, .displayReset = ${expander.outputs.displayReset}, .address = ${expander.address}, .initialDirections = ${expander.initialDirections}, .powerAmplifier = ${expander.outputs.powerAmplifier} };` : ''}${audio ? `
+inline constexpr IoExpanderConfig expander{ .initialOutputs = ${expander.initialOutputs}, .backlight = ${expander.outputs.backlight}, .touchReset = ${expander.outputs.touchReset}, .displayReset = ${expander.outputs.displayReset}, .address = ${expander.address}, .initialDirections = ${expander.initialDirections}, .powerAmplifier = ${expander.outputs.powerAmplifier} };` : ''}${audio?.kind === 'i2s-amplifier' ? `
+inline constexpr I2sAmplifierAudioConfig audio{
+  .bclk = ${gpio(audioPins.bclk)}, .ws = ${gpio(audioPins.ws)}, .dout = ${gpio(audioPins.dout)},
+  .micBclk = ${gpio(audioPins.micBclk)}, .micWs = ${gpio(audioPins.micWs)}, .micDin = ${gpio(audioPins.micDin)},
+  .expanderShutdown = ${audio.expander.shutdown}, .expanderMute = ${audio.expander.mute},
+  .micFormat = ${{ i2s: 0, pdm: 1, auto: 2 }[audio.microphone]}
+};` : ''}${audio?.kind === 'codec' ? `
 inline constexpr Es8311AudioConfig audio{
   .i2sPort = I2S_NUM_AUTO, .mclk = ${gpio(audioPins.mclk)}, .bclk = ${gpio(audioPins.bclk)},
   .ws = ${gpio(audioPins.ws)}, .dout = ${gpio(audioPins.dout)}, .din = ${gpio(audioPins.din)},
@@ -588,7 +725,7 @@ function cmakeQuote(value) {
 }
 
 export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
-  const { display, touch, power, imu, audio, expander } = target.chips
+  const { display, touch, power, imu, audio, expander, rtc } = target.chips
   const chipSource = (source) => `    "\${GEA_CHIPS}/${source}"`
   const bindingSource = (source) => `    "\${GEA_EMBEDDED_ROOT}/targets/esp32/${source}"`
   const sourcesFor = (chip) => (chip ? [...chip.nativeSources.map(chipSource), ...chip.bindingSources.map(bindingSource)] : [])
@@ -606,10 +743,11 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     ...(power ? sourcesFor(power) : absentBinding('power_absent.cpp')),
     ...(imu ? sourcesFor(imu) : absentBinding('imu_absent.cpp')),
     ...(touch ? sourcesFor(touch) : absentBinding('touch_absent.cpp')),
-    ...sourcesFor(audio),
-    ...sourcesFor(expander)
+    ...(audio?.kind === 'codec' ? sourcesFor(audio) : []),
+    ...sourcesFor(expander),
+    ...sourcesFor(rtc)
   ]
-  const requires = [...new Set([display, touch, power, imu, audio, expander].flatMap((chip) => (chip ? chip.requires : [])))]
+  const requires = [...new Set([display, touch, power, imu, audio, expander, rtc].flatMap((chip) => (chip ? chip.requires : [])))]
   const surface = display || target.canvas
   const hasSurface = Boolean(surface)
   // An app that declares a display size has said something more specific than
@@ -631,6 +769,8 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     // sources include it; this reaches the app's own sources, which is where
     // the board-specific configuration actually lives.
     boardDefine('GEA_BOARD_HAS_POWER', power ? 1 : 0),
+    // app_main restores the system clock from the RTC before anything reads it.
+    boardDefine('GEA_BOARD_HAS_RTC', rtc ? 1 : 0),
     // The QSPI panels take byte-swapped RGB565 over the wire and the base
     // stores it that way; an RGB panel's DMA reads the framebuffer as-is, so
     // it stores native order -- exactly what the Elecrow rotary target does.
@@ -648,6 +788,10 @@ set(GEA_CUSTOM_TARGET_DISPLAY_INTERFACE "${display ? display.interface : ''}")
 set(GEA_CUSTOM_TARGET_TOUCH_DRIVER "${touch ? touch.driver : ''}")
 set(GEA_CUSTOM_TARGET_HAS_EXPANDER ${expander ? 1 : 0})
 set(GEA_CUSTOM_TARGET_HAS_MICROSD ${target.storage.microSD ? 1 : 0})
+set(GEA_CUSTOM_TARGET_AUDIO_DRIVER "${audio ? audio.driver : ''}")
+set(GEA_CUSTOM_TARGET_AUDIO_SOURCES
+${audio?.kind === 'i2s-amplifier' ? sourcesFor(audio).join('\n') : ''}
+)
 set(GEA_CUSTOM_TARGET_DISPLAY_SOURCES
 ${displaySources.join('\n')}
 )

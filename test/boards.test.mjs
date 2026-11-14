@@ -201,7 +201,7 @@ test('a bare module composes with no peripherals at all', (t) => {
   assert.deepEqual(target.console, { transport: 'uart', uart: 0, baud: 115200 })
   // PSRAM wiring likewise: octal settings on a quad-wired part bring the device
   // up wrong rather than failing, so the module declares its own.
-  assert.deepEqual(target.psram, { mode: 'octal', speed: 80 })
+  assert.deepEqual(target.psram, { mode: 'octal', speed: 80, xip: false })
 
   const header = renderBoardHeader(target)
   assert.match(header, /#define GEA_BOARD_HAS_DISPLAY 0/)
@@ -311,6 +311,76 @@ test('a parallel RGB panel board composes with a GT911 and an I/O expander', (t)
   const fixture = createFixture(t)
   const written = writeCustomTarget({ definitionPath, outDir: path.join(fixture.root, 'generated'), catalog })
   assert.match(readFileSync(written.headerPath, 'utf8'), /GEA_BOARD_HAS_EXPANDER 1/)
+})
+
+test('the CrowPanel Advance 7.0 composes: revision-probing board control, BM8563, NS4168, SPI microSD', (t) => {
+  // Elecrow's 7" HMI: backlight, touch reset and amplifier lines behind a
+  // PCA9557 (V1.0-V1.2) or an STC8H board MCU (V1.3+), probed at boot; the
+  // GT911's INT on GPIO1; a battery-backed BM8563 on the same I2C bus.
+  const definitionPath = path.join(fixtureDir, 'crowpanel-advance-7.json')
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const definition = JSON.parse(readFileSync(definitionPath, 'utf8'))
+  const target = normalizeCustomTarget(definition, catalog)
+
+  assert.equal(target.chips.expander.driver, 'elecrow_board_control')
+  assert.equal(target.chips.expander.address, 0x18)
+  assert.deepEqual(target.chips.expander.outputs, { backlight: 1, touchReset: 2, displayReset: -1, powerAmplifier: -1 })
+  assert.equal(target.chips.touch.pins.interrupt, 1)
+  assert.equal(target.chips.rtc.driver, 'bm8563')
+  assert.deepEqual(target.chips.display.pins.data, [21, 47, 48, 45, 38, 9, 10, 11, 12, 13, 14, 7, 17, 18, 3, 46])
+  assert.deepEqual(target.console, { transport: 'uart', baud: 115200, uart: 0 })
+
+  const header = renderBoardHeader(target)
+  assert.match(header, /#define GEA_BOARD_HAS_RTC 1/)
+  assert.match(header, /IoExpanderConfig expander\{ \.initialOutputs = 20, \.backlight = 1, \.touchReset = 2, \.displayReset = -1, \.address = 24, \.initialDirections = 225, \.powerAmplifier = -1 \}/)
+
+  const cmake = renderTargetCmake(target, '/out')
+  assert.match(cmake, /chip_bindings\/expanders\/elecrow_board_control\.cpp/)
+  assert.match(cmake, /\$\{GEA_CHIPS\}\/rtc\/bm8563\/bm8563\.cpp/)
+  assert.match(cmake, /chip_bindings\/rtc\/bm8563\.cpp/)
+  assert.match(cmake, /GEA_BOARD_HAS_RTC=1/)
+
+  // A bare I2S amplifier: no codec, so no I2C requirement and no ES8311 shape.
+  assert.equal(target.chips.audio.kind, 'i2s-amplifier')
+  assert.deepEqual(target.chips.audio.expander, { shutdown: 4, mute: 3 })
+  assert.match(header, /I2sAmplifierAudioConfig audio\{/)
+  assert.match(header, /\.micBclk = GPIO_NUM_19, \.micWs = GPIO_NUM_2, \.micDin = GPIO_NUM_20/)
+  assert.match(header, /\.expanderShutdown = 4, \.expanderMute = 3,\n  \.micFormat = 2/)
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, audio: { ...definition.chips.audio, microphone: 'analog' } } }, catalog),
+    /chips\.audio\.microphone must be i2s, pdm or auto/
+  )
+  assert.doesNotMatch(header, /Es8311AudioConfig/)
+  // Its binding is compiled only when the app uses audio, so it is not a peripheral source.
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_AUDIO_DRIVER "ns4168"\)/)
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_AUDIO_SOURCES\n.*chip_bindings\/audio\/ns4168\.cpp/)
+  assert.doesNotMatch(cmake.split('GEA_CUSTOM_TARGET_PERIPHERAL_SOURCES')[1].split(')')[0], /ns4168/)
+  // A microphone pin cannot double as a display lane.
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, audio: { ...definition.chips.audio, pins: { ...definition.chips.audio.pins, micDin: 21 } } } }, catalog),
+    /GPIO 21 is assigned to both display DATA0 and microphone DIN/
+  )
+  // Expander lines need an expander.
+  const { expander: _expander, ...noExpander } = definition.chips
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...noExpander, display: { ...definition.chips.display } } }, catalog),
+    /chips\.audio\.expander names expander lines, but the board has no chips\.expander/
+  )
+
+  // A board without an RTC says so, so app_main does not reach for one.
+  assert.match(renderBoardHeader(normalizeCustomTarget(JSON.parse(readFileSync(path.join(fixtureDir, 'rgb-panel-board.json'), 'utf8')), catalog)), /#define GEA_BOARD_HAS_RTC 0/)
+  // The board control has eight lines.
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, expander: { ...definition.chips.expander, outputs: { backlight: 8 } } } }, catalog),
+    /chips\.expander\.outputs\.backlight/
+  )
+  // An RTC on the I2C bus needs the bus.
+  const { expander, touch, ...rtcOnly } = definition.chips
+  assert.throws(() => normalizeCustomTarget({ ...definition, chips: rtcOnly, buses: {} }, catalog), /buses\.i2c is required because chips\.rtc/)
+
+  const fixture = createFixture(t)
+  const written = writeCustomTarget({ definitionPath, outDir: path.join(fixture.root, 'generated'), catalog })
+  assert.match(readFileSync(written.headerPath, 'utf8'), /GEA_BOARD_HAS_RTC 1/)
 })
 
 test('a composed target shipped by @geastack/targets needs no per-project definition', () => {

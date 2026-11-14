@@ -1,0 +1,174 @@
+{
+  "id": "esp32-s3-elecrow-crowpanel-advance-7.0",
+  "extends": "esp32-s3",
+  "adapter": "esp32-idf",
+  "mcu": "esp32s3",
+  "_comment": "Elecrow CrowPanel Advance 7.0-HMI (SKU DIS02170A): an ESP32-S3-WROOM-1-N16R8 (16MB quad flash, 8MB octal PSRAM) behind a 7-inch 800x480 IPS parallel RGB panel with a GT911 capacitive touch controller. One firmware serves every board revision: the slow control lines sit behind a PCA9557 on V1.0-V1.2 and an STC8H1K28 board-control MCU on V1.3+, and the binding probes which at boot. Sources: Elecrow's V1.0-V1.5 schematics and V1.5 driver guide (Elecrow-RD/CrowPanel-Advance-7-HMI-ESP32-S3-AI-Powered-IPS-Touch-Screen-800x480) and the factory firmware.",
+  "flashSize": "16MB",
+  "_console": "The USB-C port goes through a CH340K USB-UART bridge to UART0 (TXD0/RXD0), with the usual DTR/RTS auto-download circuit. The native USB-Serial/JTAG pins are not brought out.",
+  "console": {
+    "transport": "uart",
+    "uart": 0,
+    "baud": 115200
+  },
+  "_psram": "N16R8 is 8MB octal PSRAM; the RGB framebuffer (800x480x2 = 768KB) lives there.",
+  "psram": {
+    "mode": "octal",
+    "speed": 80
+  },
+  "_buses": "One I2C bus on GPIO15/16 carries the GT911 (0x5d), the PCA9557 expander (0x18) and the BM8563 RTC (0x51), and is also brought out on the HY2.0 I2C connector.",
+  "buses": {
+    "i2c": {
+      "sda": 15,
+      "scl": 16
+    }
+  },
+  "chips": {
+    "display": {
+      "driver": "rgb_panel",
+      "interface": "rgb",
+      "width": 800,
+      "height": 480,
+      "_timing": "Elecrow's current examples drive the panel at 18MHz (their maintenance baseline; older code used 16 and 21) with 8/4/8 porches on both axes, PCLK idle high.",
+      "pclkHz": 18000000,
+      "hsyncPulseWidth": 4,
+      "hsyncBackPorch": 8,
+      "hsyncFrontPorch": 8,
+      "vsyncPulseWidth": 4,
+      "vsyncBackPorch": 8,
+      "vsyncFrontPorch": 8,
+      "pclkActiveNeg": true,
+      "_pins": "data0-4 = B3-B7, data5-10 = G2-G7, data11-15 = R3-R7 (the panel's low bits are tied off). The backlight is board-control line 1; the panel's RESET is an RC network, not a GPIO.",
+      "pins": {
+        "de": 42,
+        "hsync": 40,
+        "vsync": 41,
+        "pclk": 39,
+        "data0": 21,
+        "data1": 47,
+        "data2": 48,
+        "data3": 45,
+        "data4": 38,
+        "data5": 9,
+        "data6": 10,
+        "data7": 11,
+        "data8": 12,
+        "data9": 13,
+        "data10": 14,
+        "data11": 7,
+        "data12": 17,
+        "data13": 18,
+        "data14": 3,
+        "data15": 46
+      }
+    },
+    "touch": {
+      "driver": "gt911",
+      "interface": "i2c",
+      "_pins": "Reset is board-control line 2 (PCA9557 IO2 on V1.0, the STC's touch-recover command 250 on V1.3+); INT is GPIO1, which the binding drives low across reset to fix the address at 0x5d, as Elecrow's recovery sequence does.",
+      "pins": {
+        "interrupt": 1
+      }
+    },
+    "audio": {
+      "driver": "ns4168",
+      "interface": "i2s",
+      "_pins": "Speaker: NS4168 on IO5 BCLK, IO6 LRCLK, IO4 SDIN. Microphone: an INMP441 (I2S: IO19 SCK, IO2 WS, IO20 SD) on V1.0, a PDM part (IO19 CLK, IO20 DATA) on V1.3+; 'auto' picks by the board controller found at boot. IO4-IO6 are shared with the microSD slot and the wireless socket, IO19/IO20 with the socket too; the function-select DIP switch picks which one they reach.",
+      "pins": {
+        "bclk": 5,
+        "ws": 6,
+        "dout": 4,
+        "micBclk": 19,
+        "micWs": 2,
+        "micDin": 20
+      },
+      "_expander": "Amplifier shutdown is board-control line 4 and mute line 3 (high = off). On V1.0 they are PCA9557 IO4/IO3; on V1.3+ pulling shutdown low sends the STC's speaker-enable command 248, and there is no documented command for mute or for turning the amplifier off.",
+      "expander": {
+        "shutdown": 4,
+        "mute": 3
+      },
+      "microphone": "auto"
+    },
+    "rtc": {
+      "driver": "bm8563",
+      "interface": "i2c",
+      "_battery": "A BM8563 (PCF8563-compatible; a PCF8563 on V1.5) at 0x51, backed by a CR1220 cell, so the system clock is restored from it at boot."
+    },
+    "expander": {
+      "driver": "elecrow_board_control",
+      "interface": "i2c",
+      "address": 24,
+      "_outputs": "Lines use PCA9557 numbering: 1 backlight, 2 touch reset, 3 amplifier mute, 4 amplifier shutdown. On an STC board each maps to its command (backlight 0-245 with brightness, 250 touch recovery, 248 speaker on). initialOutputs 0x14 / initialDirections 0xe1 apply to the PCA9557: touch out of reset, mute low, shutdown high, backlight off until the panel scans.",
+      "initialDirections": 225,
+      "initialOutputs": 20,
+      "outputs": {
+        "backlight": 1,
+        "touchReset": 2
+      }
+    }
+  },
+  "_storage": "The TF slot is wired for SPI (IO5 SCK, IO6 MOSI, IO4 MISO) with its chip select tied active by a resistor, so it has no CS GPIO and cannot run SD_MMC. It shares IO4-IO6 with the speaker; the function-select DIP switch must be on the SD position for the card to answer.",
+  "storage": {
+    "microSD": {
+      "interface": "spi",
+      "pins": {
+        "sck": 5,
+        "mosi": 6,
+        "miso": 4
+      }
+    }
+  },
+  "_pinSharing": "The function-select DIP switch routes IO4-IO6 to the speaker or the TF slot (or the wireless socket), never both, so the speaker and the card may name the same GPIOs.",
+  "pinSharing": [
+    [
+      "audio",
+      "microSD"
+    ]
+  ],
+  "_buzzer": "The passive buzzer is on GPIO8 on V1.0 but driven by the STC (P2.7) on V1.3+, where Elecrow documents no command for it, so the target does not drive it.",
+  "_controls": "BOOT is GPIO0, which is free once the board has booted (the wireless-module socket also uses it as BUSY, only when a module is fitted).",
+  "controls": {
+    "launcherButton": {
+      "pin": 0,
+      "activeLevel": 0
+    }
+  },
+  "partitions": {
+    "nvs": {
+      "type": "data",
+      "subtype": "nvs",
+      "offset": "0x9000",
+      "size": "0x6000"
+    },
+    "otadata": {
+      "type": "data",
+      "subtype": "ota",
+      "offset": "0xf000",
+      "size": "0x2000"
+    },
+    "phy_init": {
+      "type": "data",
+      "subtype": "phy",
+      "offset": "0x11000",
+      "size": "0x1000"
+    },
+    "ota_0": {
+      "type": "app",
+      "subtype": "ota_0",
+      "offset": "0x20000",
+      "size": "0x600000"
+    },
+    "ota_1": {
+      "type": "app",
+      "subtype": "ota_1",
+      "offset": "0x620000",
+      "size": "0x600000"
+    },
+    "storage": {
+      "type": "data",
+      "subtype": "spiffs",
+      "offset": "0xC20000",
+      "size": "0x3E0000"
+    }
+  }
+}

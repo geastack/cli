@@ -407,6 +407,96 @@
           "optional": true
         }
       ]
+    },
+    "pca9557": {
+      "label": "PCA9557 I2C I/O expander",
+      "category": "expander",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [],
+      "headers": [
+        "expanders/tca9554/tca9554.h",
+        "expanders/pca9557/pca9557.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/expanders/tca9554.cpp"
+          ]
+        }
+      }
+    },
+    "bm8563": {
+      "label": "BM8563 real-time clock",
+      "category": "rtc",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "rtc/bm8563/bm8563.cpp"
+      ],
+      "headers": [
+        "rtc/bm8563/bm8563.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/rtc/bm8563.cpp"
+          ]
+        }
+      }
+    },
+    "ns4168": {
+      "label": "NS4168 I2S class-D amplifier",
+      "category": "audio",
+      "interfaces": [
+        "i2s"
+      ],
+      "sources": [],
+      "headers": [
+        "audio/ns4168/ns4168.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/audio/ns4168.cpp"
+          ],
+          "requires": [
+            "esp_driver_i2s"
+          ]
+        }
+      }
+    },
+    "elecrow_board_control": {
+      "label": "Elecrow CrowPanel Advance board control",
+      "category": "expander",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [],
+      "headers": [
+        "expanders/pca9557/pca9557.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/expanders/elecrow_board_control.cpp"
+          ]
+        }
+      }
     }
   }
 }
