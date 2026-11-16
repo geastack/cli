@@ -283,13 +283,18 @@ test('a parallel RGB panel board composes with a GT911 and an I/O expander', (t)
   // (panel-endian) default must not be applied on top of it.
   assert.match(cmake, /GEA_EMBEDDED_PIXEL_PANEL_ENDIAN=0/)
   assert.match(cmake, /GEA_EMBEDDED_DISPLAY_WIDTH=800/)
+  // geatsc bakes colour literals and fonts for this board, not the base's.
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_PIXEL_PANEL_ENDIAN 0\)/)
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_VIEWPORT_WIDTH "800"\)/)
 
   // A QSPI board is untouched by any of this.
   const amoled = normalizeCustomTarget(JSON.parse(readFileSync(path.join(fixtureDir, 'manual-amoled.json'), 'utf8')), catalog)
   const amoledCmake = renderTargetCmake(amoled, '/out')
   assert.match(amoledCmake, /set\(GEA_CUSTOM_TARGET_DISPLAY_INTERFACE "qspi"\)/)
   assert.match(amoledCmake, /set\(GEA_CUSTOM_TARGET_TOUCH_DRIVER "ft3168"\)/)
-  assert.doesNotMatch(amoledCmake, /PIXEL_PANEL_ENDIAN/)
+  assert.doesNotMatch(amoledCmake, /GEA_EMBEDDED_PIXEL_PANEL_ENDIAN=/)
+  assert.match(amoledCmake, /set\(GEA_CUSTOM_TARGET_PIXEL_PANEL_ENDIAN 1\)/)
+  assert.match(amoledCmake, /set\(GEA_CUSTOM_TARGET_BOARD_ID "manual-amoled"\)/)
   assert.equal(amoled.chips.expander, null)
 
   // The expander sits on the I2C bus, so a board that has one must wire it.

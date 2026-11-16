@@ -778,7 +778,14 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     display?.panel?.minChunkRows ? boardDefine('GEA_EMBEDDED_DISPLAY_FLUSH_CHUNK_MIN', display.panel.minChunkRows) : '',
     display && display.interface === 'rgb' ? boardDefine('GEA_EMBEDDED_PIXEL_PANEL_ENDIAN', 0) : ''
   ].join('')
+  // The board's own identity and pixel order reach geatsc too: the base project
+  // is another board's, and its defaults (name, viewport, byte-swapped RGB565)
+  // would otherwise decide how this board's fonts and colour literals are baked.
   return `set(GEA_CUSTOM_TARGET_ACTIVE 1)
+set(GEA_CUSTOM_TARGET_BOARD_ID "${target.id}")
+set(GEA_CUSTOM_TARGET_PIXEL_PANEL_ENDIAN ${display && display.interface === 'rgb' ? 0 : 1})
+set(GEA_CUSTOM_TARGET_VIEWPORT_WIDTH "${hasSurface ? surface.width : ''}")
+set(GEA_CUSTOM_TARGET_VIEWPORT_HEIGHT "${hasSurface ? surface.height : ''}")
 ${display?.panel?.transferMode ? `set(GEA_CUSTOM_QSPI_TRANSFER_MODE \"${display.panel.transferMode}\")` : ''}
 ${display?.interface === 'qspi' && display.pclkHz ? `set(GEA_CUSTOM_QSPI_PCLK_HZ ${display.pclkHz})` : ''}
 set(GEA_CUSTOM_TARGET_INCLUDE_DIR ${cmakeQuote(includeDir)})
