@@ -203,6 +203,11 @@ export function normalizeCustomTarget(raw, catalog) {
   const flashModes = ['qio', 'qout', 'dio', 'dout']
   const flashMode = absent(definition.flashMode) ? '' : text(definition.flashMode, 'flashMode').toLowerCase()
   if (flashMode && !flashModes.includes(flashMode)) throw new Error(`flashMode must be one of ${flashModes.join(', ')}, not '${flashMode}'.`)
+  // The flash clock in MHz. Optional: a board leaves it to its base unless
+  // its PSRAM clock needs a flash clock that divides the shared MSPI core.
+  const flashFreqs = [20, 26, 40, 80, 120]
+  const flashFreq = absent(definition.flashFreq) ? 0 : Number(definition.flashFreq)
+  if (flashFreq && !flashFreqs.includes(flashFreq)) throw new Error(`flashFreq must be one of ${flashFreqs.join(', ')}, not '${definition.flashFreq}'.`)
   const partitions = absent(definition.partitions) ? null : object(definition.partitions, 'partitions')
 
   // Which physical port the log comes out of is the module's wiring, not the
@@ -293,6 +298,7 @@ export function normalizeCustomTarget(raw, catalog) {
     mcu,
     flashSize: flashSize.toUpperCase(),
     flashMode,
+    flashFreq,
     partitions,
     // Peripherals a board multiplexes onto the same GPIOs with a hardware
     // switch (a DIP switch or analog mux the firmware does not drive): only

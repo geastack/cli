@@ -169,6 +169,7 @@ export function resolveBoardSelection({
     // its own module's, not the flash of the board whose stack it borrows.
     flashSize: board?.flashSize || definition?.flashSize || targetInfo.flashSize || '',
     flashMode: board?.flashMode || definition?.flashMode || targetInfo.flashMode || '',
+    flashFreq: board?.flashFreq || definition?.flashFreq || targetInfo.flashFreq || 0,
     appPlatform: board?.appPlatform || targetInfo.appPlatform || '',
     compatibleAppPlatforms: Array.isArray(targetInfo.compatibleAppPlatforms) ? targetInfo.compatibleAppPlatforms : [],
     idfTarget: board?.idfTarget || targetInfo.idfTarget || '',

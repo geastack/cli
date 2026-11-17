@@ -239,6 +239,11 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
         }
         board(`CONFIG_SPIRAM_SPEED_${boardPsram.speed}M`, 'y')
         board('CONFIG_SPIRAM_SPEED', String(boardPsram.speed))
+        // Octal PSRAM at 120MHz is gated behind ESP-IDF's experimental
+        // features. Its live re-tuning from the temperature sensor is left
+        // off: it aborts at boot on any flash model Espressif has not listed.
+        if (boardPsram.speed === 120 && boardPsram.mode === 'octal') board('CONFIG_IDF_EXPERIMENTAL_FEATURES', 'y')
+        unset('CONFIG_SPIRAM_TIMING_TUNING_POINT_VIA_TEMPERATURE_SENSOR')
       }
       if (boardPsram.xip) {
         board('CONFIG_SPIRAM_XIP_FROM_PSRAM', 'y')
@@ -289,6 +294,17 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
       if (mode !== flashMode) unset(`CONFIG_ESPTOOLPY_FLASHMODE_${mode}`)
     }
     board(`CONFIG_ESPTOOLPY_FLASHMODE_${flashMode}`, 'y')
+  }
+
+  // Flash and PSRAM share the MSPI core clock, so the flash clock must divide
+  // the one PSRAM runs from: octal PSRAM at 120MHz needs a 240MHz core, which
+  // 80MHz quad flash cannot share (ESP-IDF has no tuning table for it).
+  const flashFreq = Number(app?.targetConfig?.esp32?.flashFreq) || Number(selection.flashFreq) || 0
+  if (flashFreq) {
+    for (const mhz of [20, 26, 40, 80, 120]) {
+      if (mhz !== flashFreq) unset(`CONFIG_ESPTOOLPY_FLASHFREQ_${mhz}M`)
+    }
+    board(`CONFIG_ESPTOOLPY_FLASHFREQ_${flashFreq}M`, 'y')
   }
 
   // These four are all internal-DRAM decisions, which is the memory an app's
@@ -478,6 +494,19 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   // the app's file is last and wins wherever the two disagree.
   const appEsp32Config = app ? appTargetConfig(app, 'esp32') : null
   const appSdkconfigFile = appEsp32Config?.sdkconfig ? path.join(app.root, appEsp32Config.sdkconfig) : ''
+  // gea.targets.esp32.display: the RGB panel pipeline an app opts into.
+  //   copyBack: 'dma'  the strip copy-back runs on GDMA, freeing the worker core;
+  //                    it cannot wait out bounce refills, so partial UI repaints tear
+  //   bounceRows: N    bounce-buffer height, overriding the board's
+  //   gridStrips: true staged strips sit on a fixed grid (per-band 3D underlays)
+  const appDisplay = appEsp32Config?.display
+  if (appDisplay) {
+    if (appDisplay.copyBack === 'dma') resolvedBuild.defines.push('GEA_EMBEDDED_RGB_COPYBACK_DMA=1')
+    else if (appDisplay.copyBack && appDisplay.copyBack !== 'cpu') throw new Error(`gea.targets.esp32.display.copyBack must be 'cpu' or 'dma', not '${appDisplay.copyBack}'.`)
+    const bounceRows = Number(appDisplay.bounceRows) || 0
+    if (bounceRows) resolvedBuild.defines.push(`GEA_EMBEDDED_RGB_BOUNCE_ROWS=${bounceRows}`)
+    if (appDisplay.gridStrips === true) resolvedBuild.defines.push('GEA_EMBEDDED_STAGE_GRID_STRIPS=1')
+  }
   const { file: sdkconfigFile, defaultsFile, regenerated } = prepareBuildLocalSdkconfig(selection.targetDir, binaryDir, appSdkconfigFile)
   if (regenerated) log('sdkconfig defaults changed; the generated sdkconfig was rebuilt from them')
   log(`Using ESP32 target '${selection.target}' at ${selection.targetDir} (idf=${idfTarget} chip=${selection.esptoolChip || idfTarget} flash=${selection.flashSize})`)
@@ -531,6 +560,7 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     boardPartitionCsv = generated.partitionCsv
     boardConsole = generated.target.console
     boardPsram = generated.target.psram
+    if (boardPsram && appEsp32Config?.psram) boardPsram = { ...boardPsram, ...appEsp32Config.psram }
     const display = generated.target.chips?.display
     boardRgbPanel = display?.interface === 'rgb' ? { restartInVsync: display.restartInVsync !== false } : false
     log(`Generated custom board files in ${outDir} (${path.basename(generated.headerPath)}, ${path.basename(generated.cmakePath)})`)
