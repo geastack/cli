@@ -161,7 +161,7 @@ export function assertTargetEnabled(ctx, app, targetOrPlatform) {
   fail(`App '${app.id}' does not enable target '${platform}'.`, ExitCode.targetUnavailable)
 }
 
-export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'raspberry-pi-os', 'macos', 'ios', 'android', 'windows', 'xbox', 'pebble'])
+export const knownPlatforms = Object.freeze(['web', 'esp32', 'rp2350', 'geaos', 'raspberry-pi-os', 'macos', 'ios', 'tvos', 'android', 'windows', 'xbox', 'pebble'])
 
 export function appPlatformForTarget(ctx, targetOrBoard) {
   return appPlatformsForTarget(ctx, targetOrBoard)[0] || ''
@@ -416,7 +416,7 @@ export function normalizeDefines(raw) {
 
 
 function emptyTargetConfig() {
-  return { nativeSources: [], providers: {}, tsconfig: '', nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', prebuild: '', output: '' }
+  return { nativeSources: [], providers: {}, tsconfig: '', nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', psram: null, flashFreq: 0, display: null, prebuild: '', output: '' }
 }
 
 function normalizeStringList(raw) {
@@ -499,6 +499,13 @@ function normalizeTargetConfig(raw) {
       partitions: normalizePartitions(value.partitions),
       partitionsByTarget: normalizePartitionsByTarget(value.partitionsByTarget),
       sdkconfig: typeof value.sdkconfig === 'string' && value.sdkconfig.trim() ? normalizeManifestRelativePath(value.sdkconfig) : '',
+      // Board settings an app may overrule for itself: its PSRAM wiring and
+      // clock (merged over the board's `psram`), and the flash clock.
+      psram: value.psram && typeof value.psram === 'object' && !Array.isArray(value.psram) ? { ...value.psram } : null,
+      flashFreq: Number(value.flashFreq) || 0,
+      // How the RGB panel's repaints reach PSRAM, for apps that redraw the whole
+      // screen every frame (games): { copyBack: 'dma', bounceRows, gridStrips }.
+      display: value.display && typeof value.display === 'object' && !Array.isArray(value.display) ? { ...value.display } : null,
       prebuild: typeof value.prebuild === 'string' ? value.prebuild.trim() : '',
       output: typeof value.output === 'string' && value.output.trim() ? normalizeManifestRelativePath(value.output) : ''
     }

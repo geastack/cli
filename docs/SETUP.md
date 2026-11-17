@@ -338,10 +338,10 @@ at call time, so never record a port path.
 A composed target is a JSON definition that extends the `esp32-s3` base and
 picks its chips from the `@geastack/chips` catalog (`gea chips list`). Every
 role is optional, so the definition describes the hardware that is there:
-`display`, `touch`, `power`, `imu`, `audio` and `expander`. Some boards are
+`display`, `touch`, `power`, `imu`, `audio`, `rtc` and `expander`. Some boards are
 shipped composed in `@geastack/targets` and need no definition of your own,
-for example `esp32-s3-devkit-n16r8` (a bare module) and
-`esp32-s3-waveshare-touch-lcd-7`.
+for example `esp32-s3-devkit-n16r8` (a bare module),
+`esp32-s3-waveshare-touch-lcd-7` and `esp32-s3-elecrow-crowpanel-advance-7.0`.
 
 Two kinds of display are understood. A QSPI controller (`co5300`) takes the
 `spiHost` and `cs`/`pclk`/`data0-3`/`reset`/`te` pins. A bare parallel RGB
@@ -388,7 +388,27 @@ I2C I/O expander instead of GPIOs. `outputs` names the expander pin that
 carries each line; a display with no `pins.backlight` lights up through
 `outputs.backlight`, and a touch controller with no `pins.reset` is reset
 through `outputs.touchReset`. `initialOutputs` is the level mask latched at
-boot.
+boot. `ch422g`, `tca9554` and `pca9557` (TCA9554's register protocol at
+0x18-0x1f) are understood.
+
+The `rtc` role (`bm8563`) is a battery-backed real-time clock on the I2C bus.
+The system clock is restored from it at boot unless it reports a power loss,
+and every wall-clock change made through the clock surface (the companion's
+SETTIME, an app setting the time) is written back to it.
+
+`audio` is either a codec (`es8311`, configured over I2C, with `mclk`/`bclk`/
+`ws`/`dout`/`din`) or a bare I2S amplifier (`ns4168`) that takes `bclk`/`ws`/
+`dout`, an optional separate I2S MEMS microphone on `micBclk`/`micWs`/`micDin`,
+and optional `expander.shutdown` / `expander.mute` lines (high = off). The
+amplifier's binding is compiled only into apps that use audio.
+
+`storage.microSD` is `sdmmc-1bit` (`clk`/`cmd`/`data0`) or `spi` (`sck`/`mosi`/
+`miso`, and `cs` unless the slot ties chip select active).
+
+When a board multiplexes two peripherals onto the same GPIOs through a
+hardware switch the firmware does not drive, `pinSharing` lists the roles that
+may coincide, e.g. `[["audio", "microSD"]]`; every other pin must still belong
+to one role. The CrowPanel Advance 7.0 definition uses all of these.
 
 ## Common Verification Flow
 

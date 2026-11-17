@@ -259,6 +259,15 @@ test('range storage is proof-generated, never an app opt-in', () => {
 })
 
 
+test('the SVG element is compiled out only with the svg node proof', () => {
+  assert.equal(withRendererFeatureDefines('', ['node-svg-analysis-v1']), 'GEA_UI_SVG=0')
+  assert.equal(withRendererFeatureDefines('', ['node-svg-analysis-v1', 'node-svg']), 'GEA_UI_SVG=1')
+  // An analyzer without the marker reports nothing about svg: keep the default.
+  assert.equal(withRendererFeatureDefines('GEA_UI_SVG=0', []), '')
+  const native = withNativeCssFeatures({ root: '/nonexistent-app', nativeSources: ['missing.cpp'] }, ['node-svg-analysis-v1'])
+  assert.match(withRendererFeatureDefines('', native), /GEA_UI_SVG=1/)
+})
+
 test('the video host is dropped only with the video node proof', () => {
   assert.equal(withRendererFeatureDefines('', ['node-video-analysis-v1']), 'GEA_UI_VIDEO_NODES=0')
   assert.equal(withRendererFeatureDefines('', ['node-video-analysis-v1', 'node-videos']), 'GEA_UI_VIDEO_NODES=1')

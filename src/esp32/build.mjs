@@ -169,7 +169,7 @@ export function requireEspIdf(env, log, selection = null) {
 
 // The per-app sdkconfig policy: development logging, the board's stack
 // sizes, the S3 instruction cache and the BLE host exactly as the app needs.
-export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta, partitionCsv, boardConsole, boardPsram }) {
+export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta, partitionCsv, boardConsole, boardPsram, boardRgbPanel }) {
   const set = (key, value) => sdkconfig.set(key, value)
   const unset = (key) => sdkconfig.unset(key)
   // A board value the app's own defaults may replace. Every value this policy
@@ -239,8 +239,37 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
         }
         board(`CONFIG_SPIRAM_SPEED_${boardPsram.speed}M`, 'y')
         board('CONFIG_SPIRAM_SPEED', String(boardPsram.speed))
+        // Octal PSRAM at 120MHz is gated behind ESP-IDF's experimental
+        // features. Its live re-tuning from the temperature sensor is left
+        // off: it aborts at boot on any flash model Espressif has not listed.
+        if (boardPsram.speed === 120 && boardPsram.mode === 'octal') board('CONFIG_IDF_EXPERIMENTAL_FEATURES', 'y')
+        unset('CONFIG_SPIRAM_TIMING_TUNING_POINT_VIA_TEMPERATURE_SENSOR')
+      }
+      if (boardPsram.xip) {
+        board('CONFIG_SPIRAM_XIP_FROM_PSRAM', 'y')
+        board('CONFIG_SPIRAM_FETCH_INSTRUCTIONS', 'y')
+        board('CONFIG_SPIRAM_RODATA', 'y')
       }
     }
+  }
+
+  // A bare RGB panel is scanned out of PSRAM through bounce buffers refilled
+  // by the LCD interrupt. Its code must sit in IRAM: otherwise it is fetched
+  // over the same PSRAM bus rendering saturates (always so with XIP from
+  // PSRAM), the refill misses its slot, the FIFO underruns and every later
+  // line lands shifted -- the picture shreds on each repaint and stays slid.
+  // Restarting the transfer at each VSYNC puts a slipped frame back. In that
+  // mode the driver never resets the EOF count it picks each refill's buffer
+  // from, so one lost EOF would leave every refill a buffer out of step with
+  // the DMA (thin lines at each band's head); rgb_panel.cpp's refill reads the
+  // buffer and band from the DMA itself instead. A board whose display says
+  // `restartInVsync: false` skips the restart: it runs in the VSYNC interrupt,
+  // which waits out a refill in progress, and once that pushes it past the
+  // vertical blanking the restarted frame lands shifted sideways.
+  if (boardRgbPanel) {
+    board('CONFIG_LCD_RGB_ISR_IRAM_SAFE', 'y')
+    if (boardRgbPanel.restartInVsync) board('CONFIG_LCD_RGB_RESTART_IN_VSYNC', 'y')
+    else unset('CONFIG_LCD_RGB_RESTART_IN_VSYNC')
   }
 
   // Flash size follows the board, not the base target it extends: a composed
@@ -254,6 +283,28 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
     }
     board(`CONFIG_ESPTOOLPY_FLASHSIZE_${flashSizeMb}MB`, 'y')
     board('CONFIG_ESPTOOLPY_FLASHSIZE', `"${flashSizeMb}MB"`)
+  }
+
+  // Flash mode follows the board's module too. Only the choice is written:
+  // ESP-IDF derives CONFIG_ESPTOOLPY_FLASHMODE from it (QIO images still carry
+  // DIO in their header; the bootloader switches the chip to QIO itself).
+  const flashMode = (selection.flashMode || '').toUpperCase()
+  if (flashMode) {
+    for (const mode of ['QIO', 'QOUT', 'DIO', 'DOUT']) {
+      if (mode !== flashMode) unset(`CONFIG_ESPTOOLPY_FLASHMODE_${mode}`)
+    }
+    board(`CONFIG_ESPTOOLPY_FLASHMODE_${flashMode}`, 'y')
+  }
+
+  // Flash and PSRAM share the MSPI core clock, so the flash clock must divide
+  // the one PSRAM runs from: octal PSRAM at 120MHz needs a 240MHz core, which
+  // 80MHz quad flash cannot share (ESP-IDF has no tuning table for it).
+  const flashFreq = Number(app?.targetConfig?.esp32?.flashFreq) || Number(selection.flashFreq) || 0
+  if (flashFreq) {
+    for (const mhz of [20, 26, 40, 80, 120]) {
+      if (mhz !== flashFreq) unset(`CONFIG_ESPTOOLPY_FLASHFREQ_${mhz}M`)
+    }
+    board(`CONFIG_ESPTOOLPY_FLASHFREQ_${flashFreq}M`, 'y')
   }
 
   // These four are all internal-DRAM decisions, which is the memory an app's
@@ -443,6 +494,19 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   // the app's file is last and wins wherever the two disagree.
   const appEsp32Config = app ? appTargetConfig(app, 'esp32') : null
   const appSdkconfigFile = appEsp32Config?.sdkconfig ? path.join(app.root, appEsp32Config.sdkconfig) : ''
+  // gea.targets.esp32.display: the RGB panel pipeline an app opts into.
+  //   copyBack: 'dma'  the strip copy-back runs on GDMA, freeing the worker core;
+  //                    it cannot wait out bounce refills, so partial UI repaints tear
+  //   bounceRows: N    bounce-buffer height, overriding the board's
+  //   gridStrips: true staged strips sit on a fixed grid (per-band 3D underlays)
+  const appDisplay = appEsp32Config?.display
+  if (appDisplay) {
+    if (appDisplay.copyBack === 'dma') resolvedBuild.defines.push('GEA_EMBEDDED_RGB_COPYBACK_DMA=1')
+    else if (appDisplay.copyBack && appDisplay.copyBack !== 'cpu') throw new Error(`gea.targets.esp32.display.copyBack must be 'cpu' or 'dma', not '${appDisplay.copyBack}'.`)
+    const bounceRows = Number(appDisplay.bounceRows) || 0
+    if (bounceRows) resolvedBuild.defines.push(`GEA_EMBEDDED_RGB_BOUNCE_ROWS=${bounceRows}`)
+    if (appDisplay.gridStrips === true) resolvedBuild.defines.push('GEA_EMBEDDED_STAGE_GRID_STRIPS=1')
+  }
   const { file: sdkconfigFile, defaultsFile, regenerated } = prepareBuildLocalSdkconfig(selection.targetDir, binaryDir, appSdkconfigFile)
   if (regenerated) log('sdkconfig defaults changed; the generated sdkconfig was rebuilt from them')
   log(`Using ESP32 target '${selection.target}' at ${selection.targetDir} (idf=${idfTarget} chip=${selection.esptoolChip || idfTarget} flash=${selection.flashSize})`)
@@ -462,6 +526,7 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   let boardPartitionCsv = ''
   let boardConsole = null
   let boardPsram = null
+  let boardRgbPanel = false
   // Physical buttons: the board's JSON list with the app's changes, generated
   // into a header the firmware's button service includes.
   const buttons = resolveButtons({ board: selection.buttons || [], app, platform: 'esp32', boardId: selection.target })
@@ -495,6 +560,9 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     boardPartitionCsv = generated.partitionCsv
     boardConsole = generated.target.console
     boardPsram = generated.target.psram
+    if (boardPsram && appEsp32Config?.psram) boardPsram = { ...boardPsram, ...appEsp32Config.psram }
+    const display = generated.target.chips?.display
+    boardRgbPanel = display?.interface === 'rgb' ? { restartInVsync: display.restartInVsync !== false } : false
     log(`Generated custom board files in ${outDir} (${path.basename(generated.headerPath)}, ${path.basename(generated.cmakePath)})`)
   }
 
@@ -625,7 +693,8 @@ function preparePartitions(app, config, buildDir, targetId) {
     // apps that declare none, because the board is what knows its flash layout.
     partitionCsv: appPartitionCsv || boardPartitionCsv,
     boardConsole,
-    boardPsram
+    boardPsram,
+    boardRgbPanel
   }).save()
 
   const defaultsArg = [defaultsFile, appSdkconfigFile].filter(Boolean).join(';')

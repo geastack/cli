@@ -145,23 +145,20 @@ export async function runGea(argv, io = {}) {
     // this host is not (a Windows-only app on a Mac, a Mac-only app on Linux)
     // has nothing to select: falling into board selection would report a
     // missing --board for an app that declares no board at all.
-    if (command === 'build' && !target && app && !declaresBoardTarget(app) && (app.targets?.macos || app.targets?.windows || app.targets?.ios)) {
-      const desktop = ['macos', 'windows', 'ios'].filter((platform) => app.targets?.[platform])
+    if (command === 'build' && !target && app && !declaresBoardTarget(app) && (app.targets?.macos || app.targets?.windows || app.targets?.ios || app.targets?.tvos)) {
+      const desktop = ['macos', 'windows', 'ios', 'tvos'].filter((platform) => app.targets?.[platform])
       fail(`'${app.id}' declares no target that builds on this host by default. Pass --target ${desktop.join(' or --target ')}.`, ExitCode.usage)
     }
   }
-  // iOS is the third platform driven by one script inside @geastack/apple,
-  // resolved like macOS from the app's own dependencies. It never has a host
-  // default: a bare `gea build` cannot know simulator from device, so the iOS
-  // build is always the documented `gea build --target ios [--mode simulator|device]`,
-  // and `gea run --target ios` builds, installs and launches it.
-  if ((command === 'build' || command === 'run') && target === 'ios') {
+  // iOS and tvOS share the UIKit build script in @geastack/apple.
+  // Both use an explicit target and default to the platform's simulator.
+  if ((command === 'build' || command === 'run') && ['ios', 'tvos'].includes(target)) {
     const app = parsed.options.app || rest[0] ? findAppById(ctx, String(parsed.options.app || rest[0])) : findCurrentApp(cwd)
-    if (!app?.targets?.ios) {
-      fail(app ? `'${app.id}' does not declare gea.targets.ios.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
+    if (!app?.targets?.[target]) {
+      fail(app ? `'${app.id}' does not declare gea.targets.${target}.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
     }
     const { runIos } = await import('./ios/adapter.mjs')
-    return runIos({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, mode: option(parsed, 'mode', ''), run: command === 'run' })
+    return runIos({ app, platform: target, env, dryRun: flag(parsed, 'dry-run'), stdout, mode: option(parsed, 'mode', ''), run: command === 'run' })
   }
   // Pebble is driven by one script inside @geastack/pebble, like iOS inside
   // @geastack/apple, and like iOS it is never a host default. `gea build
@@ -305,6 +302,8 @@ ${heading('Native desktop, mobile and watch apps (scripts ship in @geastack/appl
   gea build --target raspberry-pi-os [app]       build an SDL Linux native executable (no launch)
   gea build --target macos [app]                 build a Mac .app (a bare gea build does this on a Mac for a Mac-only app)
   gea build --target ios [app] [--mode simulator|device]   generate the Xcode project and build the iOS .app
+  gea build --target tvos [app] [--mode simulator|device]  build the tvOS .app
+  gea run --target tvos [app] [--mode simulator|device]    install and launch on Apple TV or its simulator
   gea run --target ios [app] [--mode simulator|device]     build, then install and launch on a simulator or iPhone
   gea build|run --target windows [app]           build (and launch) the Windows executable
   gea build --target pebble [app]                build a Pebble Time 2 app (.pbw); needs the Pebble SDK
