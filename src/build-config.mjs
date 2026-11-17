@@ -25,6 +25,8 @@ export const buildOptions = {
   'renderer.recordInlinePositions': { type: 'boolean', macro: 'GEA_EMBEDDED_SKIP_POSITION_INLINE_RECORD', encode: v => Number(!v) },
   'renderer.adaptiveCoalescing': { type: 'boolean', macro: 'GEA_EMBEDDED_FLUSH_ADAPTIVE_COALESCE' },
   'renderer.broadDirtyBounds': { type: 'boolean', macro: 'GEA_EMBEDDED_BROAD_DIRTY_BBOX' },
+  'display.width': { type: 'integer', min: 1 },
+  'display.height': { type: 'integer', min: 1 },
   'display.framebufferStream': { values: ['independent', 'continuous'], macro: 'GEA_EMBEDDED_DISPLAY_CO5300_FRAMEBUFFER_CS_HELD_STREAM', encode: v => Number(v === 'continuous') },
   'display.presentStream': { boardScoped: true, values: ['independent', 'continuous'], macro: 'GEA_EMBEDDED_DISPLAY_CO5300_PRESENT_CS_HELD_STREAM', encode: v => Number(v === 'continuous') },
   'display.flushPoolBytes': { type: 'integer', macro: 'GEA_EMBEDDED_DISPLAY_FLUSH_POOL_BYTES' },
