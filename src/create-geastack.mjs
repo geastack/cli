@@ -284,6 +284,11 @@ async function chooseBlankTarget(prompt, { back }) {
         description: 'A native iOS application.'
       },
       {
+        value: 'tvos',
+        label: 'Apple TV',
+        description: 'A native tvOS application.'
+      },
+      {
         value: 'android',
         label: 'Android',
         description: 'A native Android application.'
@@ -315,6 +320,7 @@ function targetManifest(requestedTargets) {
     geaos: enabled.has('geaos'),
     macos: enabled.has('macos'),
     ios: enabled.has('ios'),
+    tvos: enabled.has('tvos'),
     android: enabled.has('android'),
     windows: enabled.has('windows')
   }
@@ -329,6 +335,7 @@ function targetManifestFromObject(targets = {}) {
     geaos: targets.geaos === true,
     macos: targets.macos === true,
     ios: targets.ios === true,
+    tvos: targets.tvos === true,
     android: targets.android === true,
     windows: targets.windows === true
   }
@@ -361,7 +368,7 @@ function packageJson({ appId, displayName, targets, entry, coreDependency, cliDe
       '@geastack/cli': cliDependency,
       ...(needsTargetsPackage(targets) ? { '@geastack/targets': sourcePackage.dependencies?.['@geastack/targets'] || targetsDependencyDefault } : {}),
       ...(targets.windows ? { '@geastack/windows': sourcePackage.dependencies?.['@geastack/windows'] || windowsDependencyDefault } : {}),
-      ...(targets.macos || targets.ios ? { '@geastack/apple': sourcePackage.dependencies?.['@geastack/apple'] || appleDependencyDefault } : {})
+      ...(targets.macos || targets.ios || targets.tvos ? { '@geastack/apple': sourcePackage.dependencies?.['@geastack/apple'] || appleDependencyDefault } : {})
     },
     devDependencies: {
       ...(sourcePackage.devDependencies || {}),
@@ -385,9 +392,9 @@ function needsTargetsPackage(targets) {
 // own dependencies by `gea build --target windows`.
 const windowsDependencyDefault = '^0.1.0'
 
-// The macOS and iOS targets ship inside @geastack/apple, resolved the same way
-// by `gea build --target macos` and `gea build --target ios`. An app that
-// declares either target without the package has nothing to build with.
+// The macOS, iOS and tvOS targets ship inside @geastack/apple, resolved the
+// same way by `gea build --target macos|ios|tvos`. An app that declares any of
+// them without the package has nothing to build with.
 const appleDependencyDefault = starterDependencies['@geastack/apple'] || '^0.2.9'
 
 function indexTsx(displayName) {
@@ -529,7 +536,11 @@ npx gea run --target windows`
           ? `npx gea setup
 npx gea build --target ios
 npx gea run --target ios`
-          : `npx gea setup
+          : targets.tvos && !targets.macos
+            ? `npx gea setup
+npx gea build --target tvos
+npx gea run --target tvos`
+            : `npx gea setup
 npx gea build`
   return `# ${displayName}
 
@@ -614,7 +625,7 @@ Automation options:
   --name <display-name>
   --examples-repo <git-url-or-local-path>
   --examples-ref <git-ref>
-  --targets web,esp32,rp2350,geaos,macos,ios,android,windows
+  --targets web,esp32,rp2350,geaos,macos,ios,tvos,android,windows
   --core-dependency <specifier>
   --cli-dependency <specifier>
   --install

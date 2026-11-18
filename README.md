@@ -17,6 +17,7 @@ gea setup
 gea dev
 gea build --target web
 gea build --target ios
+gea build --target tvos
 gea flash --board amoled --monitor
 gea screenshot board.png --board amoled
 gea monitor --board amoled
@@ -37,7 +38,7 @@ flowchart TD
   emptyTarget -->|"ESP32 board"| emptyEsp["Generate native entry<br/>Ask whether to enable Bluetooth updates"]
   emptyTarget -->|"Other native target"| emptyNative["Generate native entry for the selected platform"]
 
-  starter -->|"Example application"| pickExample["Pick from the example gallery<br/>web, ESP32, GeaOS, iOS, macOS, Android"]
+  starter -->|"Example application"| pickExample["Pick from the example gallery<br/>web, ESP32, GeaOS, iOS, tvOS, macOS, Android"]
   pickExample --> fetchExample["Fetch selected app from GitHub"]
   fetchExample --> copyExample["Copy fetched example files"]
   copyExample --> rewriteExample["Rewrite package name and gea manifest"]
@@ -192,7 +193,7 @@ First implementation is in place:
 - `flash`, `monitor`, WiFi OTA, and BLE OTA through `@geastack/targets`;
 - `list` and `inspect` helpers;
 - `create-geastack` with a bundled counter starter, a blank application, and a
-  GitHub-backed rich example flow for web, embedded, GeaOS, iOS, macOS, and Android apps,
+  GitHub-backed rich example flow for web, embedded, GeaOS, iOS, tvOS, macOS, and Android apps,
   all with `.gea/boards.json`, plus `gea boards` for machine-wide aliases in
   `~/.geastack/boards.json`.
 

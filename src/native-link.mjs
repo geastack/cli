@@ -10,9 +10,10 @@ export function resolveNativeLink(root, target, config = {}) {
   for (const [name, values] of [['nativeLibraries', libraries], ['frameworks', frameworks], ['nativeIncludeDirectories', includeDirectories], ['nativeSystemLibraries', systemLibraries]]) {
     if (!Array.isArray(values) || values.some(value => typeof value !== 'string' || !value)) throw new Error(`${name} must be an array of nonempty strings`)
   }
-  if (libraries.length && !['macos', 'raspberry-pi-os'].includes(target)) throw new Error(`nativeLibraries are not supported by ${target}`)
-  if (frameworks.length && target !== 'macos') throw new Error('frameworks are supported only by macos')
-  if ((includeDirectories.length || systemLibraries.length) && !['raspberry-pi-os', 'windows'].includes(target)) throw new Error('Native include/system library extensions are supported only by raspberry-pi-os and windows')
+  if (libraries.length && !['macos', 'raspberry-pi-os', 'ios', 'tvos'].includes(target)) throw new Error(`nativeLibraries are not supported by ${target}`)
+  if (frameworks.length && !['macos', 'ios', 'tvos'].includes(target)) throw new Error('frameworks are supported only by macos, ios and tvos')
+  if (includeDirectories.length && !['raspberry-pi-os', 'windows', 'ios', 'tvos'].includes(target)) throw new Error('nativeIncludeDirectories are supported only by raspberry-pi-os, windows, ios and tvos')
+  if (systemLibraries.length && !['raspberry-pi-os', 'windows'].includes(target)) throw new Error('nativeSystemLibraries are supported only by raspberry-pi-os and windows')
   const includes = includeDirectories.map(value => {
     if (path.isAbsolute(value) || value.split(/[\\/]/).includes('..') || /[\x00-\x1f\x7f]/.test(value)) throw new Error('Invalid nativeIncludeDirectories entry')
     const directory = fs.realpathSync(path.join(realRoot,value)), relative=path.relative(realRoot,directory)

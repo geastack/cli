@@ -365,7 +365,7 @@ export function resolveAppSourcePath(root, source) {
 // staged with the executable) and gea.targets.<target>.tsconfig (the
 // TypeScript project the compiler reads the program under). The other targets
 // take gea.nativeSources only.
-const TARGET_NATIVE_SOURCE_TARGETS = ['windows']
+const TARGET_NATIVE_SOURCE_TARGETS = ['windows', 'ios', 'tvos']
 const TARGET_PROVIDER_TARGETS = ['windows']
 
 export function normalizeNativeSources(raw) {
