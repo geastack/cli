@@ -4,9 +4,10 @@ import crypto from 'node:crypto'
 const exists=file=>{try{fs.lstatSync(file);return true}catch(error){if(error.code==='ENOENT')return false;throw error}}
 function fileHash(file){const fd=fs.openSync(file,'r'),hash=crypto.createHash('sha256'),buffer=Buffer.alloc(1048576);try{for(;;){const count=fs.readSync(fd,buffer,0,buffer.length,null);if(!count)break;hash.update(buffer.subarray(0,count))}return hash.digest('hex')}finally{fs.closeSync(fd)}}
 const safeName=value=>typeof value==='string' && /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value) && !['Fonts','FontLicenses','Frameworks','MacOS'].includes(value)
+export const nativeResourceTargets=['macos','raspberry-pi-os','windows','ios','tvos']
 export function resolveNativeResources(root, target, raw = {}) {
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('nativeResources must be a destination-to-directory object')
- if(Object.keys(raw).length && !['macos','raspberry-pi-os','windows','ios','tvos'].includes(target))throw Error(`nativeResources are not supported by ${target}`)
+ if(Object.keys(raw).length && !nativeResourceTargets.includes(target))throw Error(`nativeResources are not supported by ${target}`)
  const base=fs.realpathSync(root),result={};let count=0,total=0
  for(const [name,value]of Object.entries(raw)){
   if(!safeName(name)||typeof value!=='string'||!value||path.isAbsolute(value)||value.split(/[\\/]/).includes('..')||/[\x00-\x1f\x7f]/.test(value))throw Error('Invalid nativeResources destination or source')
