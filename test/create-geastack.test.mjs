@@ -147,6 +147,16 @@ test('create-geastack gives an iOS app the Apple package and the iOS commands', 
   assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /npx gea build --target ios/)
 })
 
+test('create-geastack gives a tvOS app the Apple package and the tvOS commands', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-tvos-'))
+  await runCreateGeastack(['Lounge', '--dir', tmp, '--targets=tvos'], { cwd: tmp, stdout: () => {} })
+  const packageJson = JSON.parse(fs.readFileSync(path.join(tmp, 'package.json'), 'utf8'))
+  assert.equal(packageJson.gea.targets.tvos, true)
+  assert.equal(packageJson.dependencies['@geastack/apple'], cliPackage.starterDependencies['@geastack/apple'])
+  assert.equal('@geastack/targets' in packageJson.dependencies, false)
+  assert.match(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /npx gea build --target tvos/)
+})
+
 test('create-geastack always defaults to registry dependencies', async (t) => {
   const fixture = createFixture(t)
   const targetDir = path.join(fixture.root, 'generated-app')
