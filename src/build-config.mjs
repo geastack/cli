@@ -16,6 +16,7 @@ export const buildOptions = {
   'compiler.staticCssTapeMinChunk': { type: 'integer', min: 1 },
   'compiler.translationUnits': { values: ['default', 'per-file', 'balanced'] },
   'compiler.storeRelowering': { type: 'boolean' },
+  'compiler.heapMiB': { type: 'integer', min: 512 },
   'compiler.generatedCodeOptimization': { values: ['O0', 'O1', 'O2', 'O3', 'Os', 'Og'] },
   'compiler.numberPrecision': { values: ['float64', 'float32'], macro: 'GEA_NUMBER_FLOAT', encode: v => v === 'float32' ? 1 : undefined },
   'ui.styleStorage': { values: ['inline', 'shared'], macro: 'GEA_EMBEDDED_SHARED_STYLES', encode: v => Number(v === 'shared') },

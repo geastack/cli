@@ -96,7 +96,7 @@ export function validateApp(app) {
     }
     if (config.providers !== null && (typeof config.providers !== 'object' || Array.isArray(config.providers))) errors.push(`${where('providers')} must be an object keyed by capability`)
     else if (Object.keys(config.providers).length && !TARGET_PROVIDER_TARGETS.includes(target)) errors.push(`${where('providers')} is supported only by ${TARGET_PROVIDER_TARGETS.join(', ')}`)
-    if (config.tsconfig && !TARGET_NATIVE_SOURCE_TARGETS.includes(target)) errors.push(`${where('tsconfig')} is supported only by ${TARGET_NATIVE_SOURCE_TARGETS.join(', ')}`)
+    if (config.tsconfig && !TARGET_TSCONFIG_TARGETS.includes(target)) errors.push(`${where('tsconfig')} is supported only by ${TARGET_TSCONFIG_TARGETS.join(', ')}`)
     else if (config.tsconfig && !exists(path.join(app.root, config.tsconfig))) errors.push(`${where('tsconfig')} does not exist: ${config.tsconfig}`)
     try { resolveNativeResources(app.root, target, config.nativeResources); resolveNativeLink(app.root, target, config) } catch (error) { errors.push(`${where('nativeLibraries/frameworks')}: ${error.message}`) }
     for (const fragment of config.ldFragments) {
@@ -362,10 +362,11 @@ export function resolveAppSourcePath(root, source) {
 
 // Targets whose build consumes per-target gea.targets.<target>.nativeSources,
 // gea.targets.<target>.providers (runtime implementations a package requires,
-// staged with the executable) and gea.targets.<target>.tsconfig (the
-// TypeScript project the compiler reads the program under). The other targets
-// take gea.nativeSources only.
+// staged with the executable). The other targets take gea.nativeSources only.
 const TARGET_NATIVE_SOURCE_TARGETS = ['windows', 'ios', 'tvos']
+// Targets whose build passes gea.targets.<target>.tsconfig (the TypeScript
+// project the compiler reads the program under) to the compiler.
+const TARGET_TSCONFIG_TARGETS = ['windows', 'ios', 'tvos', 'macos']
 const TARGET_PROVIDER_TARGETS = ['windows']
 
 export function normalizeNativeSources(raw) {
