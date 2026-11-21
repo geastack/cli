@@ -169,7 +169,7 @@ export function requireEspIdf(env, log, selection = null) {
 
 // The per-app sdkconfig policy: development logging, the board's stack
 // sizes, the S3 instruction cache and the BLE host exactly as the app needs.
-export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta, partitionCsv, boardConsole, boardPsram, boardRgbPanel }) {
+export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta, partitionCsv, boardConsole, boardPsram, boardRgbPanel, boardWireless = null, boardCamera = null }) {
   const set = (key, value) => sdkconfig.set(key, value)
   const unset = (key) => sdkconfig.unset(key)
   // A board value the app's own defaults may replace. Every value this policy
@@ -266,6 +266,62 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
   // `restartInVsync: false` skips the restart: it runs in the VSYNC interrupt,
   // which waits out a refill in progress, and once that pushes it past the
   // vertical blanking the restarted frame lands shifted sideways.
+  // A P4's hosted WiFi/BLE coprocessor: esp_hosted takes its SDIO bus and the
+  // coprocessor's reset line from these, so they are the board's wiring.
+  if (boardWireless) {
+    for (const slot of [0, 1]) if (slot !== boardWireless.slot) unset(`CONFIG_ESP_HOSTED_SDIO_SLOT_${slot}`)
+    board(`CONFIG_ESP_HOSTED_SDIO_SLOT_${boardWireless.slot}`, 'y')
+    if (boardWireless.busWidth === 4) {
+      unset('CONFIG_ESP_HOSTED_SDIO_1_BIT_BUS')
+      board('CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS', 'y')
+    } else {
+      unset('CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS')
+      board('CONFIG_ESP_HOSTED_SDIO_1_BIT_BUS', 'y')
+    }
+    board('CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ', String(boardWireless.clockKhz))
+    if (boardWireless.resetActiveHigh) {
+      unset('CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW')
+      board('CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_HIGH', 'y')
+    } else {
+      unset('CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_HIGH')
+      board('CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW', 'y')
+    }
+    board('CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE', String(boardWireless.pins.reset))
+    // esp_hosted's settable pins are the per-slot PRIV symbols; the plain
+    // CONFIG_ESP_HOSTED_SDIO_PIN_* are derived from them and a value written
+    // there is recomputed away. D1 is the interrupt line in 1-bit mode too.
+    const slot = `SLOT_${boardWireless.slot}`
+    const bus = boardWireless.busWidth === 4 ? '4BIT_BUS' : '1BIT_BUS'
+    const pins = {
+      [`CMD_${slot}`]: 'cmd',
+      [`CLK_${slot}`]: 'clk',
+      [`D0_${slot}`]: 'd0',
+      [`D1_${bus}_${slot}`]: 'd1',
+      ...(boardWireless.busWidth === 4 ? { [`D2_${bus}_${slot}`]: 'd2', [`D3_${bus}_${slot}`]: 'd3' } : {})
+    }
+    for (const [name, key] of Object.entries(pins)) {
+      if (boardWireless.pins[key] >= 0) board(`CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_${name}`, String(boardWireless.pins[key]))
+    }
+  }
+
+  // A P4's MIPI-CSI camera: the esp_cam_sensor driver and the mode it streams.
+  if (boardCamera) {
+    const sensor = boardCamera.sensor.toUpperCase()
+    board('CONFIG_IDF_EXPERIMENTAL_FEATURES', 'y')
+    board(`CONFIG_CAMERA_${sensor}`, 'y')
+    board(`CONFIG_CAMERA_${sensor}_AUTO_DETECT_MIPI_INTERFACE_SENSOR`, 'y')
+    if (boardCamera.mode) {
+      // The mode is a choice: clear the one already selected (the sensor's
+      // default, or a previous board's) so the two cannot both stand.
+      const prefix = `CONFIG_CAMERA_${sensor}_${boardCamera.mode.split('_')[0]}_`
+      for (const line of sdkconfig.text.split('\n')) {
+        const key = line.endsWith('=y') ? line.slice(0, -2) : ''
+        if (key.startsWith(prefix) && !key.includes('_IF_FORMAT_') && key !== `CONFIG_CAMERA_${sensor}_${boardCamera.mode}`) unset(key)
+      }
+      board(`CONFIG_CAMERA_${sensor}_${boardCamera.mode}`, 'y')
+    }
+  }
+
   if (boardRgbPanel) {
     board('CONFIG_LCD_RGB_ISR_IRAM_SAFE', 'y')
     if (boardRgbPanel.restartInVsync) board('CONFIG_LCD_RGB_RESTART_IN_VSYNC', 'y')
@@ -527,6 +583,8 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   let boardConsole = null
   let boardPsram = null
   let boardRgbPanel = false
+  let boardWireless = null
+  let boardCamera = null
   // Physical buttons: the board's JSON list with the app's changes, generated
   // into a header the firmware's button service includes.
   const buttons = resolveButtons({ board: selection.buttons || [], app, platform: 'esp32', boardId: selection.target })
@@ -563,6 +621,8 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     if (boardPsram && appEsp32Config?.psram) boardPsram = { ...boardPsram, ...appEsp32Config.psram }
     const display = generated.target.chips?.display
     boardRgbPanel = display?.interface === 'rgb' ? { restartInVsync: display.restartInVsync !== false } : false
+    boardWireless = generated.target.wireless
+    boardCamera = generated.target.camera
     log(`Generated custom board files in ${outDir} (${path.basename(generated.headerPath)}, ${path.basename(generated.cmakePath)})`)
   }
 
@@ -694,7 +754,9 @@ function preparePartitions(app, config, buildDir, targetId) {
     partitionCsv: appPartitionCsv || boardPartitionCsv,
     boardConsole,
     boardPsram,
-    boardRgbPanel
+    boardRgbPanel,
+    boardWireless,
+    boardCamera
   }).save()
 
   const defaultsArg = [defaultsFile, appSdkconfigFile].filter(Boolean).join(';')
