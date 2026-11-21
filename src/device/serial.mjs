@@ -453,7 +453,10 @@ export const geadev = {
   },
 
   async screenshot(d, { timeoutMs = 12000, fallbackTimeoutMs = 30000, attempts = 3, legacy = false } = {}) {
-    if (legacy) return geadev.screenshotRle(d, fallbackTimeoutMs)
+    // A 115200-baud UART console moves ~11 KB/s, so a busy 800x480 frame can
+    // need longer than the default: a longer --timeout covers the RLE path too.
+    const rleTimeoutMs = Math.max(timeoutMs, fallbackTimeoutMs)
+    if (legacy) return geadev.screenshotRle(d, rleTimeoutMs)
     let lastError = null
     for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
       try {
@@ -465,7 +468,7 @@ export const geadev = {
       }
     }
     if (d.trace) d.stderr(`binary screenshot unavailable, falling back to RLE: ${lastError?.message}`)
-    return geadev.screenshotRle(d, fallbackTimeoutMs)
+    return geadev.screenshotRle(d, rleTimeoutMs)
   },
 
   // Streams a file onto the device's storage over USB. Throttled bursts keep
