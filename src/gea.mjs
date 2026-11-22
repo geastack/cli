@@ -101,7 +101,7 @@ export async function runGea(argv, io = {}) {
   const target = option(parsed, 'target', '')
   if (command === 'prerender') {
     const app = resolveRequestedApp(ctx, parsed, rest)
-    const { prerender } = await import('./macos/prerender.mjs')
+    const { prerender } = await import('./prerender.mjs')
     return prerender({ app, parsed, cwd, env, stdout })
   }
   // Raspberry Pi OS builds a real SDL native executable. Running/deploying is
@@ -298,7 +298,7 @@ ${heading('Usage:')}
 
 ${heading('Run on this machine (no board needed):')}
   gea run [app] --debug [--debug-port N]        live tree/CSS in Chrome DevTools [--target macos|web|esp32] [--board alias] [--attach] [--debug-fps 1..120] [--debug-sources] [--overrides file] [--save-overrides file]
-  gea prerender [app] --out file.png             native macOS PNG [--width W --height H --dpr D] [--frame N | --at TIME] [--fps N] [--reuse]
+  gea prerender [app] --out file.png             native PNG [--target macos|windows|raspberry-pi-os] [--width W --height H --dpr D] [--frame N | --at TIME] [--fps N] [--reuse]
   gea simulate [app] [--port N]                  DOM emulator with HMR [--renderer dom|wasm] [--no-open] [--width W --height H --dpr D --zoom Z]
   gea dev [app] [--port N]                       real DOM + CSS dev server with HMR  (same as --target web)
   gea build --target web [app] [--out-dir d]     build the app as a real web app

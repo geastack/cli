@@ -7,6 +7,16 @@ import { createRequire } from 'node:module'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { formatCommand } from '../run.mjs'
 
+export function windowsTargetRoot(app, env) {
+  if (env.GEA_WINDOWS_ROOT) return path.resolve(env.GEA_WINDOWS_ROOT)
+  const require = createRequire(path.join(app.root, 'package.json'))
+  try {
+    return path.dirname(require.resolve('@geastack/windows/package.json'))
+  } catch {
+    fail(`'${app.id}' targets Windows but @geastack/windows is not installed in ${app.root} — run npm install there.`, ExitCode.missingDependency)
+  }
+}
+
 // Windows is a platform, not a board: like macOS it has no alias, no catalog
 // entry and no @geastack/targets dependency, so it never goes through board
 // selection. The whole target is one Node script parameterised by an app id,
@@ -17,12 +27,7 @@ import { formatCommand } from '../run.mjs'
 // is a Windows box that need not have a POSIX shell.
 export function runWindows({ app, env, dryRun = false, stdout, run = false }) {
   const require = createRequire(path.join(app.root, 'package.json'))
-  let windowsRoot = ''
-  try {
-    windowsRoot = path.dirname(require.resolve('@geastack/windows/package.json'))
-  } catch {
-    fail(`'${app.id}' targets Windows but @geastack/windows is not installed in ${app.root} — run npm install there.`, ExitCode.missingDependency)
-  }
+  const windowsRoot = windowsTargetRoot(app, env)
   const script = path.join(windowsRoot, 'targets', 'win32', 'build-windows.mjs')
   if (!existsSync(script)) fail(`Windows build script not found: ${script}`, ExitCode.missingDependency)
   // The script resolves the app through this CLI again; it is spawned with the
