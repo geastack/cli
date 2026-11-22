@@ -2,7 +2,7 @@ import { debugFps } from '../debug-fps.mjs'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appForNativeDebugger, resolveBuildConfig, writeBuildConfig } from '../build-config.mjs'
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { geastackHome } from '../boards/config.mjs'
@@ -198,9 +198,13 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
   // firmware would run correctly and log into a port nobody is connected to,
   // which is indistinguishable from a board that never booted.
   if (boardConsole) {
-    for (const key of ['CONFIG_ESP_CONSOLE_UART_DEFAULT', 'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG', 'CONFIG_ESP_CONSOLE_USB_CDC', 'CONFIG_ESP_CONSOLE_NONE']) {
+    // A base's own console choice goes with it: the esp32-p4 base (the Waveshare
+    // 7-inch project) runs a CUSTOM UART at 921600 with the USB-Serial/JTAG as a
+    // secondary console, none of which a composed board's wiring has.
+    for (const key of ['CONFIG_ESP_CONSOLE_UART_DEFAULT', 'CONFIG_ESP_CONSOLE_UART_CUSTOM', 'CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_0', 'CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_1', 'CONFIG_ESP_CONSOLE_UART_TX_GPIO', 'CONFIG_ESP_CONSOLE_UART_RX_GPIO', 'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG', 'CONFIG_ESP_CONSOLE_USB_CDC', 'CONFIG_ESP_CONSOLE_NONE', 'CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG']) {
       unset(key)
     }
+    board('CONFIG_ESP_CONSOLE_SECONDARY_NONE', 'y')
     if (boardConsole.transport === 'uart') {
       board('CONFIG_ESP_CONSOLE_UART_DEFAULT', 'y')
       board('CONFIG_ESP_CONSOLE_UART', 'y')
@@ -307,6 +311,12 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
   // A P4's MIPI-CSI camera: the esp_cam_sensor driver and the mode it streams.
   if (boardCamera) {
     const sensor = boardCamera.sensor.toUpperCase()
+    // Only the board's sensor: the esp32-p4 base enables the Waveshare board's
+    // OV5647, and esp_video would probe it too.
+    for (const line of `${sdkconfig.defaults}\n${sdkconfig.text}`.split('\n')) {
+      const other = /^(CONFIG_CAMERA_([A-Z0-9]+))=y$/.exec(line)
+      if (other && other[2] !== sensor && other[2] !== 'XCLK') unset(other[1])
+    }
     board('CONFIG_IDF_EXPERIMENTAL_FEATURES', 'y')
     board(`CONFIG_CAMERA_${sensor}`, 'y')
     board(`CONFIG_CAMERA_${sensor}_AUTO_DETECT_MIPI_INTERFACE_SENSOR`, 'y')
@@ -804,7 +814,24 @@ function runInTarget(command, args, { cwd, env, dryRun, verbose, label, logFile,
 // App capability flags are CMake cache entries. Reconfigure only when those
 // inputs change; ordinary source/CMake dependency changes remain the build
 // system's responsibility. This retains Ninja's sub-second no-op.
+// A build directory belongs to the CMake project it was configured from, and
+// CMake refuses to reuse it for another ("does not match the source used to
+// generate cache"). A target whose project moved -- the esp32-p4 base moving
+// onto the Waveshare 7-inch project -- leaves such a directory behind, so its
+// cache goes and configure starts the directory afresh.
+export function dropCacheFromOtherSource(buildDir, sourceDir) {
+  const cacheFile = path.join(buildDir, 'CMakeCache.txt')
+  if (!existsSync(cacheFile)) return false
+  const home = /^CMAKE_HOME_DIRECTORY:INTERNAL=(.*)$/m.exec(readFileSync(cacheFile, 'utf8'))?.[1]
+  const real = (dir) => (existsSync(dir) ? realpathSync(dir) : path.resolve(dir))
+  if (!home || real(home) === real(sourceDir)) return false
+  rmSync(cacheFile, { force: true })
+  rmSync(path.join(buildDir, 'CMakeFiles'), { recursive: true, force: true })
+  return true
+}
+
 export async function ensureConfigured({ idf, prepared, env, dryRun = false, verbose = false, stdout, stderr = console.error }) {
+  if (!dryRun) dropCacheFromOtherSource(prepared.binaryDir || prepared.buildDir, prepared.targetDir)
   const signatureFile = path.join(prepared.buildDir, '.gea-configure-args')
   const signature = [`IDF_PATH=${idf.idfDir}`, `IDF_PYTHON_ENV_PATH=${idf.pythonEnv}`, `-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs, ...(prepared.sourceSet || [])].join('\n') + '\n'
   if (existsSync(path.join(prepared.buildDir, 'CMakeCache.txt')) && existsSync(signatureFile) && readFileSync(signatureFile, 'utf8') === signature) {
