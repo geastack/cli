@@ -10,9 +10,9 @@ import { configureChipSelection, loadChipCatalog, validateGpioAssignments } from
 import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { espIdfVersion as readInstalledEspIdfVersion, findEspIdf, findIdfPythonEnv } from './esp32/idf-env.mjs'
-import { espIdfVersionForTarget, extractIdfVersionFromText, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
+import { espIdfVersionForTarget, extractIdfVersionFromText, DEFAULT_ESP_IDF_VERSION, idfVersionMeetsTarget, idfVersionSatisfiesTarget, resolveEspIdfVersion } from './esp32/idf-version.mjs'
 import { exists, readJson, writeJson } from './fs-utils.mjs'
-import { BACK, ask, choose, confirm, createPrompt, ui } from './prompts.mjs'
+import { BACK, ask, canPrompt, choose, confirm, createPrompt, ui } from './prompts.mjs'
 import { runExternal, runQuiet } from './run.mjs'
 import { detectSerialDevices } from './serial-devices.mjs'
 import { commandVersion } from './toolchain.mjs'
@@ -26,6 +26,9 @@ const s31EspIdf = { version: '6.2-dev', ref: 'master', dir: path.join('esp32', '
 
 export async function runSetupWizard(ctx, parsed, io) {
   const stdout = io.stdout || console.log
+  if (!canPrompt(io) && option(parsed, 'esp-idf') !== true) {
+    fail('gea setup asks questions and needs a terminal. Without one, pass --board <alias>, --target <id> or --esp-idf.', ExitCode.usage)
+  }
   const prompt = createPrompt(io)
   try {
     const targetIdfVersion = await resolveEspIdfVersionForWizard(parsed, io)
@@ -443,16 +446,12 @@ async function chooseAppForBoard(ctx, parsed, io, prompt, alias) {
 }
 
 // Resolves the ESP-IDF version target once for the whole wizard run:
-// --idf-version / GEA_ESP_IDF_VERSION win outright; otherwise a best-effort
-// GitHub "latest release" lookup, falling back to the pinned default when it
-// cannot be determined. `io.fetchEspIdfLatest` lets callers (tests) inject a
-// fake fetch instead of touching the network -- mirrors `probeSerialDevice`.
+// --idf-version / GEA_ESP_IDF_VERSION win outright; otherwise the pinned
+// release, which is the one every build looks for.
 async function resolveEspIdfVersionForWizard(parsed, io) {
   return resolveEspIdfVersion({
     override: option(parsed, 'idf-version'),
-    env: io.env || process.env,
-    fetchLatest: io.fetchEspIdfLatest || fetchLatestEspIdfVersion,
-    log: io.stderr || (() => {})
+    env: io.env || process.env
   })
 }
 
@@ -564,8 +563,9 @@ function installEspIdf(ctx, parsed, io, { idfDir, ref, targets }) {
 }
 
 // Prefers the same conventional-directory detection the build path uses
-// (`findEspIdf` + its version.cmake), which lets a version-floor check run;
-// falls back to a bare `idf.py --version` on PATH when no such directory is
+// (`findEspIdf` + its version.cmake), asking for the target release first so
+// the answer is the directory a build would pick; falls back to a bare
+// `idf.py --version` on PATH when no such directory is
 // found but some ESP-IDF install has still put idf.py on PATH.
 // An explicit --idf-dir is the only directory that counts: another install
 // elsewhere is not the one asked for, and a branch target such as `master`
@@ -574,7 +574,13 @@ function detectEspIdf(env, targetVersion, explicitDir = '') {
   if (explicitDir && !fs.existsSync(path.join(explicitDir, 'tools', 'idf.py'))) {
     return { available: false, detail: '' }
   }
-  const idfDir = explicitDir ? path.resolve(explicitDir) : findEspIdf(env)
+  // For the pinned default, "found" means the directory a build would pick:
+  // builds look for that exact release (IDF_PATH aside), so a newer one on
+  // its own is reported, not accepted.
+  const home = env.HOME || env.USERPROFILE || os.homedir()
+  const pinned = !explicitDir && targetVersion === DEFAULT_ESP_IDF_VERSION
+  const buildDir = pinned ? findEspIdf(env, home, { defaultVersion: DEFAULT_ESP_IDF_VERSION.slice(1) }) : ''
+  const idfDir = explicitDir ? path.resolve(explicitDir) : buildDir || findEspIdf(env, home)
   if (idfDir) {
     const installed = readInstalledEspIdfVersion(idfDir)
     // A checkout is not an installation. `install.bat`/`install.sh` still has to
@@ -583,12 +589,12 @@ function detectEspIdf(env, targetVersion, explicitDir = '') {
     // success and leaves nothing that can compile.
     const toolsInstalled = Boolean(findIdfPythonEnv(idfDir, env))
     const detail = `${installed?.full || 'unknown version'} at ${idfDir}${toolsInstalled ? '' : ' (tools not installed)'}`
-    return { available: toolsInstalled && idfVersionMeetsTarget(installed, targetVersion), detail }
+    return { available: toolsInstalled && (pinned ? Boolean(buildDir) : idfVersionMeetsTarget(installed, targetVersion)), detail }
   }
   const legacyOutput = commandVersion('idf.py', ['--version'], env)
   if (legacyOutput) {
     const installed = extractIdfVersionFromText(legacyOutput)
-    const available = !installed || idfVersionMeetsTarget(installed, targetVersion)
+    const available = !installed || idfVersionSatisfiesTarget(installed, targetVersion)
     return { available, detail: legacyOutput }
   }
   return { available: false, detail: '' }

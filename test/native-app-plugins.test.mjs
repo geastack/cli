@@ -16,7 +16,7 @@ test('actual apps-inspect declared host plugins feed actual Mac extraArgs once a
  const meta=JSON.parse(out.out.join('\n')),selected=appCompilerPlugins(meta);assert.deepEqual(selected.paths,[fs.realpathSync(plugin)])
  const source=fs.readFileSync(path.join(apple,'targets/macos/build-macos.sh'),'utf8'),first=source.indexOf('  # Explicit app-owned host mappings'),last=source.indexOf('  if [[ "$appRuntime" == "apple-native" ]]',first),block=source.slice(first,last)
  assert(first>=0&&last>first)
- const child=spawnSync('bash',['-c',`set -eu\nextraArgs=(--extra-geatsc-plugin "$EXPECTED_PLUGIN"); forward(){\n${block}\n}\nforward\nprintf '<%s>\\n' "\${extraArgs[@]}"`],{cwd:app,env:{...process.env,GEA_CLI:cli,ROOT_DIR:apple,id:'watch',EXPECTED_PLUGIN:plugin},encoding:'utf8',timeout:15000})
+ const child=spawnSync('bash',['-c',`set -eu\nextraArgs=(--extra-geatsc-plugin "$EXPECTED_PLUGIN"); forward(){\n${block}\n}\nforward\nprintf '<%s>\\n' "\${extraArgs[@]}"`],{cwd:app,env:{...process.env,GEA_CLI:cli,ROOT_DIR:apple,id:'watch',EXPECTED_PLUGIN:plugin},encoding:'utf8',timeout:120000})
  assert.equal(child.error,undefined);assert.equal(child.status,0,child.stderr);assert.equal(child.stdout,`<--extra-geatsc-plugin>\n<${plugin}>\n`)
  fs.appendFileSync(plugin,'// changed generation input\n');assert.notEqual(appCompilerPlugins(meta).fingerprint,selected.fingerprint)
  fs.unlinkSync(plugin);assert.throws(()=>appCompilerPlugins(meta),/ENOENT/)

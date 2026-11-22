@@ -18,41 +18,43 @@ gea dev
 gea build --target web
 gea build --target ios
 gea build --target tvos
-gea flash --board amoled --monitor
-gea screenshot board.png --board amoled
-gea monitor --board amoled
-gea inspect --json
+gea flash --board <alias> --monitor
+gea screenshot board.png --board <alias>
+gea monitor --board <alias>
+gea apps inspect --json
 ```
+
+The CLI needs Node.js 22 or later. `gea --help` prints the full command
+surface; `gea apps inspect --json` runs inside an app directory.
 
 ## Interactive Menu Map
 
 ```mermaid
 flowchart TD
   create["gea create my-app"] --> identity["Resolve app identity<br/>argument, optional --id, optional --name"]
-  identity --> starter{"Starter app?"}
+  identity --> starter{"What do you want to build?"}
 
-  starter -->|"Embedded component counter"| counter["Copy the touchscreen counter used in the embedded tutorial"]
-
-  starter -->|"Blank application"| emptyTarget{"Where should it run?"}
+  starter -->|"Blank application"| emptyTarget{"Where should this application run?"}
   emptyTarget -->|"Web browser"| emptyWeb["Generate browser entry, HTML, and Vite config"]
-  emptyTarget -->|"ESP32 board"| emptyEsp["Generate native entry<br/>Ask whether to enable Bluetooth updates"]
-  emptyTarget -->|"Other native target"| emptyNative["Generate native entry for the selected platform"]
+  emptyTarget -->|"ESP32 board"| emptyEsp["Generate native entry<br/>Ask whether to enable wireless firmware updates over Bluetooth"]
+  emptyTarget -->|"RP2350, GeaOS, macOS, iOS, tvOS, Android, or Windows"| emptyNative["Generate native entry for the selected platform"]
 
-  starter -->|"Example application"| pickExample["Pick from the example gallery<br/>web, ESP32, GeaOS, iOS, tvOS, macOS, Android"]
-  pickExample --> fetchExample["Fetch selected app from GitHub"]
-  fetchExample --> copyExample["Copy fetched example files"]
-  copyExample --> rewriteExample["Rewrite package name and gea manifest"]
+  starter -->|"Example application"| pickExample["Pick from the example gallery<br/>bundled Component Counter first, then GitHub examples<br/>for web, ESP32, RP2350, GeaOS, iOS, macOS, Android, and Windows"]
+  pickExample -->|"Component Counter"| counter["Copy the bundled touchscreen counter used in the embedded tutorial"]
+  pickExample -->|"GitHub example"| fetchExample["Fetch selected app from GitHub"]
+  fetchExample --> rewriteExample["Rewrite package name and gea manifest"]
 
-  counter --> projectWiring["Add @geastack/core and @geastack/cli"]
-  rewriteExample --> projectWiring["Add @geastack/core and @geastack/cli"]
+  counter --> projectWiring["Add @geastack/core, @geastack/cli, @geajs/core, TypeScript<br/>+ @geastack/targets for ESP32/RP2350, @geastack/apple for macOS/iOS/tvOS,<br/>@geastack/windows for Windows, Vite for web"]
+  rewriteExample --> projectWiring
   emptyWeb --> projectWiring
   emptyEsp --> projectWiring
   emptyNative --> projectWiring
   projectWiring --> boardConfig["Create .gea/boards.json"]
-  boardConfig --> install["Install npm dependencies<br/>(interactive default)"]
+  boardConfig --> install["Install npm dependencies<br/>(interactive default; --no-install skips)"]
   install --> setup["Next: npx gea setup"]
 
   auto["Automation flags"] -.-> starter
+  auto --> autoCounter["--yes or no terminal: Component Counter"]
   auto --> autoEmpty["--starter blank --yes"]
   auto --> autoExample["--starter example --example watch"]
 ```
@@ -61,33 +63,33 @@ flowchart TD
 flowchart TD
   setup["npx gea setup"] --> mode{"Mode?"}
 
-  mode -->|"--esp-idf"| directIdf["Install or check ESP-IDF v6.0.2"]
-  mode -->|"--board alias"| directBoard["Run target setup for board alias"]
-  mode -->|"--target target-id"| directTarget["Run target setup directly"]
+  mode -->|"--esp-idf"| directIdf["Install or check ESP-IDF v6.0.2<br/>(--idf-version installs another release)<br/>plus the 6.2-dev line the ESP32-S31 builds with"]
+  mode -->|"--board alias"| directBoard["Configure the build for that board alias"]
+  mode -->|"--target target-id"| directTarget["Configure the build for that target directly"]
 
   mode -->|"Interactive"| interactive{"What do you want to set up?"}
 
-  interactive -->|"Known supported board"| knownBoard["Pick board"]
-  knownBoard --> alias["Set board alias"]
-  alias --> serial["Detect serial devices"]
-  serial --> saveSerial["Detect the USB serial (registry + GEADEV ping)"]
-  saveSerial --> ota["Optional OTA host"]
-  ota --> reviewKnown["Review board setup"]
-  reviewKnown --> writeKnown["Write .gea/boards.json"]
+  interactive -->|"Known supported board"| knownBoard["Which board do you have?"]
+  knownBoard --> alias["Board alias"]
+  alias --> serial["Is the board connected over USB right now?<br/>detect its USB serial (registry + GEADEV ping)"]
+  serial --> ota["OTA host/IP (optional)"]
+  ota --> reviewKnown["Review, then: Save this board setup?"]
+  reviewKnown --> writeKnown["Write the alias to boards.json"]
 
-  interactive -->|"Custom board target"| custom["Choose MCU and compatible chips"]
-  custom --> chipConfig["Ask interface and pin questions<br/>from @geastack/chips/catalog.json"]
-  chipConfig --> features["Optional microSD and launcher button"]
-  features --> connection["Detect initial USB connection"]
-  connection --> reviewCustom["Review native composition"]
-  reviewCustom --> writeProfile["Write .gea/targets/alias.json"]
-  writeProfile --> writeCustomAlias["Write alias to .gea/boards.json"]
+  interactive -->|"Custom board profile"| custom["Custom board alias, then MCU / SoC (ESP32-S3)"]
+  custom --> chipConfig["Display, touch, power, IMU, audio and I/O expander<br/>with bus and pin questions from @geastack/chips/catalog.json"]
+  chipConfig --> features["Optional microSD slot and launcher button"]
+  features --> connection["Detect the USB serial"]
+  connection --> reviewCustom["Review, then: Save this custom board target?"]
+  reviewCustom --> writeProfile["Write targets/alias.json next to boards.json"]
+  writeProfile --> writeCustomAlias["Write the alias to boards.json"]
 
-  interactive -->|"npm dependencies only"| npmInstall["Run npm install when package.json exists"]
-  interactive -->|"ESP-IDF toolchain only"| idfOnly["Install or check ESP-IDF v6.0.2"]
+  interactive -->|"Only install/check project npm dependencies"| npmInstall["Run npm install when package.json exists"]
+  interactive -->|"Only install/check ESP-IDF toolchain"| idfOnly["Same as --esp-idf"]
 
-  writeKnown --> initialize["Initialize board target"]
-  writeCustomAlias --> initialize
+  writeKnown --> idfCheck["Check ESP-IDF for the board, offer to install it"]
+  writeCustomAlias --> idfCheck
+  idfCheck --> initialize["Initialize board target for an app"]
   initialize --> ready["Ready: npx gea flash --board alias --monitor"]
   npmInstall --> done
   idfOnly --> done
@@ -95,6 +97,12 @@ flowchart TD
   directBoard --> done
   directTarget --> done
 ```
+
+The wizard writes `boards.json` (and a custom board's `targets/<alias>.json`)
+to `<project>/.gea/` when the project already has a `.gea/boards.json`, which
+every `gea create` project does, and to `~/.geastack/` otherwise. `--local`
+forces the project directory, `--global` forces `~/.geastack/`, and
+`--boards-config <file>` names the file outright.
 
 The CLI resolves `@geastack/core`, `@geastack/targets`, the compiler, chips,
 host bindings, and the other native packages from npm. A project can use a
@@ -108,9 +116,9 @@ Boards are managed without editing JSON by hand; aliases live in
 ```sh
 gea boards discover                    # which registered board is on which USB port, its app and IP
 gea boards list
-gea boards set amoled host 192.168.1.100
-gea boards rename amoled desk-amoled
-gea boards remove desk-amoled
+gea boards set <alias> host 192.168.1.100
+gea boards rename <alias> <new-alias>
+gea boards remove <new-alias>
 ```
 
 Custom boards remain editable after setup:
@@ -122,7 +130,8 @@ gea chips add co5300 ft3168 --board my-board
 gea chips remove ft3168 --board my-board
 ```
 
-These commands update the app-local target definition. They do not copy native
+These commands update the custom board's target definition
+(`targets/<alias>.json`). They do not copy native
 sources into the application; the target adapter compiles the selected drivers
 directly from the installed `@geastack/chips` package.
 
@@ -146,8 +155,12 @@ Run from this repo during local development:
 ```sh
 node bin/gea.mjs doctor
 node bin/gea.mjs --help
-node bin/create-geastack.mjs demo-panel --dir ./demo-panel --dry-run
 ```
+
+`GEA_DEBUGGER_DIR` points `gea run --debug` at a debugger checkout instead of
+the installed `@geastack/debugger`. Contributor native debug launches use the
+sibling `apple` and `core` checkouts and the shared compiler; explicit
+overrides win.
 
 ## Machine Setup
 
@@ -176,34 +189,37 @@ expose stable command contracts.
 
 - [docs/PEBBLE-QUICKSTART.md](docs/PEBBLE-QUICKSTART.md): install the Pebble SDK,
   enable a TSX app, build a `.pbw`, and run on Pebble Time 2 or its emulator.
-
 - [docs/SPEC.md](docs/SPEC.md): command surface, manifest expectations, and
   backend contract for the first implementation.
 - [docs/SETUP.md](docs/SETUP.md): toolchains per target, the ESP-IDF version
   GeaStack resolves, and the board configuration files.
 - [docs/DEVICE-CONTROL.md](docs/DEVICE-CONTROL.md): `gea devctl` in full, both
   wire protocols, and the display knobs.
+- [docs/NATIVE-BUILD-CONFIG.md](docs/NATIVE-BUILD-CONFIG.md): native build
+  settings, their precedence, and board overrides.
+- [docs/LINUX-NATIVE-DEPLOYMENT.md](docs/LINUX-NATIVE-DEPLOYMENT.md): register
+  and deploy to a Raspberry Pi OS board over SSH.
+- [docs/qspi-panels.md](docs/qspi-panels.md): panel startup settings for custom
+  boards with a `co5300` or `sh8601` QSPI display.
 
-## Current Status
+## Command Surface
 
-First implementation is in place:
-
-- `doctor` for local toolchain checks;
-- npm-resolved embedded board builds for ESP32 and RP2350;
-- `flash`, `monitor`, WiFi OTA, and BLE OTA through `@geastack/targets`;
-- `list` and `inspect` helpers;
-- `create-geastack` with a bundled counter starter, a blank application, and a
-  GitHub-backed rich example flow for web, embedded, GeaOS, iOS, tvOS, macOS, and Android apps,
-  all with `.gea/boards.json`, plus `gea boards` for machine-wide aliases in
-  `~/.geastack/boards.json`.
-
-## License
-
-Apache-2.0 (see `LICENSE`). You can ship closed-source products
-built on it. The only GeaStack code under a different license is
-the embedded board support (`targets` and `@geastack/chips`, GPL-3.0-only):
-shipping closed-source firmware through those needs a commercial license.
-Contact [contact@geastack.com](mailto:contact@geastack.com) for commercial terms, support and hosted builds.
+- `gea create`, `gea setup`, `gea doctor`: scaffolding, guided board and
+  toolchain setup, and dependency checks.
+- `gea dev`, `gea simulate`, `gea build --target web`: browser development,
+  device-viewport emulation, and static web builds.
+- `gea build|run --target macos|ios|tvos|windows|raspberry-pi-os|pebble`:
+  native desktop, mobile, TV, and watch apps through `@geastack/apple`,
+  `@geastack/windows`, `@geastack/linux`, and `@geastack/pebble`.
+- `gea build|flash|run|ota|clean --board <alias>`: ESP32 and RP2350 firmware
+  through `@geastack/targets`, with USB flashing, WiFi and BLE OTA, and OTA
+  slot management.
+- `gea logs`, `gea monitor`, `gea screenshot`, `gea devctl`: device access over
+  USB or WiFi.
+- `gea run --debug`: Chrome DevTools for native macOS apps and ESP32 boards.
+- `gea apps`, `gea boards`, `gea targets`, `gea chips`, `gea config`,
+  `gea heap-report`: app, board, target, and chip catalogs, effective build
+  settings, and heap analysis.
 
 ## Browser development and emulation
 
@@ -213,9 +229,9 @@ opens the browser. Use `--no-open` to suppress opening, and `--width`, `--height
 `--zoom`, and `--dpr` to configure the preview. DPR is a simulated Display API
 value; it does not override the browser's pixel ratio.
 
-The default for `simulate` changed from WASM to DOM. To retain the embedded
-renderer and framebuffer workflow, use `gea simulate --renderer wasm`; this
-explicit mode still requires Emscripten. Unknown renderer values are rejected.
+`gea simulate` uses the DOM renderer by default. For the embedded renderer and
+framebuffer workflow, use `gea simulate --renderer wasm`; that mode requires
+Emscripten. Unknown renderer values are rejected.
 
 `gea build --target web` emits HTML/JS/CSS into `.gea/build/web/site` (override
 with `--out-dir`). The app's `index.html` is honored. Web-only Vite customization
@@ -239,7 +255,7 @@ target is not required for debugging; the source manifest is unchanged. On Mac,
 `gea run --debug --target web` uses the existing DOM/CSS runtime with Vite HMR.
 
 `gea build --debug --target macos` produces the same instrumented native app
-without launching it or opening Chrome. `gea build --debug --board amoled`
+without launching it or opening Chrome. `gea build --debug --board <alias>`
 builds ESP32 debug firmware without flashing or opening USB. Both commands use
 the same debug configuration as `run`, including editable CSS. macOS retains
 full symbols and unoptimized code by default; `--no-debug-sources` disables
@@ -258,19 +274,15 @@ Use `--debug-port 9223` for CDP and `--port 5182` for the DOM server. Native
 or browser stops the session. Other native targets, WASM and
 direct AppKit widget graphs outside the Gea retained tree remain unsupported.
 
-The CLI installs `@geastack/debugger` automatically. Debugging requires Node.js
-22 or later and Chrome/Chromium. Native builds need matching compiler and target
-runtimes with debugger instrumentation; this release ships the host adapter and
-CLI integration. `GEA_DEBUGGER_DIR` selects a development checkout;
-contributor native launches use sibling Apple,
-core/plugin packages and the shared compiler; explicit overrides win. Set
-`GEA_CHROME_PATH` for a custom browser. Chrome uses its own app profile inside
+The CLI installs `@geastack/debugger` automatically. Debugging requires
+Chrome/Chromium, and native builds need compiler and target runtimes with
+debugger instrumentation. Set `GEA_CHROME_PATH` for a custom browser. Chrome uses its own app profile inside
 `.gea/build/web`.
 
 
-From your app directory, `gea run --debug --board amoled --debug-fps 10` builds and flashes debug
-firmware on the registered AMOLED 2.06, then opens Chrome DevTools through USB.
-Other ESP32 aliases use the same adapter. `--attach` connects to already-running
+From your app directory, `gea run --debug --board <alias> --debug-fps 10` builds
+and flashes debug firmware on a registered ESP32 board, then opens Chrome
+DevTools through USB. `--attach` connects to already-running
 debug firmware without flashing; regular firmware is rejected before JTAG or
 Chrome starts. `--no-open` exposes only the CDP endpoint.
 `--port` selects the USB device when using `--board`, while `--debug-port` selects
@@ -312,3 +324,11 @@ debugger exits. `--overrides edits.json` replays them as soon as it attaches:
 ```sh
 gea run --debug --target macos --overrides edits.json --save-overrides edits.json
 ```
+
+## License
+
+Apache-2.0 (see `LICENSE`). You can ship closed-source products
+built on it. The only GeaStack code under a different license is
+the embedded board support (`targets` and `@geastack/chips`, GPL-3.0-only):
+shipping closed-source firmware through those needs a commercial license.
+Contact [contact@geastack.com](mailto:contact@geastack.com) for commercial terms, support and hosted builds.

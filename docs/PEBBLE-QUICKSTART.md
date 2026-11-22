@@ -1,6 +1,6 @@
 # Pebble Time 2 quickstart
 
-Requires Gea CLI 0.1.85 or newer, Node.js 20.19 or newer, Bash, and the Pebble
+Requires Gea CLI 0.1.85 or newer, Node.js 22 or newer, Bash, and the Pebble
 SDK. This target builds ordinary `.pbw` apps for Pebble Time 2 (`emery`);
 it does not flash watch firmware. The build script supports macOS and Linux.
 

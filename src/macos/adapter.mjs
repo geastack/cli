@@ -13,17 +13,34 @@ import { formatCommand } from '../run.mjs'
 // @geastack/apple -- which an apple-native app already depends on -- so the
 // app's own module resolution is what finds it. An app declares `targets.macos`
 // and nothing else; the script reads the rest from the same manifest.
-export function runMacos({ app, env, dryRun = false, stdout }) {
+export function runMacos({ app, env, dryRun = false, stdout, run = false }) {
   const { script, require } = appleTargetScript(app, 'macos', 'build-macos.sh', env)
   const childEnv = appleChildEnv(app, nativeScriptBuildEnv(app, 'macos', env, { dryRun }), require)
+  const bundle = macosAppBundle(app, env)
   if (dryRun) {
     stdout(formatCommand(['bash', script, app.id]))
+    if (run) stdout(formatCommand(['open', bundle]))
     return 0
   }
+  if (run && process.platform !== 'darwin') fail('gea run --target macos launches the app, which requires a Mac. Use gea build --target macos to build only.', ExitCode.usage)
   const result = spawnSync('bash', [script, app.id], { cwd: app.root, env: childEnv, stdio: 'inherit' })
   if (result.error) throw result.error
   if (result.status !== 0) throw new CliError(`macOS build failed (${result.status ?? 1}).`, ExitCode.deployFailed)
+  if (!run) return 0
+  if (!existsSync(bundle)) fail(`Built app not found: ${bundle}`, ExitCode.buildFailed)
+  const launched = spawnSync('open', [bundle], { cwd: app.root, stdio: 'inherit' })
+  if (launched.error) throw launched.error
+  if (launched.status !== 0) throw new CliError(`Could not launch ${bundle} (${launched.status ?? 1}).`, ExitCode.deployFailed)
   return 0
+}
+
+// Where build-macos.sh leaves the bundle: <output root>/<app id>/<name>.app,
+// with the same GEA_MACOS_OUTPUT_DIR / GEA_MACOS_OUTPUT_TAG overrides the
+// script reads.
+export function macosAppBundle(app, env = process.env) {
+  const outputRoot = path.resolve(app.root, env.GEA_MACOS_OUTPUT_DIR || 'dist/macos')
+  const subpath = env.GEA_MACOS_OUTPUT_TAG ? path.join('.namespaces', env.GEA_MACOS_OUTPUT_TAG, app.id) : app.id
+  return path.join(outputRoot, subpath, `${app.name}.app`)
 }
 
 // Both Apple targets ship as one script each inside @geastack/apple, and both

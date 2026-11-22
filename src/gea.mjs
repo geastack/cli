@@ -53,10 +53,8 @@ export async function runGea(argv, io = {}) {
 
   const ctx = createContext(parsed, env, cwd)
   const rest = parsed.positionals.slice(1)
-  // probeSerialDevice lets tests answer `gea boards discover` without a port;
-  // fetchEspIdfLatest likewise lets tests answer the setup wizard's ESP-IDF
-  // "latest release" lookup without touching the network.
-  const options = { stdout, stderr, env, stdin, output, prompt, probeSerialDevice: io.probeSerialDevice, fetchEspIdfLatest: io.fetchEspIdfLatest }
+  // probeSerialDevice lets tests answer `gea boards discover` without a port.
+  const options = { stdout, stderr, env, stdin, output, prompt, probeSerialDevice: io.probeSerialDevice }
 
   if (option(parsed, 'debug-fps') !== undefined && !flag(parsed, 'debug')) fail('--debug-fps requires --debug.', ExitCode.usage)
   if (flag(parsed, 'debug-sources') && !flag(parsed, 'debug')) fail('--debug-sources requires --debug with macOS or an ESP32-S3 board.', ExitCode.usage)
@@ -117,11 +115,12 @@ export async function runGea(argv, io = {}) {
   // selection for a bare `gea build`, so the command still reports which board
   // it needs rather than quietly producing a .app in place of firmware. For those
   // apps the Mac build is the documented `gea build --target macos`.
-  if (command === 'build' && (target === 'macos' || (!target && !option(parsed, 'board')))) {
+  // `gea run` is the same selection followed by launching the built .app.
+  if ((command === 'build' || command === 'run') && (target === 'macos' || (!target && !option(parsed, 'board')))) {
     const app = parsed.options.app || rest[0] ? findAppById(ctx, String(parsed.options.app || rest[0])) : findCurrentApp(cwd)
     if (app?.targets?.macos && (target === 'macos' || (process.platform === 'darwin' && !declaresBoardTarget(app)))) {
       const { runMacos } = await import('./macos/adapter.mjs')
-      return runMacos({ app, env, dryRun: flag(parsed, 'dry-run'), stdout })
+      return runMacos({ app, env, dryRun: flag(parsed, 'dry-run'), stdout, run: command === 'run' })
     }
     if (target === 'macos') {
       fail(app ? `'${app.id}' does not declare gea.targets.macos.` : 'No app selected. Pass --app <id> or run inside a Gea app folder.', ExitCode.usage)
@@ -301,6 +300,7 @@ ${heading('Run on this machine (no board needed):')}
 ${heading('Native desktop, mobile and watch apps (scripts ship in @geastack/apple, @geastack/windows and @geastack/pebble):')}
   gea build --target raspberry-pi-os [app]       build an SDL Linux native executable (no launch)
   gea build --target macos [app]                 build a Mac .app (a bare gea build does this on a Mac for a Mac-only app)
+  gea run --target macos [app]                   build, then open the Mac .app
   gea build --target ios [app] [--mode simulator|device]   generate the Xcode project and build the iOS .app
   gea build --target tvos [app] [--mode simulator|device]  build the tvOS .app
   gea run --target tvos [app] [--mode simulator|device]    install and launch on Apple TV or its simulator

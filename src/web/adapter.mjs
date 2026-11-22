@@ -170,7 +170,8 @@ async function startSimulatorServer({ ctx, app, env, simulatorDir, paths, port, 
       __GEA_WEB_DIST_FS_ROOT__: JSON.stringify(paths.dist)
     },
     server: {
-      port,
+      // No --port leaves this an empty string; newer Node rejects that as a port.
+      ...(port ? { port: Number(port) } : {}),
       fs: { allow: [appRoot, paths.dist, paths.public] }
     }
   })

@@ -1,17 +1,12 @@
 // ESP-IDF target-version resolution.
 //
-// One pinned default in code, an env var / CLI option that overrides it
-// outright (pin an older release or try a release candidate), and a
-// best-effort GitHub "latest release" lookup used only when nothing
-// overrides the pin. The network call is injected (`fetchImpl`/`fetchLatest`)
-// so real usage hits GitHub while tests supply a fake and never touch the
-// network.
+// One pinned default in code, and an env var / CLI option that overrides it
+// outright (pin another release or try a release candidate).
 
 const STABLE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/
 const VERSION_IN_TEXT = /v?(\d+)\.(\d+)\.(\d+)/i
 
-// The version GeaStack targets when nothing overrides it and the latest
-// release cannot be determined (offline, GitHub unreachable, rate limited).
+// The version GeaStack targets when nothing overrides it.
 // Bump this alongside board-script updates.
 export const DEFAULT_ESP_IDF_VERSION = 'v6.0.2'
 
@@ -20,11 +15,8 @@ export function espIdfVersionForTarget(target) {
   return target === 'esp32-s31-espressif-mosaico' ? '6.2-dev' : DEFAULT_ESP_IDF_VERSION.slice(1)
 }
 
-const GITHUB_LATEST_RELEASE_URL = 'https://api.github.com/repos/espressif/esp-idf/releases/latest'
-
 // Parses a strict `vX.Y.Z` release tag. Returns null for anything else,
-// including release candidates and betas (`v6.1.0-rc1`), so callers can
-// filter those out of the "latest" lookup.
+// including release candidates and betas (`v6.1.0-rc1`).
 export function parseStableIdfTag(value) {
   const match = STABLE_TAG.exec(String(value || '').trim())
   if (!match) return null
@@ -39,42 +31,27 @@ export function extractIdfVersionFromText(text) {
   return { majorMinor: `${match[1]}.${match[2]}`, full: `${match[1]}.${match[2]}.${match[3]}` }
 }
 
-// Best-effort lookup of the latest stable ESP-IDF release tag from GitHub.
-// Never throws: returns '' when the request fails, times out (~4s default),
-// the machine is offline, or the latest release is not a stable vX.Y.Z tag.
-// `fetchImpl` defaults to the global fetch; tests inject a fake instead of
-// touching the network.
-export async function fetchLatestEspIdfVersion({ fetchImpl = globalThis.fetch, timeoutMs = 4000, log = () => {} } = {}) {
-  if (typeof fetchImpl !== 'function') return ''
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const response = await fetchImpl(GITHUB_LATEST_RELEASE_URL, {
-      signal: controller.signal,
-      headers: { Accept: 'application/vnd.github+json' }
-    })
-    if (!response?.ok) return ''
-    const body = await response.json()
-    return parseStableIdfTag(body?.tag_name)?.tag || ''
-  } catch (error) {
-    log(`Could not determine the latest ESP-IDF release (${error.message}); using ${DEFAULT_ESP_IDF_VERSION}.`)
-    return ''
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
 // Resolves the ESP-IDF version tag to install/verify against, in order:
 //   1. `override` (--idf-version) or GEA_ESP_IDF_VERSION -- explicit pin or
 //      a release candidate to test; used as-is (not required to be stable).
-//   2. the latest stable GitHub release, when `fetchLatest` can determine one.
-//   3. DEFAULT_ESP_IDF_VERSION.
-export async function resolveEspIdfVersion({ override, env = process.env, fetchLatest = fetchLatestEspIdfVersion, log = () => {} } = {}) {
+//   2. DEFAULT_ESP_IDF_VERSION.
+// Builds accept exactly the release espIdfVersionForTarget names, so setup
+// installs that one: a newer stable release would install cleanly and then be
+// refused by every build.
+export async function resolveEspIdfVersion({ override, env = process.env } = {}) {
   const requested = override || env.GEA_ESP_IDF_VERSION
   // Only a bare version gains the tag's `v`; a branch (`master`) is cloned as named.
   if (requested) return /^\d/.test(requested) ? `v${requested}` : requested
-  const latest = await fetchLatest({ log })
-  return latest || DEFAULT_ESP_IDF_VERSION
+  return DEFAULT_ESP_IDF_VERSION
+}
+
+// True when an installed ESP-IDF satisfies the setup target. For the pinned
+// default that means being that exact release, because builds look for exactly
+// it: reporting a newer release as "found" leaves a machine no build accepts.
+// A version the user asked for by name keeps the major.minor floor.
+export function idfVersionSatisfiesTarget(installedVersion, targetTag) {
+  if (targetTag !== DEFAULT_ESP_IDF_VERSION) return idfVersionMeetsTarget(installedVersion, targetTag)
+  return installedVersion?.full === DEFAULT_ESP_IDF_VERSION.slice(1)
 }
 
 // True when an installed ESP-IDF's version.cmake-derived version satisfies

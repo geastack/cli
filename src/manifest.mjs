@@ -214,8 +214,21 @@ export function appCmakeDefines(app) {
   return app.defines.join(';')
 }
 
-export function appTargetConfig(app, target) {
-  return app.targetConfig[target] || emptyTargetConfig()
+// A board's block (gea.targets.<target>.boards.<board-id>) may overrule the
+// board settings an app picks for itself: psram and display merge over the
+// target-wide value, a nonzero flashFreq replaces it, and a board's own
+// `sdkconfig` file is used in place of the target-wide one.
+export function appTargetConfig(app, target, boardId = '') {
+  const config = app.targetConfig?.[target] || emptyTargetConfig()
+  const board = boardId ? config.boardSettings?.[boardId] : null
+  if (!board) return config
+  return {
+    ...config,
+    psram: board.psram ? { ...config.psram, ...board.psram } : config.psram,
+    flashFreq: board.flashFreq || config.flashFreq,
+    sdkconfig: board.sdkconfig || config.sdkconfig,
+    display: board.display ? { ...config.display, ...board.display } : config.display
+  }
 }
 
 // Paths a target's config names are relative to the app; absolute them once
@@ -417,7 +430,7 @@ export function normalizeDefines(raw) {
 
 
 function emptyTargetConfig() {
-  return { nativeSources: [], providers: {}, tsconfig: '', nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', psram: null, flashFreq: 0, display: null, prebuild: '', output: '' }
+  return { nativeSources: [], providers: {}, tsconfig: '', nativeIncludeDirectories: [], nativeSystemLibraries: [], nativeResources: {}, nativeLibraries: [], frameworks: [], ldFragments: [], componentDirs: [], componentRequires: [], linkOptions: [], embedFiles: {}, partitions: null, partitionsByTarget: {}, sdkconfig: '', psram: null, flashFreq: 0, display: null, boardSettings: {}, prebuild: '', output: '' }
 }
 
 function normalizeStringList(raw) {
@@ -507,11 +520,18 @@ function normalizeTargetConfig(raw) {
       // How the RGB panel's repaints reach PSRAM, for apps that redraw the whole
       // screen every frame (games): { copyBack: 'dma', bounceRows, gridStrips }.
       display: value.display && typeof value.display === 'object' && !Array.isArray(value.display) ? { ...value.display } : null,
+      boardSettings: normalizeBoardSettings(value.boards),
       prebuild: typeof value.prebuild === 'string' ? value.prebuild.trim() : '',
       output: typeof value.output === 'string' && value.output.trim() ? normalizeManifestRelativePath(value.output) : ''
     }
   }
   return configs
+}
+
+function normalizeBoardSettings(boards) {
+  if (!boards || typeof boards !== 'object' || Array.isArray(boards)) return {}
+  const object = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : null)
+  return Object.fromEntries(Object.entries(boards).filter(([, board]) => object(board)).map(([id, board]) => [id, { psram: object(board.psram), flashFreq: Number(board.flashFreq) || 0, sdkconfig: typeof board.sdkconfig === 'string' && board.sdkconfig.trim() ? normalizeManifestRelativePath(board.sdkconfig) : '', display: object(board.display) }]))
 }
 
 export function normalizeApp(root, packageJson) {
