@@ -134,7 +134,9 @@ export async function runCreateGeastack(argv, io = {}) {
         ? `Example: fetched ${starter.example.name}`
         : 'Starter: blank application'
   ])
-  done.outro(installDependencies ? `Next: cd ${targetDir} && npx gea setup` : `Next: cd ${targetDir} && npm install && npx gea setup`)
+  // `gea setup` is the board and toolchain wizard; a web-only app has nothing for it to do.
+  const firstCommand = isWebOnly(targets) ? 'npx gea dev' : 'npx gea setup'
+  done.outro(installDependencies ? `Next: cd ${targetDir} && ${firstCommand}` : `Next: cd ${targetDir} && npm install && ${firstCommand}`)
   return 0
 }
 
@@ -520,7 +522,10 @@ function readme({ appId, displayName, starter, targets }) {
     : starter.kind === 'bundled'
       ? `Started from bundled starter: \`${starter.starter.name}\` (\`${starter.starter.id}\`).`
       : 'Started from a blank app.'
-  const commands = targets.web
+  const commands = isWebOnly(targets)
+    ? `npx gea dev
+npx gea build --target web`
+    : targets.web
     ? `npx gea setup
 npx gea dev
 npx gea build --target web`
@@ -552,6 +557,10 @@ ${starterLine}
 ${commands}
 \`\`\`
 `
+}
+
+function isWebOnly(targets) {
+  return targets.web === true && Object.entries(targets).every(([name, enabled]) => name === 'web' || enabled !== true)
 }
 
 function shouldInstallDependencies(parsed, io) {

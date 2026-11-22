@@ -153,21 +153,6 @@
       }
     },
     {
-      "id": "car-dashboard",
-      "name": "Car Dashboard",
-      "description": "1280x720 cluster",
-      "path": "apps/car-dashboard",
-      "entry": "index.tsx",
-      "runtime": "gea",
-      "targets": {
-        "web": true,
-        "esp32": true,
-        "geaos": true,
-        "macos": false,
-        "ios": false
-      }
-    },
-    {
       "id": "counter-jsx",
       "name": "Counter",
       "description": "JSX state",

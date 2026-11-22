@@ -21,14 +21,14 @@ npx gea setup
 
 For simulator-only development:
 
-- Node.js 20.19 or newer.
+- Node.js 22 or newer.
 - npm.
 - Emscripten SDK if you want `npx gea build --target web` and the WASM simulator
   bundle path.
 
 For ESP32 hardware:
 
-- Node.js 20.19 or newer.
+- Node.js 22 or newer.
 - npm.
 - Python 3.
 - ESP-IDF v6.0.2 (GeaStack's pinned default; see ESP-IDF For ESP32 Targets below).
@@ -54,7 +54,7 @@ For Android targets:
 ## Node And npm
 
 Install Node.js from the official download page or your normal version manager.
-GeaStack currently requires Node.js 20.19 or newer. Node 24 LTS is a good
+GeaStack currently requires Node.js 22 or newer. Node 24 LTS is a good
 default on new machines.
 
 Verify:
@@ -66,21 +66,15 @@ npm --version
 
 ## ESP-IDF For ESP32 Targets
 
-The embedded board scripts target ESP-IDF v6.0.2 by default. GeaStack resolves
-the version it installs or verifies dynamically, in this order:
+ESP32 builds use ESP-IDF v6.0.2, and `gea setup` installs or verifies that
+release. To install another one instead:
 
 1. `--idf-version <tag>` (e.g. `npx gea setup --esp-idf --idf-version v6.1.0-rc1`)
-   to pin an exact release or try a release candidate.
-2. `GEA_ESP_IDF_VERSION` (same shape) when no `--idf-version` is given.
-3. The latest stable ESP-IDF release on GitHub, when it can be determined
-   (release candidates and betas are ignored).
-4. The pinned default, v6.0.2, when nothing above applies (offline, GitHub
-   unreachable, etc).
+   names an exact release, a release candidate or a branch.
+2. `GEA_ESP_IDF_VERSION` (same shape) applies when no `--idf-version` is given.
 
-Verifying an existing install accepts any installed version whose
-major.minor is the same as or newer than the resolved target -- an installed
-6.0.2 is never rejected just because the resolved target moved on to, say,
-6.1.0, unless it genuinely trails it.
+Builds pick the v6.0.2 install on their own. To build with any other ESP-IDF,
+point `IDF_PATH` at it.
 
 Command-line install:
 

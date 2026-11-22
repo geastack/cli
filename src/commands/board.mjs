@@ -324,6 +324,7 @@ export async function flashCommand(ctx, parsed, rest, options, { monitor = false
 export async function otaCommand(ctx, parsed, rest, options) {
   const transport = option(parsed, 'transport', '') || defaultOtaTransport(ctx, parsed, rest)
   if (transport !== 'wifi' && transport !== 'ble') fail("--transport must be 'wifi' or 'ble'.", ExitCode.usage)
+  if (transport === 'wifi' && option(parsed, 'port', '')) fail('--port names a USB serial port; a Wi-Fi OTA takes the board address with --host.', ExitCode.usage)
   const selection = selectBoard(ctx, parsed, transport === 'wifi' ? { otaHost: true } : {})
   if (selection.bootMode === 'ram-only') {
     if (transport !== 'wifi' || option(parsed, 'slot') || option(parsed, 'erase-slot') ||

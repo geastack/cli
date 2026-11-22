@@ -8,7 +8,7 @@ import { createContext } from '../src/context.mjs'
 import { applySdkconfigPolicy, cmakeValue, ensureConfigured, esp32BinaryDir, esp32BuildDir, linkEsp32BinaryDir, prepareEsp32Build, publishEsp32Output, requireEspIdf } from '../src/esp32/build.mjs'
 import { manifestRequestsBleOta, parseAnalysis, resolveAppCapabilities } from '../src/esp32/capabilities.mjs'
 import { activateEspIdf, esptoolCommand, findEspIdf, findIdfPythonEnv } from '../src/esp32/idf-env.mjs'
-import { DEFAULT_ESP_IDF_VERSION, espIdfVersionForTarget, fetchLatestEspIdfVersion, idfVersionMeetsTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
+import { DEFAULT_ESP_IDF_VERSION, espIdfVersionForTarget, idfVersionMeetsTarget, idfVersionSatisfiesTarget, resolveEspIdfVersion } from '../src/esp32/idf-version.mjs'
 import { flashCompleted, flashOptions } from '../src/esp32/flash.mjs'
 import { flashOffsetForBuildImage, loadPartitions, normalizeOtaSlot, partitionByName, sizeToBytes } from '../src/esp32/partitions.mjs'
 import { Sdkconfig, prepareBuildLocalSdkconfig, withSdkconfigUnset, withSdkconfigValue } from '../src/esp32/sdkconfig.mjs'
@@ -229,75 +229,31 @@ test('switching ESP-IDF installations invalidates the configure signature', asyn
   assert.equal(await configure(other), false)
 })
 
-test('ESP-IDF version resolution: default pin, env/option override, latest-release lookup, and the acceptance floor', async () => {
+test('ESP-IDF version resolution: default pin, env/option override, and the acceptance rules', async () => {
   assert.equal(DEFAULT_ESP_IDF_VERSION, 'v6.0.2')
 
-  // No override and no fetch available (offline/never-hit-network in tests):
-  // falls back to the pin.
-  assert.equal(
-    await resolveEspIdfVersion({ env: {}, fetchLatest: async () => '' }),
-    'v6.0.2'
-  )
+  // No override: the pin, which is the release every build looks for.
+  assert.equal(await resolveEspIdfVersion({ env: {} }), 'v6.0.2')
+  assert.equal(espIdfVersionForTarget('esp32-s3-waveshare-amoled-206'), DEFAULT_ESP_IDF_VERSION.slice(1), 'setup and builds name the same release')
 
-  // --idf-version wins outright, without ever calling fetchLatest.
-  let fetchCalled = false
-  assert.equal(
-    await resolveEspIdfVersion({
-      override: 'v6.0.3',
-      env: { GEA_ESP_IDF_VERSION: 'v9.9.9' },
-      fetchLatest: async () => { fetchCalled = true; return 'v7.0.0' }
-    }),
-    'v6.0.3'
-  )
-  assert.equal(fetchCalled, false, 'an explicit override short-circuits the network lookup')
+  // --idf-version wins outright.
+  assert.equal(await resolveEspIdfVersion({ override: 'v6.0.3', env: { GEA_ESP_IDF_VERSION: 'v9.9.9' } }), 'v6.0.3')
 
   // GEA_ESP_IDF_VERSION wins when no --idf-version is given, and a bare
   // version (no leading v) is normalized so it works as a git tag.
-  assert.equal(
-    await resolveEspIdfVersion({ env: { GEA_ESP_IDF_VERSION: '6.1.0-rc1' }, fetchLatest: async () => '' }),
-    'v6.1.0-rc1'
-  )
+  assert.equal(await resolveEspIdfVersion({ env: { GEA_ESP_IDF_VERSION: '6.1.0-rc1' } }), 'v6.1.0-rc1')
 
   // A branch is cloned as named: `vmaster` is no ref at all.
-  assert.equal(
-    await resolveEspIdfVersion({ override: 'master', env: {}, fetchLatest: async () => '' }),
-    'master'
-  )
+  assert.equal(await resolveEspIdfVersion({ override: 'master', env: {} }), 'master')
 
-  // A stable latest release is used when no override is given.
-  assert.equal(
-    await resolveEspIdfVersion({ env: {}, fetchLatest: async () => 'v6.1.0' }),
-    'v6.1.0'
-  )
+  // The pinned default is satisfied only by that exact release: a newer one
+  // installs cleanly and is then refused by every build.
+  assert.equal(idfVersionSatisfiesTarget({ majorMinor: '6.0', full: '6.0.2' }, 'v6.0.2'), true)
+  assert.equal(idfVersionSatisfiesTarget({ majorMinor: '6.1', full: '6.1.1' }, 'v6.0.2'), false)
+  assert.equal(idfVersionSatisfiesTarget({ majorMinor: '6.0', full: '6.0.1' }, 'v6.0.2'), false)
+  assert.equal(idfVersionSatisfiesTarget({ majorMinor: '6.0', full: '6.0.2' }, 'v6.0.0'), true, 'a version asked for by name keeps the floor')
 
-  // fetchLatestEspIdfVersion itself: stable tag accepted.
-  assert.equal(
-    await fetchLatestEspIdfVersion({
-      fetchImpl: async () => ({ ok: true, json: async () => ({ tag_name: 'v6.1.0' }) })
-    }),
-    'v6.1.0'
-  )
-  // Pre-releases/RCs are ignored -- caller falls back to the pin.
-  assert.equal(
-    await fetchLatestEspIdfVersion({
-      fetchImpl: async () => ({ ok: true, json: async () => ({ tag_name: 'v6.1.0-rc1' }) })
-    }),
-    ''
-  )
-  // A failed/timed-out/offline request falls back silently (empty string,
-  // at most one log line -- never throws).
-  let logged = ''
-  assert.equal(
-    await fetchLatestEspIdfVersion({
-      fetchImpl: async () => { throw new Error('network unreachable') },
-      log: (line) => { logged = line }
-    }),
-    ''
-  )
-  assert.match(logged, /Could not determine the latest ESP-IDF release/)
-  assert.equal(await fetchLatestEspIdfVersion({ fetchImpl: async () => ({ ok: false }) }), '')
-
-  // Installed-version acceptance is a floor on major.minor: newer, equal,
+  // For a version asked for by name, acceptance is a floor on major.minor: newer, equal,
   // and a newer major all pass; an older minor or major fails.
   assert.equal(idfVersionMeetsTarget({ majorMinor: '6.0' }, 'v6.0.2'), true)
   assert.equal(idfVersionMeetsTarget({ majorMinor: '6.1' }, 'v6.0.2'), true)

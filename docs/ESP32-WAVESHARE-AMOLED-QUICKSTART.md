@@ -14,7 +14,7 @@ You should only need four moves:
 Install:
 
 - Git
-- Node.js 20.19 or newer
+- Node.js 22 or newer
 - npm
 - Python 3
 

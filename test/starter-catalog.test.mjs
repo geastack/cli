@@ -26,7 +26,7 @@ test('example catalog hard-codes rich GitHub examples without source files', () 
     }
   )
 
-  assert.equal(examples.length, 45)
+  assert.equal(examples.length, 44)
   assert.equal(examples.every((example) => example.source === 'github'), true)
   assert.equal(examples.some((example) => example.id === 'watch'), true)
   assert.equal(examples.some((example) => example.id === 'bubble-grid'), true)

@@ -314,3 +314,17 @@ test('create-geastack help prints usage', async () => {
   assert.equal(code, 0)
   assert.match(out.join('\n'), /create-geastack <name>/)
 })
+
+test('a web-only app is pointed at gea dev, not at the board setup wizard', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-web-'))
+  const out = []
+
+  await runCreateGeastack(['Web Panel', '--dir', tmp, '--starter', 'blank', '--targets=web', '--no-install'], {
+    cwd: tmp,
+    stdout: (line) => out.push(line)
+  })
+
+  assert.match(out.join('\n'), /Next: cd .* && npm install && npx gea dev/)
+  assert.doesNotMatch(out.join('\n'), /gea setup/)
+  assert.doesNotMatch(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /gea setup/)
+})

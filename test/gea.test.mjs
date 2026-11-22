@@ -294,6 +294,12 @@ test('a bare `gea build` only means macOS for an app with no board to pick', asy
   assert.equal(explicit.code, 0, explicit.err)
   assert.match(explicit.out, new RegExp(`^${escapeRegex(formatCommand(['bash', resolvedAppleScript(fixture.appDir, 'macos'), 'watch']))}$`, 'm'))
 
+  // `gea run` is the same build followed by opening the .app it produced.
+  const launch = await gea(['run', '--target', 'macos', '--dry-run'], fixture)
+  assert.equal(launch.code, 0, launch.err)
+  assert.match(launch.out, new RegExp(`^${escapeRegex(formatCommand(['bash', resolvedAppleScript(fixture.appDir, 'macos'), 'watch']))}$`, 'm'))
+  assert.match(launch.out, /^open .*dist[\\/]macos[\\/]watch[\\/].+\.app'?$/m)
+
   // An app with no board-driven target has nothing to select, so on a Mac the
   // bare build is the Mac build.
   const macOnly = path.join(fixture.root, 'apps/mac-only')
@@ -579,6 +585,8 @@ test('ota uploads the built image over WiFi and BLE OTA runs the swift helper', 
   assert.match(host.out, /http:\/\/10\.0\.0\.9:8080\/ota\?slot=ota_1&boot=1&reboot=0/)
 
   await assert.rejects(gea(['ota', '--board', 'amoled', '--dry-run'], fixture), /transports\.ota\.host/)
+  // --port is a USB serial port; passing it to a Wi-Fi OTA is named, not ignored.
+  await assert.rejects(gea(['ota', '--board', 'amoled-wifi', '--port', '10.0.0.9', '--dry-run'], fixture), /--host/)
 
   const ble = await gea(['ota', '--board', 'amoled', '--transport', 'ble', '--dry-run'], fixture)
   assert.equal(ble.code, 0, ble.err)
@@ -759,7 +767,7 @@ test('doctor requires npm packages while platform tools are optional', async (t)
   assert.equal(code, 0)
   assert.equal(result.ok, true)
   assert.equal(result.checks.find((check) => check.name === '@geastack/targets').ok, true)
-  assert.equal(result.checks.find((check) => check.name === 'ESP-IDF').ok, true)
+  assert.equal(result.checks.find((check) => check.name === 'ESP-IDF v6.0.2').ok, true)
   assert.equal(result.checks.find((check) => check.name === 'ESP-IDF python env').ok, true)
   assert.equal(result.checks.find((check) => check.name === 'ninja').ok, true)
   assert.equal(result.checks.find((check) => check.name === 'ccache').ok, onPath('ccache', { PATH: `${tools.bin}${path.delimiter}${fixture.env.PATH}` }))
@@ -776,8 +784,6 @@ test('doctor fails closed for invalid board configuration', async (t) => {
 
 test('setup --esp-idf resolves the pinned default (never the stale v6.0.1) and accepts the fixture\'s installed 6.0.2', async (t) => {
   const fixture = createFixture(t)
-  // capture()'s fetchEspIdfLatest stub answers as if the network is
-  // unreachable, so this exercises the "fall back to the pin" path.
   const s31 = fakeS31EspIdf(fixture)
   const found = await gea(['setup', '--esp-idf'], fixture, { prompt: scriptedPrompt([]) })
   assert.equal(found.code, 0, found.err)
@@ -819,8 +825,7 @@ test('setup wizard: --idf-version overrides GEA_ESP_IDF_VERSION, which overrides
     ...out.io,
     prompt,
     cwd: fixture.appDir,
-    env: { ...fixture.env, GEA_ESP_IDF_VERSION: 'v6.0.0' },
-    fetchEspIdfLatest: async () => { throw new Error('must not be called when an override is given') }
+    env: { ...fixture.env, GEA_ESP_IDF_VERSION: 'v6.0.0' }
   })
   assert.equal(code, 0)
   assert.match(prompt.questions.join('\n'), /Installs or verifies ESP-IDF v6\.0\.0\./)
@@ -835,21 +840,31 @@ test('setup wizard: --idf-version overrides GEA_ESP_IDF_VERSION, which overrides
   assert.match(winner.out, /ESP-IDF found: 6\.0\.2 at /, 'v6.0.4 shares 6.0.2\'s major.minor, so it is still accepted')
 })
 
-test('setup wizard prefers a stable latest ESP-IDF release over the pin when the lookup succeeds', async (t) => {
+test('setup installs the release builds look for, and does not accept a newer one in its place', async (t) => {
   const fixture = createFixture(t)
   fakeS31EspIdf(fixture)
   const out = capture()
   const prompt = scriptedPrompt(['4'])
-  const code = await runGea(['setup'], {
-    ...out.io,
-    prompt,
-    cwd: fixture.appDir,
-    env: fixture.env,
-    fetchEspIdfLatest: async () => 'v6.0.5'
-  })
+  const code = await runGea(['setup'], { ...out.io, prompt, cwd: fixture.appDir, env: fixture.env })
   assert.equal(code, 0)
-  assert.match(prompt.questions.join('\n'), /Installs or verifies ESP-IDF v6\.0\.5\./)
-  assert.match(out.out.join('\n'), /ESP-IDF found: 6\.0\.2 at /, 'still within the same major.minor as the resolved target')
+  assert.match(prompt.questions.join('\n'), /Installs or verifies ESP-IDF v6\.0\.2\./)
+  assert.match(out.out.join('\n'), /ESP-IDF found: 6\.0\.2 at /)
+
+  // Only a newer release installed where builds search: none would pick it,
+  // so setup says what it found and clones the pin.
+  const newer = createFixture(t)
+  fs.rmSync(path.join(newer.root, 'esp-idf'), { recursive: true })
+  const dir = path.join(newer.root, 'esp32', 'esp-idf-v6.1.1')
+  fs.mkdirSync(path.join(dir, 'tools', 'cmake'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'tools', 'idf.py'), '# fake idf.py\n')
+  fs.writeFileSync(path.join(dir, 'tools', 'cmake', 'version.cmake'), 'set(IDF_VERSION_MAJOR 6)\nset(IDF_VERSION_MINOR 1)\nset(IDF_VERSION_PATCH 1)\n')
+  const install = await gea(['setup', '--esp-idf', '--dry-run'], newer, {
+    prompt: scriptedPrompt([]),
+    env: { ...newer.env, IDF_PATH: '', HOME: newer.root, USERPROFILE: newer.root }
+  })
+  assert.equal(install.code, 0, install.err)
+  assert.doesNotMatch(install.out, /ESP-IDF found: 6\.1\.1/)
+  assert.match(install.out, /git clone -b v6\.0\.2 /)
 })
 
 test('setup wizard reinstalls when the resolved target outgrows what is installed, cloning the resolved tag', async (t) => {
@@ -933,4 +948,12 @@ test('a board that is not plugged in is registered without a serial', async (t) 
   assert.match(out.out.join('\n'), /gea boards discover --save/)
   const boards = readJson(path.join(fixture.root, '.geastack/boards.json'))
   assert.deepEqual(boards.later.transports, {})
+})
+
+test('setup with no terminal and nothing to configure names the flags instead of crashing', async (t) => {
+  const fixture = createFixture(t)
+  await assert.rejects(
+    gea(['setup'], fixture, { stdin: { isTTY: false } }),
+    /needs a terminal.*--board <alias>, --target <id> or --esp-idf/
+  )
 })

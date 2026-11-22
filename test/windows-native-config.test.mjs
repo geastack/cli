@@ -57,7 +57,10 @@ test('windows-only native settings are refused elsewhere and checked for existen
   const errors = validateApp(macos)
   assert.ok(errors.some((error) => /gea\.targets\.macos\.nativeSources is supported only by windows/.test(error)), errors.join('\n'))
   assert.ok(errors.some((error) => /gea\.targets\.macos\.providers is supported only by windows/.test(error)), errors.join('\n'))
-  assert.ok(errors.some((error) => /gea\.targets\.macos\.tsconfig is supported only by windows/.test(error)), errors.join('\n'))
+  // macOS reads its own tsconfig too, so there the file only has to exist.
+  assert.ok(errors.some((error) => /gea\.targets\.macos\.tsconfig does not exist: tsconfig\.json/.test(error)), errors.join('\n'))
+  const android = validateApp(normalizeApp(root, { name: 'fixture', gea: { entry: 'index.ts', targets: { android: { tsconfig: 'tsconfig.json' } } } }))
+  assert.ok(android.some((error) => /gea\.targets\.android\.tsconfig is supported only by windows/.test(error)), android.join('\n'))
   const missing = normalizeApp(root, { name: 'fixture', gea: { entry: 'index.ts', targets: { windows: { nativeSources: ['native/absent.cpp'], tsconfig: 'absent.json', providers: 'dir' } } } })
   const missingErrors = validateApp(missing)
   assert.ok(missingErrors.some((error) => /nativeSources entry does not exist: native\/absent\.cpp/.test(error)), missingErrors.join('\n'))

@@ -165,6 +165,7 @@ export function targetsCommand(ctx, parsed, rest, options) {
     fail(error.message, ExitCode.missingDependency)
   }
   if (sub === 'list') {
+    if (Object.keys(targets).length === 0 && !flag(parsed, 'json')) fail(`No targets found: @geastack/targets is not installed in ${ctx.projectRoot}. Run this inside a GeaStack project after npm install.`, ExitCode.missingDependency)
     if (flag(parsed, 'json')) options.stdout(JSON.stringify(targets, null, 2))
     else for (const id of Object.keys(targets).sort()) options.stdout(`${id}\t${targets[id].adapter}\t${exists(targets[id].targetDir) ? targets[id].targetDir : '(not installed)'}`)
     return 0
