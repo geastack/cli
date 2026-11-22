@@ -2,7 +2,7 @@ import { debugFps } from '../debug-fps.mjs'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appForNativeDebugger, resolveBuildConfig, writeBuildConfig } from '../build-config.mjs'
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { geastackHome } from '../boards/config.mjs'
@@ -169,7 +169,7 @@ export function requireEspIdf(env, log, selection = null) {
 
 // The per-app sdkconfig policy: development logging, the board's stack
 // sizes, the S3 instruction cache and the BLE host exactly as the app needs.
-export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta, partitionCsv, boardConsole, boardPsram, boardRgbPanel }) {
+export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, bleOta, partitionCsv, boardConsole, boardPsram, boardRgbPanel, boardWireless = null, boardCamera = null }) {
   const set = (key, value) => sdkconfig.set(key, value)
   const unset = (key) => sdkconfig.unset(key)
   // A board value the app's own defaults may replace. Every value this policy
@@ -198,9 +198,13 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
   // firmware would run correctly and log into a port nobody is connected to,
   // which is indistinguishable from a board that never booted.
   if (boardConsole) {
-    for (const key of ['CONFIG_ESP_CONSOLE_UART_DEFAULT', 'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG', 'CONFIG_ESP_CONSOLE_USB_CDC', 'CONFIG_ESP_CONSOLE_NONE']) {
+    // A base's own console choice goes with it: the esp32-p4 base (the Waveshare
+    // 7-inch project) runs a CUSTOM UART at 921600 with the USB-Serial/JTAG as a
+    // secondary console, none of which a composed board's wiring has.
+    for (const key of ['CONFIG_ESP_CONSOLE_UART_DEFAULT', 'CONFIG_ESP_CONSOLE_UART_CUSTOM', 'CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_0', 'CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_1', 'CONFIG_ESP_CONSOLE_UART_TX_GPIO', 'CONFIG_ESP_CONSOLE_UART_RX_GPIO', 'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG', 'CONFIG_ESP_CONSOLE_USB_CDC', 'CONFIG_ESP_CONSOLE_NONE', 'CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG']) {
       unset(key)
     }
+    board('CONFIG_ESP_CONSOLE_SECONDARY_NONE', 'y')
     if (boardConsole.transport === 'uart') {
       board('CONFIG_ESP_CONSOLE_UART_DEFAULT', 'y')
       board('CONFIG_ESP_CONSOLE_UART', 'y')
@@ -250,6 +254,68 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
         board('CONFIG_SPIRAM_FETCH_INSTRUCTIONS', 'y')
         board('CONFIG_SPIRAM_RODATA', 'y')
       }
+    }
+  }
+
+  // A P4's hosted WiFi/BLE coprocessor: esp_hosted takes its SDIO bus and the
+  // coprocessor's reset line from these, so they are the board's wiring.
+  if (boardWireless) {
+    for (const slot of [0, 1]) if (slot !== boardWireless.slot) unset(`CONFIG_ESP_HOSTED_SDIO_SLOT_${slot}`)
+    board(`CONFIG_ESP_HOSTED_SDIO_SLOT_${boardWireless.slot}`, 'y')
+    if (boardWireless.busWidth === 4) {
+      unset('CONFIG_ESP_HOSTED_SDIO_1_BIT_BUS')
+      board('CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS', 'y')
+    } else {
+      unset('CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS')
+      board('CONFIG_ESP_HOSTED_SDIO_1_BIT_BUS', 'y')
+    }
+    board('CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ', String(boardWireless.clockKhz))
+    if (boardWireless.resetActiveHigh) {
+      unset('CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW')
+      board('CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_HIGH', 'y')
+    } else {
+      unset('CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_HIGH')
+      board('CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW', 'y')
+    }
+    board('CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE', String(boardWireless.pins.reset))
+    // esp_hosted's settable pins are the per-slot PRIV symbols; the plain
+    // CONFIG_ESP_HOSTED_SDIO_PIN_* are derived from them and a value written
+    // there is recomputed away. D1 is the interrupt line in 1-bit mode too.
+    const slot = `SLOT_${boardWireless.slot}`
+    const bus = boardWireless.busWidth === 4 ? '4BIT_BUS' : '1BIT_BUS'
+    const pins = {
+      [`CMD_${slot}`]: 'cmd',
+      [`CLK_${slot}`]: 'clk',
+      [`D0_${slot}`]: 'd0',
+      [`D1_${bus}_${slot}`]: 'd1',
+      ...(boardWireless.busWidth === 4 ? { [`D2_${bus}_${slot}`]: 'd2', [`D3_${bus}_${slot}`]: 'd3' } : {})
+    }
+    for (const [name, key] of Object.entries(pins)) {
+      if (boardWireless.pins[key] >= 0) board(`CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_${name}`, String(boardWireless.pins[key]))
+    }
+  }
+
+  // A P4's MIPI-CSI camera: the esp_cam_sensor driver and the mode it streams.
+  if (boardCamera) {
+    const sensor = boardCamera.sensor.toUpperCase()
+    // Only the board's sensor: the esp32-p4 base enables the Waveshare board's
+    // OV5647, and esp_video would probe it too.
+    for (const line of `${sdkconfig.defaults}\n${sdkconfig.text}`.split('\n')) {
+      const other = /^(CONFIG_CAMERA_([A-Z0-9]+))=y$/.exec(line)
+      if (other && other[2] !== sensor && other[2] !== 'XCLK') unset(other[1])
+    }
+    board('CONFIG_IDF_EXPERIMENTAL_FEATURES', 'y')
+    board(`CONFIG_CAMERA_${sensor}`, 'y')
+    board(`CONFIG_CAMERA_${sensor}_AUTO_DETECT_MIPI_INTERFACE_SENSOR`, 'y')
+    if (boardCamera.mode) {
+      // The mode is a choice: clear the one already selected (the sensor's
+      // default, or a previous board's) so the two cannot both stand.
+      const prefix = `CONFIG_CAMERA_${sensor}_${boardCamera.mode.split('_')[0]}_`
+      for (const line of sdkconfig.text.split('\n')) {
+        const key = line.endsWith('=y') ? line.slice(0, -2) : ''
+        if (key.startsWith(prefix) && !key.includes('_IF_FORMAT_') && key !== `CONFIG_CAMERA_${sensor}_${boardCamera.mode}`) unset(key)
+      }
+      board(`CONFIG_CAMERA_${sensor}_${boardCamera.mode}`, 'y')
     }
   }
 
@@ -527,6 +593,8 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   let boardConsole = null
   let boardPsram = null
   let boardRgbPanel = false
+  let boardWireless = null
+  let boardCamera = null
   // Physical buttons: the board's JSON list with the app's changes, generated
   // into a header the firmware's button service includes.
   const buttons = resolveButtons({ board: selection.buttons || [], app, platform: 'esp32', boardId: selection.target })
@@ -563,6 +631,8 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     if (boardPsram && appEsp32Config?.psram) boardPsram = { ...boardPsram, ...appEsp32Config.psram }
     const display = generated.target.chips?.display
     boardRgbPanel = display?.interface === 'rgb' ? { restartInVsync: display.restartInVsync !== false } : false
+    boardWireless = generated.target.wireless
+    boardCamera = generated.target.camera
     log(`Generated custom board files in ${outDir} (${path.basename(generated.headerPath)}, ${path.basename(generated.cmakePath)})`)
   }
 
@@ -694,7 +764,9 @@ function preparePartitions(app, config, buildDir, targetId) {
     partitionCsv: appPartitionCsv || boardPartitionCsv,
     boardConsole,
     boardPsram,
-    boardRgbPanel
+    boardRgbPanel,
+    boardWireless,
+    boardCamera
   }).save()
 
   const defaultsArg = [defaultsFile, appSdkconfigFile].filter(Boolean).join(';')
@@ -739,10 +811,27 @@ function runInTarget(command, args, { cwd, env, dryRun, verbose, label, logFile,
   return runQuiet(command, args, { cwd, env, dryRun, verbose, label, logFile, stdout, stderr, failureCode })
 }
 
+// A build directory belongs to the CMake project it was configured from, and
+// CMake refuses to reuse it for another ("does not match the source used to
+// generate cache"). When a target's project changes (a board moved onto another
+// base project, a renamed checkout), its cache goes and configure starts the
+// directory afresh.
+export function dropCacheFromOtherSource(buildDir, sourceDir) {
+  const cacheFile = path.join(buildDir, 'CMakeCache.txt')
+  if (!existsSync(cacheFile)) return false
+  const home = /^CMAKE_HOME_DIRECTORY:INTERNAL=(.*)$/m.exec(readFileSync(cacheFile, 'utf8'))?.[1]
+  const real = (dir) => (existsSync(dir) ? realpathSync(dir) : path.resolve(dir))
+  if (!home || real(home) === real(sourceDir)) return false
+  rmSync(cacheFile, { force: true })
+  rmSync(path.join(buildDir, 'CMakeFiles'), { recursive: true, force: true })
+  return true
+}
+
 // App capability flags are CMake cache entries. Reconfigure only when those
 // inputs change; ordinary source/CMake dependency changes remain the build
 // system's responsibility. This retains Ninja's sub-second no-op.
 export async function ensureConfigured({ idf, prepared, env, dryRun = false, verbose = false, stdout, stderr = console.error }) {
+  if (!dryRun) dropCacheFromOtherSource(prepared.binaryDir || prepared.buildDir, prepared.targetDir)
   const signatureFile = path.join(prepared.buildDir, '.gea-configure-args')
   const signature = [`IDF_PATH=${idf.idfDir}`, `IDF_PYTHON_ENV_PATH=${idf.pythonEnv}`, `-DSDKCONFIG=${prepared.sdkconfigFile}`, `-DSDKCONFIG_DEFAULTS=${prepared.defaultsArg || prepared.defaultsFile}`, ...prepared.idfArgs, ...(prepared.sourceSet || [])].join('\n') + '\n'
   if (existsSync(path.join(prepared.buildDir, 'CMakeCache.txt')) && existsSync(signatureFile) && readFileSync(signatureFile, 'utf8') === signature) {

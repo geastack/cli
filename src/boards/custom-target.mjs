@@ -8,7 +8,9 @@ import { writePartitionTable } from '../esp32/partitions-from-manifest.mjs'
 // generated board.h + target.cmake inside the app's build directory before
 // IDF configures, so the target project only ever includes generated files.
 
-const supportedBase = 'esp32-s3'
+// Each base is a target project that includes the generated files, keyed by
+// the `extends` a definition names, with the MCU it runs on.
+const supportedBases = { 'esp32-s3': 'esp32s3', 'esp32-p4': 'esp32p4' }
 
 function object(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object.`)
@@ -40,15 +42,20 @@ function boolean(value, label, fallback) {
   throw new Error(`${label} must be true or false.`)
 }
 
+// The highest GPIO of the MCU being normalized: GPIO0-48 on the S3, 0-54 on
+// the P4. Set once per definition, before any pin is read.
+const maxGpioByMcu = { esp32s3: 48, esp32p4: 54 }
+let maxGpio = maxGpioByMcu.esp32s3
+
 function pin(value, label, { optional = false } = {}) {
   if (optional && (value === null || value === undefined || value === 'none')) return -1
-  return integer(value, label)
+  return integer(value, label, { max: maxGpio })
 }
 
 function exact(value, expected, label) {
   const actual = text(value, label).toLowerCase()
   if (actual !== expected) {
-    throw new Error(`${label} '${actual}' is not supported by the ${supportedBase} base. Supported value: ${expected}.`)
+    throw new Error(`${label} '${actual}' is not supported. Supported value: ${expected}.`)
   }
   return actual
 }
@@ -129,8 +136,11 @@ export function normalizeCustomTarget(raw, catalog) {
   const definition = object(raw, 'Target definition')
   const id = text(definition.id, 'id')
   if (!/^[a-z0-9][a-z0-9._-]*$/.test(id)) throw new Error('id may contain lowercase letters, digits, dots, underscores, and hyphens.')
-  const base = exact(definition.extends, supportedBase, 'extends')
-  const mcu = exact(definition.mcu, 'esp32s3', 'mcu')
+  const base = text(definition.extends, 'extends')
+  if (!Object.hasOwn(supportedBases, base)) throw new Error(`extends must be one of ${Object.keys(supportedBases).join(', ')}, not '${base}'.`)
+  const mcu = exact(definition.mcu, supportedBases[base], 'mcu')
+  const p4 = mcu === 'esp32p4'
+  maxGpio = maxGpioByMcu[mcu]
   const adapter = definition.adapter ? exact(definition.adapter, 'esp32-idf', 'adapter') : 'esp32-idf'
   const chips = absent(definition.chips) ? {} : object(definition.chips, 'chips')
   const display = optionalChip(chips, 'display', 'display', adapter, mcu, catalog)
@@ -178,9 +188,10 @@ export function normalizeCustomTarget(raw, catalog) {
   // share nothing but a size, so each carries its own pins and parameters.
   const displayInterface = display ? display.interface : ''
   if (display && !['qspi', 'rgb'].includes(displayInterface)) {
-    throw new Error(`chips.display.interface '${displayInterface}' is not supported by the ${supportedBase} base. Supported values: qspi, rgb.`)
+    throw new Error(`chips.display.interface '${displayInterface}' is not supported by the ${base} base. Supported values: qspi, rgb.`)
   }
   const spiHost = display && displayInterface === 'qspi' ? String(display.spiHost ?? 'spi2').toLowerCase() : 'spi2'
+  if (p4 && display && displayInterface !== 'rgb') throw new Error(`chips.display.interface '${displayInterface}' is not supported by the esp32-p4 base yet. Supported values: rgb.`)
   if (display && displayInterface === 'qspi' && !['spi2', 'spi3'].includes(spiHost)) throw new Error("chips.display.spiHost must be 'spi2' or 'spi3'.")
   const expanderOutputs = expander ? (absent(expander.outputs) ? {} : object(expander.outputs, 'chips.expander.outputs')) : null
   const expanderMaxPin = ['tca9554', 'pca9557', 'elecrow_board_control'].includes(expander?.driver) ? 7 : expander?.driver === 'ch422g' ? 11 : 15
@@ -227,6 +238,9 @@ export function normalizeCustomTarget(raw, catalog) {
   // console: octal settings on a quad-wired part do not fail cleanly, they
   // bring up a device that reports the wrong size and corrupts under load.
   const psram = absent(definition.psram) ? null : object(definition.psram, 'psram')
+  // The P4's PSRAM is in the package (16-line HEX, 200MHz), not a module
+  // choice: the base configures it, and the S3's octal/quad knobs mean nothing.
+  if (psram && p4) throw new Error('psram is not configurable on the esp32-p4 base: its PSRAM is in-package and the base sets it up.')
   const psramModes = ['octal', 'quad', 'none']
   const psramMode = psram && !absent(psram.mode) ? text(psram.mode, 'psram.mode').toLowerCase() : ''
   if (psramMode && !psramModes.includes(psramMode)) {
@@ -291,6 +305,63 @@ export function normalizeCustomTarget(raw, catalog) {
     }
   }
 
+  // A P4 has no radio: WiFi/BLE come from an ESP32-C6/C5 coprocessor on
+  // SDIO, through esp_hosted. Its bus and reset line are board wiring.
+  const wireless = absent(definition.wireless) ? null : object(definition.wireless, 'wireless')
+  if (wireless && !p4) throw new Error('wireless (a hosted coprocessor) is only supported by the esp32-p4 base.')
+  const wirelessPins = wireless ? object(wireless.pins, 'wireless.pins') : null
+  const wirelessConfig = wireless ? (() => {
+    exact(wireless.transport ?? 'sdio', 'sdio', 'wireless.transport')
+    const busWidth = integer(wireless.busWidth ?? 4, 'wireless.busWidth', { min: 1, max: 4 })
+    if (![1, 4].includes(busWidth)) throw new Error('wireless.busWidth must be 1 or 4.')
+    return {
+      coprocessor: text(wireless.coprocessor ?? 'esp32c6', 'wireless.coprocessor'),
+      transport: 'sdio',
+      slot: integer(wireless.slot ?? 1, 'wireless.slot', { min: 0, max: 1 }),
+      busWidth,
+      clockKhz: integer(wireless.clockKhz ?? 40000, 'wireless.clockKhz', { min: 400, max: 50000 }),
+      resetActiveHigh: boolean(wireless.resetActiveHigh, 'wireless.resetActiveHigh', true),
+      pins: {
+        clk: pin(wirelessPins.clk, 'wireless.pins.clk'),
+        cmd: pin(wirelessPins.cmd, 'wireless.pins.cmd'),
+        d0: pin(wirelessPins.d0, 'wireless.pins.d0'),
+        d1: busWidth === 4 ? pin(wirelessPins.d1, 'wireless.pins.d1') : -1,
+        d2: busWidth === 4 ? pin(wirelessPins.d2, 'wireless.pins.d2') : -1,
+        d3: busWidth === 4 ? pin(wirelessPins.d3, 'wireless.pins.d3') : -1,
+        reset: pin(wirelessPins.reset, 'wireless.pins.reset', { optional: true })
+      }
+    }
+  })() : null
+  // A MIPI-CSI camera: the sensor (an esp_cam_sensor driver), its mode, and
+  // its SCCB control bus. Reset may be a GPIO or a board-control line.
+  const camera = absent(definition.camera) ? null : object(definition.camera, 'camera')
+  if (camera && !p4) throw new Error('camera is only supported by the esp32-p4 base.')
+  const cameraConfig = camera ? (() => {
+    exact(camera.interface ?? 'mipi-csi', 'mipi-csi', 'camera.interface')
+    const sensor = text(camera.sensor, 'camera.sensor').toLowerCase()
+    if (!/^[a-z0-9]+$/.test(sensor)) throw new Error(`camera.sensor must be an esp_cam_sensor name such as sc2336 or ov5647, not '${sensor}'.`)
+    // Spelled exactly as the sensor's Kconfig spells it (the resolution keeps its lowercase x).
+    const mode = absent(camera.mode) ? '' : text(camera.mode, 'camera.mode')
+    if (mode && !/^[A-Za-z0-9_]+$/.test(mode)) throw new Error(`camera.mode must be the sensor's Kconfig mode name such as MIPI_RAW8_1024x600_30FPS, not '${mode}'.`)
+    const sccb = object(camera.sccb, 'camera.sccb')
+    const reset = absent(camera.reset) ? {} : object(camera.reset, 'camera.reset')
+    if (!absent(reset.expander) && !expander) throw new Error('camera.reset.expander names an expander line, but the board has no chips.expander.')
+    return {
+      sensor,
+      mode,
+      width: integer(camera.width, 'camera.width', { min: 1, max: 4096 }),
+      height: integer(camera.height, 'camera.height', { min: 1, max: 4096 }),
+      // Sensor mounting relative to the panel, degrees counter-clockwise.
+      rotation: (() => {
+        const value = integer(camera.rotation ?? 0, 'camera.rotation', { min: 0, max: 270 })
+        if (value % 90) throw new Error('camera.rotation must be 0, 90, 180 or 270.')
+        return value
+      })(),
+      sccb: { sda: pin(sccb.sda, 'camera.sccb.sda'), scl: pin(sccb.scl, 'camera.sccb.scl') },
+      reset: { pin: pin(reset.pin, 'camera.reset.pin', { optional: true }), expander: expanderPin(reset.expander, 'camera.reset.expander') }
+    }
+  })() : null
+
   const target = {
     id,
     extends: base,
@@ -313,6 +384,8 @@ export function normalizeCustomTarget(raw, catalog) {
       return roles
     }),
     console: consoleTransport ? { transport: consoleTransport, baud: consoleBaud, uart: consoleUart } : null,
+    wireless: wirelessConfig,
+    camera: cameraConfig,
     psram: psramMode ? { mode: psramMode, speed: psramSpeed, xip: psramXip } : null,
     buses: {
       i2c: i2c === null ? null : {
@@ -336,6 +409,8 @@ export function normalizeCustomTarget(raw, catalog) {
         vsyncBackPorch: integer(display.vsyncBackPorch ?? 8, 'chips.display.vsyncBackPorch', { min: 0, max: 1024 }),
         vsyncFrontPorch: integer(display.vsyncFrontPorch ?? 8, 'chips.display.vsyncFrontPorch', { min: 0, max: 1024 }),
         pclkActiveNeg: boolean(display.pclkActiveNeg, 'chips.display.pclkActiveNeg', true),
+        // PCLK's level between lines; some panels sample garbage unless it idles high.
+        pclkIdleHigh: boolean(display.pclkIdleHigh, 'chips.display.pclkIdleHigh', false),
         scanFramebuffers: integer(display.scanFramebuffers ?? 3, 'chips.display.scanFramebuffers', { min: 1, max: 3 }),
         backlightActiveLow: boolean(display.backlightActiveLow, 'chips.display.backlightActiveLow', false),
         bounceRows: integer(display.bounceRows ?? 0, 'chips.display.bounceRows', { min: 0, max: 120 }),
@@ -512,7 +587,7 @@ export function normalizeCustomTarget(raw, catalog) {
   return target
 }
 
-const pinRoles = ['i2c', 'display', 'touch', 'audio', 'microphone', 'microSD', 'launcherButton']
+const pinRoles = ['i2c', 'display', 'touch', 'audio', 'microphone', 'microSD', 'launcherButton', 'wireless', 'camera']
 
 function pinRoleOf(label) {
   if (label.startsWith('I2C ')) return 'i2c'
@@ -521,6 +596,8 @@ function pinRoleOf(label) {
   if (label.startsWith('audio ')) return 'audio'
   if (label.startsWith('microphone ')) return 'microphone'
   if (label.startsWith('microSD ')) return 'microSD'
+  if (label.startsWith('wireless ')) return 'wireless'
+  if (label.startsWith('camera ')) return 'camera'
   return 'launcherButton'
 }
 
@@ -580,7 +657,13 @@ function validatePinAssignments(target) {
         ['microSD CS', sd.pins.cs]
       ] : [])
     ] : []),
-    ...(launcher ? [['launcher button', launcher.pin]] : [])
+    ...(launcher ? [['launcher button', launcher.pin]] : []),
+    ...(target.wireless ? Object.entries(target.wireless.pins).map(([name, value]) => [`wireless ${name.toUpperCase()}`, value]) : []),
+    ...(target.camera ? [
+      ['camera SCCB SDA', target.camera.sccb.sda],
+      ['camera SCCB SCL', target.camera.sccb.scl],
+      ['camera reset', target.camera.reset.pin]
+    ] : [])
   ]
   const shared = (a, b) => a !== b && target.pinSharing.some((group) => group.includes(a) && group.includes(b))
   const used = new Map()
@@ -640,6 +723,8 @@ ${includes}
 #define GEA_BOARD_HAS_LAUNCHER_BUTTON ${target.controls.launcherButton ? 1 : 0}
 #define GEA_BOARD_HAS_EXPANDER ${expander ? 1 : 0}
 #define GEA_BOARD_HAS_RGB_CONTROLLER ${rgb?.controller ? 1 : 0}
+#define GEA_BOARD_HAS_CAMERA ${target.camera ? 1 : 0}
+#define GEA_BOARD_HAS_HOSTED_WIRELESS ${target.wireless ? 1 : 0}
 
 namespace gea::platform::board {
 
@@ -694,6 +779,13 @@ inline constexpr Es8311AudioConfig audio{
   .ws = ${gpio(audioPins.ws)}, .dout = ${gpio(audioPins.dout)}, .din = ${gpio(audioPins.din)},
   .powerAmplifier = ${gpio(audioPins.powerAmplifier)}, .es7210Address = ${audio.es7210Address}
 };` : ''}
+${target.camera ? `
+// The MIPI-CSI camera's SCCB bus and reset: a GPIO, or a board-control line (-1 where neither).
+struct CameraConfig { const char *name; gpio_num_t sccbSda; gpio_num_t sccbScl; gpio_num_t reset; int expanderReset; int width; int height; int rotateCcw; };
+inline constexpr CameraConfig camera{ .name = "mipi-csi-${target.camera.sensor}", .sccbSda = ${gpio(target.camera.sccb.sda)}, .sccbScl = ${gpio(target.camera.sccb.scl)}, .reset = ${gpio(target.camera.reset.pin)}, .expanderReset = ${target.camera.reset.expander}, .width = ${target.camera.width}, .height = ${target.camera.height}, .rotateCcw = ${target.camera.rotation / 90} };` : ''}${target.wireless ? `
+// The hosted WiFi/BLE coprocessor's SDIO bus (esp_hosted reads the same pins from sdkconfig).
+struct HostedConfig { gpio_num_t clk; gpio_num_t cmd; gpio_num_t d0; gpio_num_t d1; gpio_num_t d2; gpio_num_t d3; gpio_num_t reset; };
+inline constexpr HostedConfig hosted{ .clk = ${gpio(target.wireless.pins.clk)}, .cmd = ${gpio(target.wireless.pins.cmd)}, .d0 = ${gpio(target.wireless.pins.d0)}, .d1 = ${gpio(target.wireless.pins.d1)}, .d2 = ${gpio(target.wireless.pins.d2)}, .d3 = ${gpio(target.wireless.pins.d3)}, .reset = ${gpio(target.wireless.pins.reset)} };` : ''}
 
 ${rgb?.controller ? `struct RgbControllerConfig { int cs; int clock; int data; int reset; int addressSelect; };
 inline constexpr RgbControllerConfig rgbController{ ${rgb.controller.cs}, ${rgb.controller.clock}, ${rgb.controller.data}, ${rgb.controller.reset}, ${rgb.controller.addressSelect} };
@@ -782,7 +874,10 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     // it stores native order -- exactly what the Elecrow rotary target does.
     display?.panel ? boardDefine('GEA_CUSTOM_QSPI_PANEL_CONFIG', 1) : '',
     display?.panel?.minChunkRows ? boardDefine('GEA_EMBEDDED_DISPLAY_FLUSH_CHUNK_MIN', display.panel.minChunkRows) : '',
-    display && display.interface === 'rgb' ? boardDefine('GEA_EMBEDDED_PIXEL_PANEL_ENDIAN', 0) : ''
+    display && display.interface === 'rgb' ? boardDefine('GEA_EMBEDDED_PIXEL_PANEL_ENDIAN', 0) : '',
+    display?.pclkIdleHigh ? boardDefine('GEA_EMBEDDED_DISPLAY_RGB_PCLK_IDLE_HIGH', 1) : '',
+    // The P4's driver-owned framebuffers take the direct path in rgb_panel.cpp.
+    display && display.interface === 'rgb' && target.mcu === 'esp32p4' ? boardDefine('GEA_EMBEDDED_DISPLAY_RGB_BOUNCE', 0) : ''
   ].join('')
   // The board's own identity and pixel order reach geatsc too: the base project
   // is another board's, and its defaults (name, viewport, byte-swapped RGB565)
@@ -802,6 +897,9 @@ set(GEA_CUSTOM_TARGET_TOUCH_DRIVER "${touch ? touch.driver : ''}")
 set(GEA_CUSTOM_TARGET_HAS_EXPANDER ${expander ? 1 : 0})
 set(GEA_CUSTOM_TARGET_HAS_MICROSD ${target.storage.microSD ? 1 : 0})
 set(GEA_CUSTOM_TARGET_AUDIO_DRIVER "${audio ? audio.driver : ''}")
+set(GEA_CUSTOM_TARGET_HAS_CAMERA ${target.camera ? 1 : 0})
+set(GEA_CUSTOM_TARGET_CAMERA_SENSOR "${target.camera ? target.camera.sensor : ''}")
+set(GEA_CUSTOM_TARGET_HAS_HOSTED_WIRELESS ${target.wireless ? 1 : 0})
 set(GEA_CUSTOM_TARGET_AUDIO_SOURCES
 ${audio?.kind === 'i2s-amplifier' ? sourcesFor(audio).join('\n') : ''}
 )

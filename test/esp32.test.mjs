@@ -409,7 +409,7 @@ test('the build directory links to the short one, kept across builds and fresh a
   assert.ok(!existsSync(path.join(binaryDir, 'gea_embedded.bin')), 'and the next build starts clean')
 })
 
-function policy(t, { boardName = 'amoled', idfTarget = 'esp32s3', defaults = '', appDefaults = '', existing = '', app = { id: 'watch' }, capabilities = {}, bleOta = false }) {
+function policy(t, { boardName = 'amoled', idfTarget = 'esp32s3', defaults = '', appDefaults = '', existing = '', app = { id: 'watch' }, capabilities = {}, bleOta = false, boardConsole = null, boardCamera = null }) {
   const fixture = createFixture(t)
   const dir = path.join(fixture.root, 'policy')
   mkdirSync(dir, { recursive: true })
@@ -421,7 +421,9 @@ function policy(t, { boardName = 'amoled', idfTarget = 'esp32s3', defaults = '',
     selection: { boardName, idfTarget, mainTaskStackSize: '', ipcTaskStackSize: '' },
     app,
     capabilities: { network: false, ble: false, bleApi: false, audio: false, ...capabilities },
-    bleOta
+    bleOta,
+    boardConsole,
+    boardCamera
   })
   return sdkconfig.text
 }
@@ -659,4 +661,52 @@ test('USB teardown errors count as success only after every requested image veri
   assert.equal(check(complete + incomplete.replace('esptool v5.3', '\x1b[31mesptool v5.3\x1b[0m')), false)
   writeFileSync(logFile, complete + 'Cannot open port\n' + reset)
   assert.equal(flashCompleted(logFile, args, Buffer.byteLength(complete)), false, 'current invocation cannot reuse prior verification even without a version banner')
+})
+
+test('a build directory configured from another CMake project loses its cache', async () => {
+  const { dropCacheFromOtherSource } = await import('../src/esp32/build.mjs')
+  const { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } = await import('node:fs')
+  const os = await import('node:os')
+  const root = mkdtempSync(path.join(os.tmpdir(), 'gea-cache-'))
+  try {
+    const build = path.join(root, 'build')
+    const moved = path.join(root, 'old-target')
+    const current = path.join(root, 'new-target')
+    for (const dir of [build, path.join(build, 'CMakeFiles'), moved, current]) mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(build, 'CMakeCache.txt'), `CMAKE_HOME_DIRECTORY:INTERNAL=${current}\n`)
+    assert.equal(dropCacheFromOtherSource(build, current), false)
+    assert.ok(existsSync(path.join(build, 'CMakeCache.txt')))
+    writeFileSync(path.join(build, 'CMakeCache.txt'), `CMAKE_HOME_DIRECTORY:INTERNAL=${moved}\n`)
+    assert.equal(dropCacheFromOtherSource(build, current), true)
+    assert.ok(!existsSync(path.join(build, 'CMakeCache.txt')))
+    assert.ok(!existsSync(path.join(build, 'CMakeFiles')))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a composed board drops the esp32-p4 base\'s own console and camera sensor', (t) => {
+  // The base project (Waveshare 7-inch) runs a CUSTOM UART at 921600 with a
+  // secondary USB-Serial/JTAG console, and enables its OV5647.
+  const defaults = [
+    'CONFIG_ESP_CONSOLE_UART_CUSTOM=y',
+    'CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y',
+    'CONFIG_ESP_CONSOLE_UART_BAUDRATE=921600',
+    'CONFIG_CAMERA_OV5647=y',
+    'CONFIG_CAMERA_OV5647_MIPI_RAW10_1280x960_BINNING_45FPS=y'
+  ].join('\n') + '\n'
+  const text = policy(t, {
+    idfTarget: 'esp32p4',
+    defaults,
+    boardConsole: { transport: 'uart', uart: 0, baud: 115200 },
+    boardCamera: { sensor: 'sc2336', mode: 'MIPI_RAW8_1024x600_30FPS' }
+  })
+  assert.match(text, /^# CONFIG_ESP_CONSOLE_UART_CUSTOM is not set$/m)
+  assert.match(text, /^# CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG is not set$/m)
+  assert.match(text, /^CONFIG_ESP_CONSOLE_SECONDARY_NONE=y$/m)
+  assert.match(text, /^CONFIG_ESP_CONSOLE_UART_DEFAULT=y$/m)
+  assert.match(text, /^CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200$/m)
+  assert.match(text, /^# CONFIG_CAMERA_OV5647 is not set$/m)
+  assert.match(text, /^CONFIG_CAMERA_SC2336=y$/m)
+  assert.match(text, /^CONFIG_CAMERA_SC2336_MIPI_RAW8_1024x600_30FPS=y$/m)
 })

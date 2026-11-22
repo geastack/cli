@@ -388,6 +388,50 @@ test('the CrowPanel Advance 7.0 composes: revision-probing board control, BM8563
   assert.match(readFileSync(written.headerPath, 'utf8'), /GEA_BOARD_HAS_RTC 1/)
 })
 
+test('the CrowPanel Advanced 5.0 composes on the esp32-p4 base: hosted C6, SC2336 camera, STC8H1K17 board control', () => {
+  // The shipped definition against the shipped catalog: the P4 base takes the
+  // same JSON shape as the S3, plus the P4's own hosted radio and MIPI camera.
+  const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..')
+  const catalog = loadChipCatalogFromDir(path.join(repo, 'core/packages/chips'))
+  const definition = JSON.parse(readFileSync(path.join(repo, 'targets/targets/esp32-p4-elecrow-crowpanel-advanced-5.0.json'), 'utf8'))
+  const target = normalizeCustomTarget(definition, catalog)
+
+  assert.equal(target.extends, 'esp32-p4')
+  assert.equal(target.mcu, 'esp32p4')
+  // GPIO49-54 exist on the P4 (the S3 stops at 48).
+  assert.deepEqual(target.wireless.pins, { clk: 53, cmd: 54, d0: 52, d1: 51, d2: 50, d3: 49, reset: 20 })
+  assert.equal(target.camera.sensor, 'sc2336')
+  assert.equal(target.camera.reset.expander, 1)
+  // Three scan buffers at 61Hz (Elecrow: two at 42.5Hz), no VSYNC restart.
+  assert.equal(target.chips.display.scanFramebuffers, 3)
+  assert.equal(target.chips.display.pclkHz, 26000000)
+  assert.equal(target.chips.display.restartInVsync, false)
+  // QIO 80MHz flash, as in Elecrow's firmware: at DIO 40MHz the PSRAM-scanned panel underran.
+  assert.equal(target.flashMode, 'qio')
+  assert.equal(target.flashFreq, 80)
+
+  const header = renderBoardHeader(target)
+  assert.match(header, /#define GEA_BOARD_HAS_CAMERA 1/)
+  assert.match(header, /#define GEA_BOARD_HAS_HOSTED_WIRELESS 1/)
+  assert.match(header, /CameraConfig camera\{ \.name = "mipi-csi-sc2336", \.sccbSda = GPIO_NUM_33, \.sccbScl = GPIO_NUM_34, \.reset = GPIO_NUM_NC, \.expanderReset = 1/)
+  assert.match(header, /HostedConfig hosted\{ \.clk = GPIO_NUM_53/)
+
+  const cmake = renderTargetCmake(target, '/out')
+  assert.match(cmake, /chip_bindings\/expanders\/elecrow_stc8h1k17\.cpp/)
+  assert.match(cmake, /chip_bindings\/power\/elecrow_stc8h1k17\.cpp/)
+  assert.match(cmake, /GEA_EMBEDDED_DISPLAY_RGB_BOUNCE=0/)
+  assert.match(cmake, /GEA_EMBEDDED_DISPLAY_RGB_PCLK_IDLE_HIGH=1/)
+
+  // The S3-only and P4-only parts stay on their own base.
+  assert.throws(() => normalizeCustomTarget({ ...definition, psram: { mode: 'octal' } }, catalog), /psram is not configurable on the esp32-p4 base/)
+  assert.throws(() => normalizeCustomTarget({ ...definition, mcu: 'esp32s3' }, catalog), /mcu 'esp32s3' is not supported\. Supported value: esp32p4/)
+  assert.throws(() => normalizeCustomTarget({ ...definition, extends: 'esp32-c3' }, catalog), /extends must be one of esp32-s3, esp32-p4/)
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, camera: { ...definition.camera, sccb: { sda: 45, scl: 34 } } }, catalog),
+    /GPIO 45 is assigned to both I2C SDA and camera SCCB SDA/
+  )
+})
+
 test('a composed target shipped by @geastack/targets needs no per-project definition', () => {
   // The whole point of promoting a composed board into the targets package: an
   // alias names the target and nothing else, and every project resolves it the
