@@ -365,7 +365,7 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
   // Flash and PSRAM share the MSPI core clock, so the flash clock must divide
   // the one PSRAM runs from: octal PSRAM at 120MHz needs a 240MHz core, which
   // 80MHz quad flash cannot share (ESP-IDF has no tuning table for it).
-  const flashFreq = Number(app?.targetConfig?.esp32?.flashFreq) || Number(selection.flashFreq) || 0
+  const flashFreq = (app ? Number(appTargetConfig(app, 'esp32', selection.target).flashFreq) : 0) || Number(selection.flashFreq) || 0
   if (flashFreq) {
     for (const mhz of [20, 26, 40, 80, 120]) {
       if (mhz !== flashFreq) unset(`CONFIG_ESPTOOLPY_FLASHFREQ_${mhz}M`)
@@ -558,7 +558,7 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   // gea.targets.esp32.sdkconfig: the app's own Kconfig defaults, layered over
   // the board's. IDF reads a ';'-separated SDKCONFIG_DEFAULTS list in order, so
   // the app's file is last and wins wherever the two disagree.
-  const appEsp32Config = app ? appTargetConfig(app, 'esp32') : null
+  const appEsp32Config = app ? appTargetConfig(app, 'esp32', selection.target) : null
   const appSdkconfigFile = appEsp32Config?.sdkconfig ? path.join(app.root, appEsp32Config.sdkconfig) : ''
   // gea.targets.esp32.display: the RGB panel pipeline an app opts into.
   //   copyBack: 'dma'  the strip copy-back runs on GDMA, freeing the worker core;
