@@ -335,13 +335,15 @@ at call time, so never record a port path.
 
 ### Composed targets
 
-A composed target is a JSON definition that extends the `esp32-s3` base and
-picks its chips from the `@geastack/chips` catalog (`gea chips list`). Every
+A composed target is a JSON definition that extends a base (`esp32-s3` or
+`esp32-p4`, with `mcu` set to `esp32s3` or `esp32p4` to match) and picks its
+chips from the `@geastack/chips` catalog (`gea chips list`). Every
 role is optional, so the definition describes the hardware that is there:
 `display`, `touch`, `power`, `imu`, `audio`, `rtc` and `expander`. Some boards are
 shipped composed in `@geastack/targets` and need no definition of your own,
 for example `esp32-s3-devkit-n16r8` (a bare module),
-`esp32-s3-waveshare-touch-lcd-7` and `esp32-s3-elecrow-crowpanel-advance-7.0`.
+`esp32-s3-waveshare-touch-lcd-7`, `esp32-s3-elecrow-crowpanel-advance-7.0` and
+`esp32-p4-elecrow-crowpanel-advanced-5.0`.
 
 Two kinds of display are understood. A QSPI controller (`co5300`) takes the
 `spiHost` and `cs`/`pclk`/`data0-3`/`reset`/`te` pins. A bare parallel RGB
@@ -409,6 +411,44 @@ When a board multiplexes two peripherals onto the same GPIOs through a
 hardware switch the firmware does not drive, `pinSharing` lists the roles that
 may coincide, e.g. `[["audio", "microSD"]]`; every other pin must still belong
 to one role. The CrowPanel Advance 7.0 definition uses all of these.
+
+#### The `esp32-p4` base
+
+A P4 definition takes the same roles, with GPIOs up to 54. The base is the
+Waveshare ESP32-P4 7-inch project (`esp32-p4-waveshare-touch-lcd-7`), as
+`esp32-s3-touch-amoled-2.06` is for `esp32-s3`; everything the definition
+names replaces that board's own chips, console, camera sensor and wireless
+wiring. Its sdkconfig and partition table are laid out for the Waveshare's
+32MB flash at DIO 40MHz, so a board with other flash sets `flashSize`,
+`flashMode`, `flashFreq` and its own `partitions`.
+
+Its display is a parallel RGB panel scanned straight out of the P4's
+in-package PSRAM by the LCD driver, through only a small FIFO: a PSRAM stall
+of a few microseconds underruns it and the picture creeps right. Run flash the
+way the vendor's own firmware does; the CrowPanel Advanced 5.0 underran every
+few seconds at DIO 40MHz and never at its vendor's QIO 80MHz. Use
+`scanFramebuffers: 3` so the renderer draws straight into a buffer not being
+scanned (one buffer adds a PSRAM-to-PSRAM copy of every changed region; with
+two, each swap can wait up to a frame for the panel to let go of the old
+front). Scroll copies and full-width patches between the buffers go through
+the AXI-GDMA, about three times faster than the CPU. Keep the L2 cache's
+64-byte lines: 128-byte lines speed CPU copies up but stall PSRAM long enough
+for the panel to underrun at 60Hz. Leave `restartInVsync` off; the driver
+restarts the DMA itself at the next VSYNC if it ever falls behind. `psram` is
+not configurable (the base sets it up). `pclkIdleHigh: true` idles the pixel
+clock high between lines, which some panels need. Two sections exist only on
+this base:
+
+- `wireless`: the WiFi/BLE coprocessor (an ESP32-C6, say) on SDIO through
+  esp_hosted: `slot`, `busWidth` (1 or 4), `clockKhz`, `resetActiveHigh`, and
+  `pins` `clk`/`cmd`/`d0`-`d3`/`reset`.
+- `camera`: a MIPI-CSI sensor: `sensor` (the esp_cam_sensor name, e.g.
+  `sc2336`), `mode` (its Kconfig mode, e.g. `MIPI_RAW8_1024x600_30FPS`),
+  `width`/`height`, `rotation` (degrees counter-clockwise), the `sccb` bus's
+  `sda`/`scl`, and a `reset` that is a GPIO (`pin`) or an expander line
+  (`expander`).
+
+The CrowPanel Advanced 5.0 definition is the reference.
 
 ## Common Verification Flow
 
