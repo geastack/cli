@@ -10,7 +10,7 @@ import { doctorCommand } from './commands/doctor.mjs'
 import { createContext } from './context.mjs'
 import { runCreateGeastack } from './create-geastack.mjs'
 import { ExitCode, fail } from './errors.mjs'
-import { findAppById, findCurrentApp, knownPlatforms } from './manifest.mjs'
+import { findAppById, findCurrentApp, knownPlatforms, resolveRequestedApp } from './manifest.mjs'
 import { heading } from './report.mjs'
 import { runSetupWizard } from './setup-wizard.mjs'
 
@@ -99,6 +99,11 @@ export async function runGea(argv, io = {}) {
 
   // Xbox is both a platform and a concrete built-in UWP target.
   const target = option(parsed, 'target', '')
+  if (command === 'prerender') {
+    const app = resolveRequestedApp(ctx, parsed, rest)
+    const { prerender } = await import('./prerender.mjs')
+    return prerender({ app, parsed, cwd, env, stdout })
+  }
   // Raspberry Pi OS builds a real SDL native executable. Running/deploying is
   // intentionally not implicit in this build-only platform adapter.
   if (command === 'build' && target === 'raspberry-pi-os') {
@@ -293,6 +298,7 @@ ${heading('Usage:')}
 
 ${heading('Run on this machine (no board needed):')}
   gea run [app] --debug [--debug-port N]        live tree/CSS in Chrome DevTools [--target macos|web|esp32] [--board alias] [--attach] [--debug-fps 1..120] [--debug-sources] [--overrides file] [--save-overrides file]
+  gea prerender [app] --out file.png             native PNG [--target macos|windows|raspberry-pi-os] [--width W --height H --dpr D] [--frame N | --at TIME] [--fps N] [--reuse]
   gea simulate [app] [--port N]                  DOM emulator with HMR [--renderer dom|wasm] [--no-open] [--width W --height H --dpr D --zoom Z]
   gea dev [app] [--port N]                       real DOM + CSS dev server with HMR  (same as --target web)
   gea build --target web [app] [--out-dir d]     build the app as a real web app

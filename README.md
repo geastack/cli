@@ -246,6 +246,28 @@ WASM renderer or a physical device to validate embedded rendering.
 Native compiler, UI, renderer, and display settings belong in the app manifest. See [Native build settings](docs/NATIVE-BUILD-CONFIG.md) for precedence, board overrides, and `gea config --board <alias>`.
 
 
+## Native prerender
+
+On macOS, `gea prerender` builds a GeaStack app with `gea.targets.macos`
+enabled and runs its compiled UI and CSS into an offscreen framebuffer.
+
+```sh
+gea prerender --app css-animation-showcase --width 410 --height 502 --frame 505 --fps 60 --out preview.png
+gea prerender --app css-animation-showcase --at 5s --out preview.png
+```
+
+Frame 0 is at time zero. The default cadence is 60 fps and the default
+device pixel ratio is 1. Width and height specify the PNG dimensions. Use
+`--frame` for a zero-based frame index or `--at` for a duration in `ms`
+or `s` (bare values are milliseconds). Prerender steps the app at that
+cadence through the requested capture time, rounding to the native clock's
+millisecond precision. CSS animations, frame callbacks and app timers use
+the simulated timeline. Wall-clock reads and external I/O run normally.
+Pass `--reuse` to capture with an existing native build.
+
+The capture uses Gea's software renderer. Apps that require an AppKit view,
+a GPU surface, or physical hardware need a software-renderable mode.
+
 ## Chrome DevTools debugger
 
 `gea run --debug --target macos` builds and launches a native Gea app with CDP

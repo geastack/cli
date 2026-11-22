@@ -6,13 +6,17 @@ import { nativeScriptBuildEnv } from '../build-config.mjs'
 import { CliError, ExitCode, fail } from '../errors.mjs'
 import { formatCommand } from '../run.mjs'
 
-// A native SDL platform build, not board selection or a web simulator.
-export function runLinux({ app, env, dryRun = false, stdout }) {
+export function linuxTargetRoot(app, env) {
   const require = createRequire(path.join(app.root, 'package.json'))
   let root = env.GEA_LINUX_ROOT ? path.resolve(env.GEA_LINUX_ROOT) : ''
   try { if (!root) root = path.dirname(require.resolve('@geastack/linux/package.json')) }
   catch { fail(`'${app.id}' targets raspberry-pi-os but @geastack/linux is not installed in ${app.root}.`, ExitCode.missingDependency) }
-  const script = path.join(root, 'targets/raspberry-pi-os/build-raspberry-pi-os.sh')
+  return root
+}
+
+// A native SDL platform build, not board selection or a web simulator.
+export function runLinux({ app, env, dryRun = false, stdout }) {
+  const script = path.join(linuxTargetRoot(app, env), 'targets/raspberry-pi-os/build-raspberry-pi-os.sh')
   if (!existsSync(script)) fail(`Linux native build script not found: ${script}`, ExitCode.missingDependency)
   if (dryRun) { stdout(formatCommand(['bash', script, app.id])); return 0 }
   const childEnv = nativeScriptBuildEnv(app, 'raspberry-pi-os', env)
