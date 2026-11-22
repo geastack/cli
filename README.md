@@ -263,6 +263,7 @@ or `s` (bare values are milliseconds). Prerender steps the app at that
 cadence through the requested capture time, rounding to the native clock's
 millisecond precision. CSS animations, frame callbacks and app timers use
 the simulated timeline. Wall-clock reads and external I/O run normally.
+Pass `--reuse` to capture with an existing native build.
 
 The capture uses Gea's software renderer. Apps that require an AppKit view,
 a GPU surface, or physical hardware need a software-renderable mode.

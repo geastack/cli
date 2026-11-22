@@ -38,14 +38,21 @@ export function prerender({ app, parsed, cwd, env, stdout }) {
   if (option(parsed, 'target', 'macos') !== 'macos') fail('Prerender currently supports the macOS target.', ExitCode.usage)
   if (!app.targets?.macos) fail(`'${app.id}' does not declare gea.targets.macos.`, ExitCode.usage)
   const dryRun = flag(parsed, 'dry-run')
+  const reuse = flag(parsed, 'reuse')
   if (!dryRun && process.platform !== 'darwin') fail('Native prerender currently requires macOS.', ExitCode.usage)
 
-  const { script } = appleTargetScript(app, 'macos', 'build-macos.sh', env)
-  if (!existsSync(path.join(path.dirname(script), 'main', 'macos_prerender.h'))) {
-    fail('The installed @geastack/apple lacks native prerender support.', ExitCode.missingDependency)
-  }
-  runMacos({ app, env: { ...env, GEA_MACOS_PRERENDER: '1' }, dryRun, stdout })
   const executable = path.join(macosAppBundle(app, env), 'Contents', 'MacOS', app.name)
+  if (reuse) {
+    if (!dryRun && !existsSync(executable)) {
+      fail(`No native prerender executable at ${executable}. Run prerender once to build it.`, ExitCode.buildFailed)
+    }
+  } else {
+    const { script } = appleTargetScript(app, 'macos', 'build-macos.sh', env)
+    if (!existsSync(path.join(path.dirname(script), 'main', 'macos_prerender.h'))) {
+      fail('The installed @geastack/apple lacks native prerender support.', ExitCode.missingDependency)
+    }
+    runMacos({ app, env: { ...env, GEA_MACOS_PRERENDER: '1' }, dryRun, stdout })
+  }
   const outputPath = path.resolve(cwd, output)
   const args = ['--gea-prerender', outputPath, String(width), String(height), String(dpr), String(fps), String(timestamp)]
   if (dryRun) {
