@@ -299,6 +299,7 @@ ${heading('Usage:')}
 ${heading('Run on this machine (no board needed):')}
   gea run [app] --debug [--debug-port N]        live tree/CSS in Chrome DevTools [--target macos|web|esp32] [--board alias] [--attach] [--debug-fps 1..120] [--debug-sources] [--overrides file] [--save-overrides file]
   gea prerender [app] --out file.png             native PNG [--target macos|windows|raspberry-pi-os] [--width W --height H --dpr D] [--frame N | --at TIME] [--fps N] [--reuse]
+  gea prerender [app] --out file.mp4 --end TIME  video export [--start TIME] [--fps N] [--quality 1..10]
   gea simulate [app] [--port N]                  DOM emulator with HMR [--renderer dom|wasm] [--no-open] [--width W --height H --dpr D --zoom Z]
   gea dev [app] [--port N]                       real DOM + CSS dev server with HMR  (same as --target web)
   gea build --target web [app] [--out-dir d]     build the app as a real web app

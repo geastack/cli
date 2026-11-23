@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { flag, option } from './args.mjs'
 import { ExitCode, fail } from './errors.mjs'
 import { formatCommand } from './run.mjs'
+import { encodePrerenderVideo, videoTime } from './prerender-video.mjs'
 import { appleTargetScript, macosAppBundle, runMacos } from './macos/adapter.mjs'
 import { linuxTargetRoot, runLinux } from './linux/adapter.mjs'
 import { runWindows, windowsTargetRoot } from './windows/adapter.mjs'
@@ -59,7 +60,7 @@ function numberOption(parsed, name, fallback, min, max, integer = true) {
   return value
 }
 
-export function prerender({ app, parsed, cwd, env, stdout }) {
+export async function prerender({ app, parsed, cwd, env, stdout }) {
   const width = numberOption(parsed, 'width', 410, 1, 8192)
   const height = numberOption(parsed, 'height', 502, 1, 8192)
   const dpr = numberOption(parsed, 'dpr', 1, 0.1, 8, false)
@@ -71,13 +72,26 @@ export function prerender({ app, parsed, cwd, env, stdout }) {
   }
   let timestamp = Math.round(frame * 1000 / fps)
   if (at !== undefined) {
-    const duration = typeof at === 'string' && /^(\d+(?:\.\d+)?)(ms|s)?$/.exec(at)
-    if (!duration) fail('--at must be a duration such as 500ms or 5s. Bare numbers are milliseconds.', ExitCode.usage)
-    timestamp = Math.round(Number(duration[1]) * (duration[2] === 's' ? 1000 : 1))
+    timestamp = videoTime(at)
+    if (Number.isNaN(timestamp)) fail('--at must be a duration such as 500ms or 5s. Bare numbers are milliseconds.', ExitCode.usage)
   }
   if (timestamp > 2147483647) fail('Capture time exceeds the native millisecond clock range.', ExitCode.usage)
   const output = option(parsed, 'out')
-  if (typeof output !== 'string' || !output.trim()) fail('Pass --out <file.png>.', ExitCode.usage)
+  if (typeof output !== 'string' || !output.trim()) fail('Pass --out <file.png|file.mp4>.', ExitCode.usage)
+  const video = path.extname(output).toLowerCase() === '.mp4'
+  const qualityOption = option(parsed, 'quality')
+  const quality = numberOption(parsed, 'quality', 8, 1, 10)
+  const startOption = option(parsed, 'start')
+  const endOption = option(parsed, 'end')
+  const start = videoTime(startOption ?? '0')
+  const end = videoTime(endOption)
+  if (video && (!(start >= 0 && end > start && end <= 2147483647) ||
+    at !== undefined || option(parsed, 'frame') !== undefined)) {
+    fail('MP4 export requires --end after --start (for example --start 1s --end 5s), without --frame or --at.', ExitCode.usage)
+  }
+  if (!video && (startOption !== undefined || endOption !== undefined || qualityOption !== undefined)) {
+    fail('--start, --end and --quality require an MP4 output.', ExitCode.usage)
+  }
   const target = option(parsed, 'target', nativeTargets[process.platform])
   if (!Object.values(nativeTargets).includes(target)) {
     fail('Prerender supports macos, windows, and raspberry-pi-os.', ExitCode.usage)
@@ -98,7 +112,18 @@ export function prerender({ app, parsed, cwd, env, stdout }) {
     build({ dryRun, stdout })
   }
   const outputPath = path.resolve(cwd, output)
-  const args = ['--gea-prerender', outputPath, String(width), String(height), String(dpr), String(fps), String(timestamp)]
+  if (video && !dryRun) {
+    try {
+      await encodePrerenderVideo({ executable, cwd: app.root, env, out: outputPath, width, height, dpr, fps, quality, start, end })
+    } catch (error) {
+      fail(error.message, ExitCode.buildFailed)
+    }
+    stdout(outputPath)
+    return 0
+  }
+  const args = video
+    ? ['--gea-prerender-video', '-', ...[width, height, dpr, fps, start, end].map(String)]
+    : ['--gea-prerender', outputPath, String(width), String(height), String(dpr), String(fps), String(timestamp)]
   if (dryRun) {
     stdout(formatCommand([executable, ...args]))
     return 0
