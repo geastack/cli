@@ -473,7 +473,7 @@ async function maybeSetupEspIdf(ctx, parsed, io, prompt, { force = false, target
     return 0
   }
 
-  const idfDir = option(parsed, 'idf-dir') || env.GEA_ESP_IDF_DIR || path.join(os.homedir(), 'esp', 'esp-idf')
+  const idfDir = option(parsed, 'idf-dir') || env.GEA_ESP_IDF_DIR || path.join(env.HOME || env.USERPROFILE || os.homedir(), 'esp', 'esp-idf')
   // An explicit master/6.2+ checkout is the S31's line, so it gets its tools too.
   const targets = idfVersionMeetsTarget(extractIdfVersionFromText(resolvedVersion), 'v6.2.0') || resolvedVersion === s31EspIdf.ref
     ? `${espIdfInstallTargets},${s31EspIdf.targets}`
@@ -587,7 +587,7 @@ function detectEspIdf(env, targetVersion, explicitDir = '') {
     // build the tool venv, and until it does every build dies at activation, so
     // a clone on its own has to read as unavailable or the wizard declares
     // success and leaves nothing that can compile.
-    const toolsInstalled = Boolean(findIdfPythonEnv(idfDir, env))
+    const toolsInstalled = Boolean(findIdfPythonEnv(idfDir, env, home))
     const detail = `${installed?.full || 'unknown version'} at ${idfDir}${toolsInstalled ? '' : ' (tools not installed)'}`
     return { available: toolsInstalled && (pinned ? Boolean(buildDir) : idfVersionMeetsTarget(installed, targetVersion)), detail }
   }
