@@ -24,6 +24,9 @@ export function chooseTransport(requested, selection, { host = '' } = {}) {
 
 export function serialBaudRate(selection, env = process.env) {
   if (env.GEA_SERIAL_BAUD) return Number(env.GEA_SERIAL_BAUD)
+  // A board that declares its console speed (the CrowPanel 5.0's CH340 UART at
+  // 115200) is read at it; the P4 default is the Waveshare base's 921600.
+  if (Number(selection.consoleBaud) > 0) return Number(selection.consoleBaud)
   return (selection.idfTarget || '') === 'esp32p4' ? 921600 : 115200
 }
 

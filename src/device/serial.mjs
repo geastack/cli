@@ -439,7 +439,7 @@ export const geadev = {
     return { width, height, rgb: decodeRgb565Raw(payload, width * height) }
   },
 
-  async screenshotRle(d, timeoutMs = 30000) {
+  async screenshotRle(d, timeoutMs = 120000) {
     const { begin, chunks } = await d.collect('GEADEV SCREENSHOT', {
       begin: 'GEADEV:SCREENSHOT BEGIN',
       end: 'GEADEV:SCREENSHOT END',

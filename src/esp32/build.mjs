@@ -381,7 +381,12 @@ export function applySdkconfigPolicy(sdkconfig, { selection, app, capabilities, 
   board('CONFIG_ESP_MAIN_TASK_STACK_SIZE', String(selection.mainTaskStackSize || 32768))
   board('CONFIG_ESP_IPC_TASK_STACK_SIZE', String(selection.ipcTaskStackSize || 16384))
   board('CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY', 'y')
-  board('CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL', '0')
+  // A board may keep small allocations internal (ESP-IDF's own default is
+  // 16 KB, with 32 KB reserved): on the CrowPanel 5.0 every vector and display
+  // list in PSRAM put both P4 cores on the PSRAM bus at once, and a gea3d
+  // frame build ran ~2x slower while the other core rasterized.
+  board('CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL', String(selection.psramMallocAlwaysInternal || 0))
+  if (selection.psramMallocReserveInternal !== '' && selection.psramMallocReserveInternal !== undefined) board('CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL', String(selection.psramMallocReserveInternal))
 
   // The S3's default 16 KB instruction cache is too small for a frame's code
   // working set; 32 KB cut a whole frame ~35% for 16 KB of internal SRAM.
