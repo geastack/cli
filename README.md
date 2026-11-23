@@ -248,8 +248,10 @@ Native compiler, UI, renderer, and display settings belong in the app manifest. 
 
 ## Native prerender
 
-On macOS, `gea prerender` builds a GeaStack app with `gea.targets.macos`
-enabled and runs its compiled UI and CSS into an offscreen framebuffer.
+`gea prerender` builds a GeaStack app and renders its compiled UI and CSS
+offscreen. Declare `gea.targets.macos` to run on macOS,
+`gea.targets.raspberry-pi-os` to run on Linux, or `gea.targets.windows` to run
+on Windows.
 
 ```sh
 gea prerender --app css-animation-showcase --width 410 --height 502 --frame 505 --fps 60 --out preview.png
@@ -264,6 +266,39 @@ cadence through the requested capture time, rounding to the native clock's
 millisecond precision. CSS animations, frame callbacks and app timers use
 the simulated timeline. Wall-clock reads and external I/O run normally.
 Pass `--reuse` to capture with an existing native build.
+
+### Export MP4
+
+Video export is available in CLI 0.1.120 with Core 0.1.57 or later and an
+updated native target package.
+
+| Host | Native target package |
+| --- | --- |
+| macOS | `@geastack/apple@0.2.28` or later |
+| Linux | `@geastack/linux@0.1.6` or later |
+| Windows | `@geastack/windows@0.1.11` or later |
+
+After updating dependencies, run without `--reuse` once to build the app
+with video support.
+
+```sh
+gea prerender --app css-animation-showcase --width 410 --height 502 --start 1s --end 5s --fps 30 --quality 9 --out preview.mp4
+```
+
+Use an `.mp4` output and pass `--end`. `--start` defaults to zero and `--fps`
+defaults to 60. Both times are measured from the app's launch. Use `ms` or `s`
+suffixes, or pass bare values in milliseconds. The command launches the app
+once, advances its clock from zero, and streams frames from the start time up
+to but excluding the end time. `--frame` and `--at` are PNG options.
+
+MP4 export requires FFmpeg with the `libx264` encoder. Put `ffmpeg` on `PATH` or
+set `GEA_FFMPEG` to its executable path. The output is a silent H.264 MP4. If a
+render dimension is odd, encoding pads it by one pixel for compatibility.
+
+Use `--quality 1–10` to control compression. The default is **8**. Use **5**
+for smaller previews or **10** to retain the most detail. Higher quality usually
+means a larger file. Set `--fps` for motion smoothness and use `--width`,
+`--height`, and `--dpr` to control how the page or app is rendered.
 
 The capture uses Gea's software renderer. Apps that require an AppKit view,
 a GPU surface, or physical hardware need a software-renderable mode.
