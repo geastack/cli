@@ -40,7 +40,7 @@ export async function doctorCommand(ctx, parsed, rest, options) {
   }
   add('serialport (USB device access)', await serialportAvailable(), 'npm package', false)
 
-  // The install a build would pick: the pinned release, or whatever IDF_PATH names.
+  // The install a build would pick: the pinned release (IDF_PATH counts only when it is that release).
   const idfDir = findEspIdf(env, undefined, { defaultVersion: DEFAULT_ESP_IDF_VERSION.slice(1) })
   const pythonEnv = idfDir ? findIdfPythonEnv(idfDir, env) : ''
   add(`ESP-IDF ${DEFAULT_ESP_IDF_VERSION}`, Boolean(idfDir), idfDir || 'not found (gea setup --esp-idf, or set IDF_PATH)', false)

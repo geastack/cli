@@ -252,6 +252,17 @@ export async function flashFirmware({ idf, selection, images, appImage = images.
   success(stdout, `Flashed '${appLabel}' in ota_0 and reset OTA boot metadata to ota_0.`)
 }
 
+// A vendor image contains its own bootloader, partition table and app offsets.
+export async function flashMergedImage({ image, ...transport }) {
+  requireImage(image, 'Merged flash image')
+  const { selection, options, stdout } = transport
+  const capacity = selection.flashSize ? sizeToBytes(selection.flashSize.replace(/[KMG]B$/i, (unit) => unit[0])) : 0
+  if (capacity > 0) assertFits(image, 'flash', capacity, 'Merged flash image')
+  const args = [...esptoolPrefix(selection, options), 'write-flash', '0x0', image]
+  await runEsptoolOverUsb({ ...transport, args })
+  success(stdout, `Flashed merged image at 0x0: ${image}`)
+}
+
 export async function flashImageSet({ idf, selection, images, slotImages, options, port, env, dryRun, stdout, stderr }) {
   for (const required of [images.bootloader, images.partitionTable, images.otaData]) {
     if (!existsSync(required)) fail(`${required} was not found. Build the launcher once first.`, ExitCode.deployFailed)

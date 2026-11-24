@@ -162,6 +162,22 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'elecrow-rotary-146',
+    label: 'Elecrow CrowPanel 1.46-inch Rotary HMI (DHR55146D)',
+    alias: 'rotary-146',
+    target: 'esp32-s3-elecrow-rotary-1.46',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3R8',
+    capabilities: {
+      display: '360 × 360 IPS LCD (JD9855 SPI)',
+      touch: 'CST816T capacitive touch and rotary encoder',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM'],
+      audio: [],
+      gps: false
+    }
+  },
+  {
     id: 'elecrow-rotary-21',
     label: 'Elecrow ESP32-S3 Rotary 2.1',
     alias: 'rotary',

@@ -20,7 +20,7 @@ import { crc32, decodeRgb565Raw, decodeRgb565Rle } from './image.mjs'
 let serialportModule = null
 export async function loadSerialport() {
   if (serialportModule) return serialportModule
-  if (process.platform === 'win32') settleWindowsSerialCallbacks()
+  settleSerialCallbacks()
   try {
     serialportModule = await import('serialport')
   } catch (error) {
@@ -40,10 +40,15 @@ export async function loadSerialport() {
 // queues a setImmediate, after which Node drains microtasks. This must run
 // before load-bindings.js promisifies the native functions, i.e. before
 // anything imports serialport.
-let windowsCallbacksSettled = false
-function settleWindowsSerialCallbacks() {
-  if (windowsCallbacksSettled) return
-  windowsCallbacksSettled = true
+//
+// macOS and Linux have the same fault one layer down: reads and writes wait in
+// the binding's fd Poller, whose readiness callback is the same unscoped napi
+// Call. A GEADEV reply then sat unread until the next timer fired (5 s later,
+// on the write deadline), and a screenshot stream never finished.
+let serialCallbacksSettled = false
+function settleSerialCallbacks() {
+  if (serialCallbacksSettled) return
+  serialCallbacksSettled = true
   let binding
   try {
     const fromSerialport = createRequire(createRequire(import.meta.url).resolve('serialport/package.json'))
@@ -52,6 +57,16 @@ function settleWindowsSerialCallbacks() {
     return
   }
   const settle = () => {}
+  if (typeof binding?.Poller === 'function') {
+    const NativePoller = binding.Poller
+    binding.Poller = function (fd, callback) {
+      return new NativePoller(fd, (...result) => {
+        callback(...result)
+        setImmediate(settle)
+      })
+    }
+  }
+  if (process.platform !== 'win32') return
   for (const name of ['read', 'write']) {
     const native = binding?.[name]
     if (typeof native !== 'function') continue
@@ -452,9 +467,9 @@ export const geadev = {
     return { width, height, rgb: decodeRgb565Rle(Buffer.from(chunks.join(''), 'base64'), width * height) }
   },
 
-  async screenshot(d, { timeoutMs = 12000, fallbackTimeoutMs = 30000, attempts = 3, legacy = false } = {}) {
-    // A 115200-baud UART console moves ~11 KB/s, so a busy 800x480 frame can
-    // need longer than the default: a longer --timeout covers the RLE path too.
+  async screenshot(d, { timeoutMs = 12000, fallbackTimeoutMs = 120000, attempts = 3, legacy = false } = {}) {
+    // A 115200-baud UART console moves ~11 KB/s and has no binary stream: a
+    // busy 800x480 frame is up to 1 MB of RLE text, 90 s on the wire.
     const rleTimeoutMs = Math.max(timeoutMs, fallbackTimeoutMs)
     if (legacy) return geadev.screenshotRle(d, rleTimeoutMs)
     let lastError = null
@@ -464,6 +479,8 @@ export const geadev = {
       } catch (error) {
         lastError = error
         await d.drainInput()
+        // The device said it has no binary stream: asking again changes nothing.
+        if (/usb-serial-jtag-only|unknown-command/.test(error.message)) break
         if (d.trace) d.stderr(`binary screenshot attempt ${attempt + 1} failed: ${error.message}`)
       }
     }
@@ -662,14 +679,16 @@ async function otaAttempt(d, data, crc, { timeoutMs, stderr }) {
       frame = await readFrame(d, doneDeadline - Date.now(), (f) => f.startsWith('GEADEV:OTA OK') || f.startsWith('GEADEV:OTA ERR'))
     } catch (error) {
       error.uploaded = true
+      error.slot = parseKeyValues(ready).slot
       throw error
     }
     if (frame === null) {
       // The board restarts right after the reply, and firmware whose console
       // drops output on a full TX FIFO can lose it; the caller decides from
-      // what boots.
+      // what boots, and `slot` (from READY) is what a successful write boots.
       const error = new Error('timed out waiting for OTA OK')
       error.uploaded = true
+      error.slot = parseKeyValues(ready).slot
       throw error
     }
     if (frame.startsWith('GEADEV:OTA OK')) {

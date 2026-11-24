@@ -73,8 +73,9 @@ release. To install another one instead:
    names an exact release, a release candidate or a branch.
 2. `GEA_ESP_IDF_VERSION` (same shape) applies when no `--idf-version` is given.
 
-Builds pick the v6.0.2 install on their own. To build with any other ESP-IDF,
-point `IDF_PATH` at it.
+Each build picks the ESP-IDF its board needs: v6.0.2, or 6.2-dev for the
+ESP32-S31. `IDF_PATH` is used only when it names that version. Otherwise the
+build ignores it and says so.
 
 Command-line install:
 
