@@ -234,8 +234,24 @@ async function usbAppUpdate({ selection, image, appLabel, env, stdout, stderr })
     if (error.uploaded) {
       await device.close().catch(() => {})
       device = null
-      if (await usbAppAnswers({ selection, appLabel, env })) {
-        success(stdout, `Installed '${appLabel}'; the board restarted into it (its confirmation line was lost on the console).`)
+      const booted = await usbAppAnswers({ selection, appLabel, env })
+      if (booted.app && booted.slot && error.slot && booted.slot !== error.slot) {
+        // The write never finished (a crash or watchdog reset mid-install):
+        // the board rebooted the image it was running, which carries the same
+        // app id. Taking that for success reported failed installs as done.
+        fail(
+          `USB app update of '${appLabel}' failed: the board restarted into ${booted.slot}, not ${error.slot} where the image was being written, so it is still running the previous image.`,
+          ExitCode.deployFailed
+        )
+      }
+      if (booted.app && booted.slot && booted.slot === error.slot) {
+        success(stdout, `Installed '${appLabel}' into ${booted.slot}; the board restarted into it (its confirmation line was lost on the console).`)
+        return true
+      }
+      if (booted.app) {
+        // Firmware older than the slot in PONG: the same app id answers
+        // whether or not the new image was written.
+        stderr(`The board restarted and answers as '${appLabel}', but its firmware does not report its OTA slot, so the install could not be confirmed (its confirmation line was lost on the console).`)
         return true
       }
     }
@@ -265,21 +281,21 @@ async function usbAppAnswers({ selection, appLabel, env }) {
   try {
     port = resolveUsbSerialPort({ serial: selection.usbSerial }, { env })
   } catch {}
-  if (port && serialPortPresent(port, env)) return false
+  if (port && serialPortPresent(port, env)) return { app: false, slot: '' }
   const deadline = Date.now() + 30000
   while (Date.now() < deadline) {
     let device
     try {
       device = await openDevice({ selection, transport: 'usb', env, stderr: () => {}, waitSeconds: 20 })
       const pong = await geadev.ping(device.serial)
-      return /\bapp=(\S+)/.exec(pong)?.[1] === appLabel
+      return { app: /\bapp=(\S+)/.exec(pong)?.[1] === appLabel, slot: /\bslot=(\S+)/.exec(pong)?.[1] || '' }
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 1000))
     } finally {
       if (device) await device.close().catch(() => {})
     }
   }
-  return false
+  return { app: false, slot: '' }
 }
 
 export async function flashCommand(ctx, parsed, rest, options, { monitor = false } = {}) {

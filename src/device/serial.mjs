@@ -662,14 +662,16 @@ async function otaAttempt(d, data, crc, { timeoutMs, stderr }) {
       frame = await readFrame(d, doneDeadline - Date.now(), (f) => f.startsWith('GEADEV:OTA OK') || f.startsWith('GEADEV:OTA ERR'))
     } catch (error) {
       error.uploaded = true
+      error.slot = parseKeyValues(ready).slot
       throw error
     }
     if (frame === null) {
       // The board restarts right after the reply, and firmware whose console
       // drops output on a full TX FIFO can lose it; the caller decides from
-      // what boots.
+      // what boots, and `slot` (from READY) is what a successful write boots.
       const error = new Error('timed out waiting for OTA OK')
       error.uploaded = true
+      error.slot = parseKeyValues(ready).slot
       throw error
     }
     if (frame.startsWith('GEADEV:OTA OK')) {

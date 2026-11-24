@@ -160,7 +160,7 @@ export function requireEspIdf(env, log, selection = null) {
   }
   if (!idf) {
     fail(
-      `ESP-IDF ${defaultVersion} was not found${selection?.target ? ` for target '${selection.target}'` : ''}. Install it under ~/esp32/esp-idf-v${defaultVersion} and run its install.sh (install.bat on Windows), or set IDF_PATH to another installation.`,
+      `ESP-IDF ${defaultVersion} was not found${selection?.target ? ` for target '${selection.target}'` : ''}. Install it under ~/esp32/esp-idf-v${defaultVersion} and run its install.sh (install.bat on Windows), or point IDF_PATH at an installation of that version.`,
       ExitCode.missingDependency
     )
   }

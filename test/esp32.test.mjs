@@ -130,7 +130,7 @@ test('ESP-IDF discovery keeps stable installs by default and honours a target mi
   assert.equal(findEspIdf({}, home, { minVersion: '7.0' }), '')
 })
 
-test('builds default only Mosaico to 6.2-dev and honour explicit IDF_PATH overrides', (t) => {
+test('builds default only Mosaico to 6.2-dev and the board wins over IDF_PATH', (t) => {
   const fixture = createFixture(t)
   const stable = fixture.env.IDF_PATH
   const install = (name, minor, patch) => {
@@ -172,20 +172,25 @@ test('builds default only Mosaico to 6.2-dev and honour explicit IDF_PATH overri
     assert.equal(findEspIdf(env, fixture.root, { defaultVersion: '6.2-dev' }), preview)
   }
 
-  // IDF_PATH takes precedence in both directions and over newer auto-discovery.
+  // The board's version wins: IDF_PATH is used only when it is that version,
+  // in both directions and whatever newer installation it names.
   for (const override of [stable, preview, newer]) {
-    for (const defaultVersion of ['6.0.2', '6.2-dev']) {
-      assert.equal(findEspIdf({ IDF_PATH: override }, fixture.root, { defaultVersion }), override)
-    }
+    assert.equal(findEspIdf({ IDF_PATH: override }, fixture.root, { defaultVersion: '6.0.2' }), stable)
+    assert.equal(findEspIdf({ IDF_PATH: override }, fixture.root, { defaultVersion: '6.2-dev' }), preview)
   }
-  const overrideLog = []
-  const previewOverride = requireEspIdf({ ...fixture.env, IDF_PATH: preview, IDF_PYTHON_ENV_PATH: '' }, (line) => overrideLog.push(line), { target: targets[0] })
-  assert.equal(previewOverride.idfDir, preview)
-  assert.match(path.basename(previewOverride.pythonEnv), /^idf6\.2_py/)
-  assert.ok(overrideLog.some((line) => line.includes(preview)), 'the selected override is reported')
-  const stableOverride = requireEspIdf(fixture.env, () => {}, { target })
-  assert.equal(stableOverride.idfDir, stable)
-  assert.equal(stableOverride.version.full, '6.0.2')
+  const stableLog = []
+  const stableShell = requireEspIdf(fixture.env, (line) => stableLog.push(line), { target })
+  assert.equal(stableShell.idfDir, preview)
+  assert.match(path.basename(stableShell.pythonEnv), /^idf6\.2_py/)
+  assert.ok(stableLog.some((line) => line.includes(`Ignoring IDF_PATH=${stable}`)), 'the ignored IDF_PATH is reported')
+  const previewLog = []
+  const previewShell = requireEspIdf({ ...fixture.env, IDF_PATH: preview, IDF_PYTHON_ENV_PATH: '' }, (line) => previewLog.push(line), { target: targets[0] })
+  assert.equal(previewShell.idfDir, stable)
+  assert.equal(previewShell.version.full, '6.0.2')
+  assert.ok(previewLog.some((line) => line.includes(`Ignoring IDF_PATH=${preview}`)), 'the ignored IDF_PATH is reported')
+  const matching = []
+  assert.equal(requireEspIdf({ ...fixture.env, IDF_PATH: preview, IDF_PYTHON_ENV_PATH: '' }, (line) => matching.push(line), { target }).idfDir, preview)
+  assert.ok(!matching.some((line) => line.includes('Ignoring IDF_PATH')), 'a matching IDF_PATH is not reported as ignored')
 
   // Neither a newer release nor a release candidate may replace a missing pin.
   rmSync(stable, { recursive: true })

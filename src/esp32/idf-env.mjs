@@ -67,12 +67,14 @@ function matchesDefaultVersion(dir, defaultVersion) {
 
 // Generic discovery honours explicit settings and otherwise prefers the
 // newest stable installation. Callers can request a minimum version instead.
-// Builds provide an exact defaultVersion for automatic discovery. IDF_PATH
-// overrides that default; export-script hints must still match the target.
+// Builds pass the exact defaultVersion their board needs, and the board wins:
+// IDF_PATH, like the export-script hints, is used only when it is that
+// version. A shell that exports IDF_PATH for one board must not make every
+// other board build with an installation that cannot compile it (6.0.2 has no
+// ESP32-S31 toolchain, so a Mosaico build there fails at configure).
 export function findEspIdf(env = process.env, home = os.homedir(), { minVersion = '', defaultVersion = '' } = {}) {
   const accepts = (dir) => meetsMinimum(dir, minVersion) && matchesDefaultVersion(dir, defaultVersion)
-  if (isIdfDir(env.IDF_PATH) && meetsMinimum(env.IDF_PATH, minVersion)) return path.resolve(env.IDF_PATH)
-  const explicit = [envExportDir(env.GEA_EMBEDDED_IDF_EXPORT), envExportDir(env.ESP_IDF_EXPORT)]
+  const explicit = [env.IDF_PATH, envExportDir(env.GEA_EMBEDDED_IDF_EXPORT), envExportDir(env.ESP_IDF_EXPORT)]
   for (const candidate of explicit) {
     if (isIdfDir(candidate) && accepts(candidate)) return path.resolve(candidate)
   }
@@ -169,6 +171,10 @@ export function activateEspIdf({ env: callerEnv = process.env, home = callerEnv.
   // there, so the variable is left out of everything ESP-IDF sees.
   const env = callerEnv.MSYSTEM ? withoutKey(callerEnv, 'MSYSTEM') : callerEnv
   const idfDir = findEspIdf(env, home, { minVersion, defaultVersion })
+  if (isIdfDir(env.IDF_PATH) && path.resolve(env.IDF_PATH) !== idfDir) {
+    const version = espIdfVersion(env.IDF_PATH)?.full || 'unknown version'
+    log(`Ignoring IDF_PATH=${env.IDF_PATH} (ESP-IDF ${version}): this board builds with ESP-IDF ${defaultVersion || minVersion}.`)
+  }
   if (!idfDir) return null
   // A venv exported by a different active checkout belongs to that checkout.
   const activeIdf = env.IDF_PATH || envExportDir(env.GEA_EMBEDDED_IDF_EXPORT) || envExportDir(env.ESP_IDF_EXPORT)
