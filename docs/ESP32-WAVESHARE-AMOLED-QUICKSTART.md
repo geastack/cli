@@ -113,7 +113,7 @@ The bundled starter is intentionally tiny. Rich examples live in the GeaStack ex
 For example:
 
 ```sh
-gea create watch-demo --starter example --example watch
+gea create watch-demo --example watch
 cd watch-demo
 gea setup
 gea flash --board amoled --monitor
