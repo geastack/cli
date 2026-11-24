@@ -21,7 +21,8 @@ const cliVersion = cliPackage.version
 // Versions the scaffold pins for packages the CLI itself does not depend on.
 const starterDependencies = cliPackage.starterDependencies || {}
 const coreDependencyDefault = starterDependencies['@geastack/core'] || 'latest'
-const targetsDependencyDefault = starterDependencies['@geastack/targets'] || 'latest'
+// A new app builds on the targets release this CLI ships with and was tested on.
+const targetsDependencyDefault = starterDependencies['@geastack/targets'] || cliPackage.dependencies?.['@geastack/targets'] || 'latest'
 // The native tooling uses the TypeScript 5 compiler API. Do not let a
 // floating version in an older example select an incompatible major.
 const typescriptDependencyDefault = '^5.9.3'
