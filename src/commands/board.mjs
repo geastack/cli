@@ -9,7 +9,7 @@ import { chooseTransport, openDevice, saveScreenshot } from '../device/device.mj
 import { geadev } from '../device/serial.mjs'
 import { ExitCode, fail } from '../errors.mjs'
 import { buildEsp32Firmware, buildImages, esp32BuildDir, fullCleanEsp32, requireEspIdf } from '../esp32/build.mjs'
-import { eraseSlot, flashFirmware, flashImageSet, flashOptions, postFlashRestartNote, restoreBootMetadata, stageImage, runEsptoolOverUsb } from '../esp32/flash.mjs'
+import { eraseSlot, flashFirmware, flashImageSet, flashMergedImage, flashOptions, postFlashRestartNote, restoreBootMetadata, stageImage, runEsptoolOverUsb } from '../esp32/flash.mjs'
 import { bleOta, otaEraseSlot, otaFlash, otaStage, waitForReboot } from '../esp32/ota.mjs'
 import { manifestRequestsBleOta } from '../esp32/capabilities.mjs'
 import { runGeaos } from '../geaos/adapter.mjs'
@@ -172,6 +172,15 @@ async function flashEsp32(ctx, parsed, rest, options, selection, { monitor }) {
   const slotImages = optionList(parsed, 'slot-image')
   const eraseSlotName = option(parsed, 'erase-slot', '')
   const slot = option(parsed, 'slot', '')
+  const mergedImage = option(parsed, 'merged-image', '')
+  if (mergedImage) {
+    if (typeof mergedImage !== 'string' || slot || slotImages.length || eraseSlotName ||
+        flag(parsed, 'restore-boot') || option(parsed, 'image') || option(parsed, 'app') || rest[0]) {
+      fail('--merged-image <file> must be used without app or slot options.', ExitCode.usage)
+    }
+    await flashMergedImage({ ...common, image: path.resolve(ctx.cwd, mergedImage) })
+    return monitor ? monitorCommand(ctx, parsed, rest, options, selection) : 0
+  }
   const explicitImage = option(parsed, 'image', '')
   const app = options.debugApp || (explicitImage && !option(parsed, 'app') && !rest[0] ? null : optionalApp(ctx, parsed, rest, selection, { required: !explicitImage && !slotImages.length && !eraseSlotName && !flag(parsed, 'restore-boot') }))
 

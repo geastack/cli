@@ -324,6 +324,7 @@ ${heading('Build and deploy (device commands take --board <alias>, see gea board
       --slot ota_N [--image file]                stage an app image into an OTA slot only
       --slot-image ota_N=file ...                provision several prebuilt images
       --erase-slot ota_N | --restore-boot        slot maintenance
+      --merged-image <file>                      write a complete ESP32 image at 0x0
   gea run --board <alias> [--app <id>]           build + flash + serial monitor
   gea ota --board <alias> [--app <id>]           build + OTA: BLE when the app enables it, else WiFi (transports.ota.host)  [--monitor]
       --transport ble [--device name]            BLE OTA (macOS)
