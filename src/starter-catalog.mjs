@@ -47,11 +47,51 @@ export function discoverGithubExamples(ctx, env = process.env) {
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export function copyStarterFiles(sourceDir, targetDir) {
+export function copyStarterFiles(sourceDir, targetDir, repoRoot = null) {
   fs.cpSync(sourceDir, targetDir, {
     recursive: true,
     filter: (source) => !excludedNames.has(path.basename(source))
   })
+  if (repoRoot) vendorSharedAssets(sourceDir, targetDir, repoRoot)
+}
+
+// Examples share fonts and images from the repository root (examples/assets),
+// referenced as `../../../assets/fonts/Inter-Regular.ttf`. A copied app stands
+// alone, so every such file it references is copied into the project under the
+// same repository-relative path and the reference is rewritten to point there.
+const SHARED_ASSET_SOURCE = /\.(css|tsx?|jsx?|html)$/
+const SHARED_ASSET_REFERENCE = /(['"(])((?:\.\.\/)+[^'"()\s]+)(?=['")])/g
+
+function vendorSharedAssets(sourceDir, targetDir, repoRoot) {
+  for (const file of listFiles(targetDir)) {
+    if (!SHARED_ASSET_SOURCE.test(file)) continue
+    const relative = path.relative(targetDir, file)
+    const originalDir = path.dirname(path.join(sourceDir, relative))
+    const text = fs.readFileSync(file, 'utf8')
+    const rewritten = text.replace(SHARED_ASSET_REFERENCE, (match, quote, reference) => {
+      const resolved = path.resolve(originalDir, reference)
+      if (isInside(resolved, sourceDir) || !isInside(resolved, repoRoot)) return match
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return match
+      const destination = path.join(targetDir, path.relative(repoRoot, resolved))
+      fs.mkdirSync(path.dirname(destination), { recursive: true })
+      fs.copyFileSync(resolved, destination)
+      let local = path.relative(path.dirname(file), destination).split(path.sep).join('/')
+      if (!local.startsWith('.')) local = `./${local}`
+      return `${quote}${local}`
+    })
+    if (rewritten !== text) fs.writeFileSync(file, rewritten)
+  }
+}
+
+function listFiles(dir) {
+  const files = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (excludedNames.has(entry.name)) continue
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...listFiles(full))
+    else if (entry.isFile()) files.push(full)
+  }
+  return files
 }
 
 export function formatStarterChoice(starter) {
@@ -67,19 +107,20 @@ export function fetchGithubExample(example, targetDir, options = {}) {
   if (isDirectory(repo)) {
     const sourceDir = path.join(repo, example.path)
     if (!isDirectory(sourceDir)) throw new Error(`Example '${example.id}' was not found at ${sourceDir}.`)
-    copyStarterFiles(sourceDir, targetDir)
+    copyStarterFiles(sourceDir, targetDir, repo)
     return
   }
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-example-'))
   try {
     runGit(['clone', '--depth', '1', '--filter=blob:none', '--sparse', '--branch', ref, repo, tmp], options)
-    runGit(['-C', tmp, 'sparse-checkout', 'set', example.path], options)
+    // The shared fonts and images live in the repository's assets/ folder.
+    runGit(['-C', tmp, 'sparse-checkout', 'set', example.path, 'assets'], options)
     // A dry run only prints the git commands, so there is nothing to copy.
     if (options.dryRun) return
     const sourceDir = path.join(tmp, example.path)
     if (!isDirectory(sourceDir)) throw new Error(`Example '${example.id}' was not found in ${repo} at ${example.path}.`)
-    copyStarterFiles(sourceDir, targetDir)
+    copyStarterFiles(sourceDir, targetDir, tmp)
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }

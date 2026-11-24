@@ -12,7 +12,7 @@ import { cliRoot, createFixture, readJson, scriptedPrompt } from './helpers/fixt
 const cliPackage = readJson(path.join(cliRoot, 'package.json'))
 const expectedCliDependency = `^${cliPackage.version}`
 const expectedCoreDependency = cliPackage.starterDependencies['@geastack/core']
-const expectedTargetsDependency = cliPackage.starterDependencies['@geastack/targets']
+const expectedTargetsDependency = cliPackage.dependencies['@geastack/targets']
 
 test('create-geastack scaffolds a valid app manifest', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-'))
@@ -277,6 +277,24 @@ test('--example alone picks the example starter', async (t) => {
     }),
     (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /cannot be combined/.test(error.message)
   )
+})
+
+test('a copied example brings the shared fonts it references', async (t) => {
+  const fixture = createFixture(t)
+  const targetDir = path.join(fixture.root, 'counter-copy')
+
+  await runCreateGeastack([
+    'counter-copy',
+    '--dir', targetDir,
+    '--example', 'counter-jsx',
+    '--examples-repo', path.join(cliRoot, '..', 'examples')
+  ], { cwd: fixture.root, stdout: () => {} })
+
+  const css = fs.readFileSync(path.join(targetDir, 'components/App.css'), 'utf8')
+  assert.doesNotMatch(css, /\.\.\/\.\.\/\.\.\/assets/, 'no reference may leave the project')
+  assert.match(css, /url\('\.\.\/assets\/fonts\/Inter-Regular\.ttf'\)/)
+  assert.equal(fs.existsSync(path.join(targetDir, 'assets/fonts/Inter-Regular.ttf')), true)
+  assert.equal(fs.existsSync(path.join(targetDir, 'assets/fonts/BebasNeue-Regular.ttf')), true)
 })
 
 test('create-geastack requires an example id for non-interactive example starters', async () => {
