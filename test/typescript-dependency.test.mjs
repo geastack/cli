@@ -16,6 +16,7 @@ for (const starter of ['blank', 'counter', 'sky-hop']) {
       const sourcePackage = { devDependencies: { typescript: version, vite: '^8.0.0' } }
       const realRead = fs.readFileSync.bind(fs)
       const realAccess = fs.accessSync.bind(fs)
+      const realReaddir = fs.readdirSync.bind(fs)
       const virtual = (file) => String(file).startsWith(`${root}${path.sep}`) || String(file) === root
       t.mock.method(fs, 'mkdirSync', (file) => { assert.ok(virtual(file)) })
       t.mock.method(fs, 'writeFileSync', (file, text) => {
@@ -26,6 +27,18 @@ for (const starter of ['blank', 'counter', 'sky-hop']) {
       t.mock.method(fs, 'accessSync', (file, ...args) => {
         if (!virtual(file)) return realAccess(file, ...args)
         if (!files.has(String(file))) throw new Error('ENOENT')
+      })
+      // A copied example's tree is walked for shared assets to vendor; list the virtual files it holds.
+      t.mock.method(fs, 'readdirSync', (dir, ...args) => {
+        if (!virtual(dir)) return realReaddir(dir, ...args)
+        const prefix = `${String(dir)}${path.sep}`
+        const entries = new Map()
+        for (const file of files.keys()) {
+          if (!file.startsWith(prefix)) continue
+          const [name, ...rest] = file.slice(prefix.length).split(path.sep)
+          entries.set(name, entries.get(name) || rest.length > 0)
+        }
+        return [...entries].map(([name, isDirectory]) => ({ name, isDirectory: () => isDirectory, isFile: () => !isDirectory }))
       })
       t.mock.method(fs, 'copyFileSync', (_, target) => {
         assert.ok(virtual(target))

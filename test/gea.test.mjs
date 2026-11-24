@@ -224,10 +224,11 @@ test('build configures and builds the app in its own ESP-IDF build directory', a
     '-DIDF_TARGET=esp32s3', `-DGEA_BUILD_CONFIG_FILE=${cmakePath(binaryDir)}/gea-build-config.cmake`, `-DGEA_BUILD_CONFIG_JSON=${cmakePath(binaryDir)}/gea-build-config.json`
   ])
   // A board without buttons clears the variable, so a reconfigure drops a header an earlier board generated.
+  // RTC=0: the fixture analyzer reports `audio;fetch`, and WebRTC links only for the analyzed `rtc` binding.
   const configureTail = formatCommand([
     '-DGEA_BOARD_BUTTONS_DIR=', '-DGEA_EMBEDDED_APP=watch', `-DGEA_EMBEDDED_APP_META=${cmakePath(fixture.appDir)};index.tsx;gea`,
     '-DGEA_EMBEDDED_CAPABILITY_NETWORK=1', '-DGEA_EMBEDDED_CAPABILITY_BLE=0', '-DGEA_EMBEDDED_CAPABILITY_AUDIO=1',
-    '-DGEA_EMBEDDED_CAPABILITY_CAMERA=0', '-DGEA_EMBEDDED_CAPABILITY_RTC=1', '-DGEA_EMBEDDED_CAPABILITY_H264=1', 'reconfigure'
+    '-DGEA_EMBEDDED_CAPABILITY_CAMERA=0', '-DGEA_EMBEDDED_CAPABILITY_RTC=0', '-DGEA_EMBEDDED_CAPABILITY_H264=1', 'reconfigure'
   ])
   assert.match(dry.out, new RegExp(`^${escapeRegex(configureHead)} -DGEA_BUILD_CONFIG_HASH=[a-f0-9]{64} ${escapeRegex(configureTail)}$`, 'm'))
   assert.match(dry.out, new RegExp(`^${escapeRegex(formatCommand(['cmake', '--build', binaryDir, '--parallel', '8']))}$`, 'm'))
