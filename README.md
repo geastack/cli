@@ -300,6 +300,21 @@ for smaller previews or **10** to retain the most detail. Higher quality usually
 means a larger file. Set `--fps` for motion smoothness and use `--width`,
 `--height`, and `--dpr` to control how the page or app is rendered.
 
+### Export PNG frames
+
+```sh
+gea prerender --app css-animation-showcase --start 500ms --end 4s --fps 30 --frames-dir frames
+```
+
+Use a directory that does not exist yet. Export opens the app or page once
+and writes lossless RGBA PNGs at the requested dimensions, starting with
+`frame-000000.png`. The first frame is at `--start` (zero by default).
+`--end` is required and exclusive. Import the frames at the same FPS in
+your editor or encoder. If export fails, completed frames remain in the
+output directory.
+
+PNG sequence export needs no FFmpeg.
+
 The capture uses Gea's software renderer. Apps that require an AppKit view,
 a GPU surface, or physical hardware need a software-renderable mode.
 
