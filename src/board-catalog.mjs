@@ -227,6 +227,23 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'm5stack-m5paper',
+    label: 'M5Stack M5Paper (v1.1)',
+    alias: 'm5paper',
+    target: 'esp32-m5stack-m5paper',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-D0WDQ6-V3',
+    capabilities: {
+      display: '4.7 inch 540x960 e-paper, 16-level grayscale (ED047TC1, IT8951)',
+      touch: 'GT911 two-point capacitive touch',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM', 'microSD'],
+      audio: [],
+      gps: false,
+      sensors: ['left/center/right rocker buttons', 'battery voltage']
+    }
+  },
+  {
     id: 'm5stack-sticks3',
     label: 'M5Stack StickS3 (K150)',
     alias: 'sticks3',
