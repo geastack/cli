@@ -570,6 +570,9 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
   //                    it cannot wait out bounce refills, so partial UI repaints tear
   //   bounceRows: N    bounce-buffer height, overriding the board's
   //   gridStrips: true staged strips sit on a fixed grid (per-band 3D underlays)
+  //   present: 'async' a second framebuffer: the panel upload of one frame runs on a
+  //                    present task while the app draws the next (QSPI panels). The
+  //                    app must repaint every pixel it shows each frame.
   const appDisplay = appEsp32Config?.display
   if (appDisplay) {
     if (appDisplay.copyBack === 'dma') resolvedBuild.defines.push('GEA_EMBEDDED_RGB_COPYBACK_DMA=1')
@@ -577,6 +580,8 @@ export function prepareEsp32Build({ ctx, selection, app = null, env = ctx.env ||
     const bounceRows = Number(appDisplay.bounceRows) || 0
     if (bounceRows) resolvedBuild.defines.push(`GEA_EMBEDDED_RGB_BOUNCE_ROWS=${bounceRows}`)
     if (appDisplay.gridStrips === true) resolvedBuild.defines.push('GEA_EMBEDDED_STAGE_GRID_STRIPS=1')
+    if (appDisplay.present === 'async') resolvedBuild.defines.push('GEA_EMBEDDED_DISPLAY_ASYNC_PRESENT=1')
+    else if (appDisplay.present && appDisplay.present !== 'sync') throw new Error(`gea.targets.esp32.display.present must be 'sync' or 'async', not '${appDisplay.present}'.`)
   }
   const { file: sdkconfigFile, defaultsFile, regenerated } = prepareBuildLocalSdkconfig(selection.targetDir, binaryDir, appSdkconfigFile)
   if (regenerated) log('sdkconfig defaults changed; the generated sdkconfig was rebuilt from them')
