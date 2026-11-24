@@ -258,6 +258,27 @@ test('create-geastack can fetch a named rich example from a local repo path non-
   assert.match(fs.readFileSync(path.join(targetDir, 'index.tsx'), 'utf8'), /watch\.init/)
 })
 
+test('--example alone picks the example starter', async (t) => {
+  const fixture = createFixture(t)
+  const targetDir = path.join(fixture.root, 'watch-alone')
+
+  await runCreateGeastack([
+    'watch-alone',
+    '--dir', targetDir,
+    '--example', 'watch',
+    '--examples-repo', path.join(cliRoot, '..', 'examples')
+  ], { cwd: fixture.root, stdout: () => {} })
+
+  assert.match(fs.readFileSync(path.join(targetDir, 'index.tsx'), 'utf8'), /watch\.init/)
+  await assert.rejects(
+    runCreateGeastack(['watch-blank', '--dir', path.join(fixture.root, 'watch-blank'), '--starter', 'blank', '--example', 'watch'], {
+      cwd: fixture.root,
+      stdout: () => {}
+    }),
+    (error) => error instanceof CliError && error.exitCode === ExitCode.usage && /cannot be combined/.test(error.message)
+  )
+})
+
 test('create-geastack requires an example id for non-interactive example starters', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-create-'))
 

@@ -37,7 +37,7 @@ Options:
 
 ```sh
 --starter counter|blank|example   skip the first question
---example <example-id>            gallery entry to copy (with --starter example)
+--example <example-id>            gallery entry to copy (implies --starter example)
 --no-install                      do not run npm install
 ```
 
@@ -59,12 +59,12 @@ Automation options:
 ```
 
 Without a terminal, or with `--yes`, the scaffolder creates the Component
-Counter unless `--starter` says otherwise; `--starter example` then needs
-`--example <id>`. For example:
+Counter unless `--starter` or `--example` says otherwise; `--starter example`
+then needs `--example <id>`. For example:
 
 ```sh
 npx create-geastack my-web-app --starter blank --targets web
-npx create-geastack watch-demo --starter example --example watch
+npx create-geastack watch-demo --example watch
 ```
 
 Every generated project carries a `.gea/boards.json`, so `gea setup` saves its

@@ -144,7 +144,14 @@ async function resolveStarter(ctx, parsed, io) {
   const interactive = canPrompt(io) && !flag(parsed, 'yes')
   const bundled = discoverBundledStarters(ctx)
   const examples = discoverGithubExamples(ctx, io.env || process.env)
-  const requested = normalizeStarter(option(parsed, 'starter') || option(parsed, 'template') || '')
+  // Naming an example is already the choice of the example starter, so
+  // --example <id> works alone; only a contradicting --starter is an error.
+  const requestedExample = option(parsed, 'example') || option(parsed, 'from-example') || ''
+  const explicit = normalizeStarter(option(parsed, 'starter') || option(parsed, 'template') || '')
+  if (requestedExample && explicit && explicit !== 'example') {
+    fail(`--example ${requestedExample} copies an example; it cannot be combined with --starter ${option(parsed, 'starter') || option(parsed, 'template')}.`, ExitCode.usage)
+  }
+  const requested = explicit || (requestedExample ? 'example' : '')
   const prompt = interactive ? createPrompt(io) : null
   try {
     // Each nested question offers Back, which returns to the top menu.
@@ -237,7 +244,7 @@ async function chooseStarterMode({ interactive, prompt, bundled, examples }) {
 
 async function chooseExample({ interactive, prompt, gallery, back }) {
   if (!interactive) {
-    fail('Choosing --starter example in a non-interactive shell also requires --example <id>.', ExitCode.usage)
+    fail('Choosing an example in a non-interactive shell requires --example <id>.', ExitCode.usage)
   }
   const id = await choose(prompt, {
     message: 'Example to copy',
@@ -625,7 +632,7 @@ derives the source layout, targets, and runtime configuration from your choice.
 
 Options:
   --starter counter|blank|example
-  --example <example-id>
+  --example <example-id>          copy this gallery example (implies --starter example)
   --no-install
 
 Automation options:

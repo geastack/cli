@@ -56,7 +56,7 @@ flowchart TD
   auto["Automation flags"] -.-> starter
   auto --> autoCounter["--yes or no terminal: Component Counter"]
   auto --> autoEmpty["--starter blank --yes"]
-  auto --> autoExample["--starter example --example watch"]
+  auto --> autoExample["--example watch"]
 ```
 
 ```mermaid
