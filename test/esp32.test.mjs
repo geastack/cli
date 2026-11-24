@@ -43,7 +43,7 @@ test('camera binding enables capture in CMake and component-manager dependency r
   assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_CAMERA, undefined)
 })
 
-test('explicit RTC and H264 exclusion reach native defines and dependency resolution', (t) => {
+test('RTC follows the RTCPeerConnection binding; explicit H264 exclusion reaches native defines', (t) => {
   const fixture = createFixture(t)
   const compiler = path.join(fixture.installed('compiler'), 'dist/cli.js')
   const original = readFileSync(compiler, 'utf8')
@@ -53,27 +53,26 @@ test('explicit RTC and H264 exclusion reach native defines and dependency resolu
     target: 'esp32-s3-touch-amoled-2.06', targetDir: fixture.esp32Target,
     idfTarget: 'esp32s3', flashSize: '16MB'
   }
+  // A network app that never constructs an RTCPeerConnection links no WebRTC.
   const ordinary = prepareEsp32Build({ ctx, selection, app, dryRun: true })
-  assert.equal(ordinary.capabilities.rtc, true)
-  assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, undefined)
+  assert.equal(ordinary.capabilities.rtc, false)
+  assert.ok(ordinary.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_RTC=0'))
   assert.equal(ordinary.capabilities.h264, true)
   assert.equal(ordinary.childEnv.GEA_EMBEDDED_CAPABILITY_H264, undefined)
-  assert.doesNotMatch(ordinary.childEnv.GEA_EMBEDDED_APP_DEFINES ?? '', /GEA_EMBEDDED_RTC_UNUSED/)
   writeFileSync(compiler, original.replace('bindings=audio;fetch', 'bindings=audio;rtc'))
   const rtc = prepareEsp32Build({ ctx, selection, app, dryRun: true })
   assert.equal(rtc.capabilities.rtc, true)
   assert.equal(rtc.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, undefined)
   assert.ok(rtc.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_RTC=1'))
   assert.doesNotMatch(rtc.childEnv.GEA_EMBEDDED_APP_DEFINES ?? '', /GEA_EMBEDDED_RTC_UNUSED/)
-  app.defines.push('GEA_EMBEDDED_H264_UNUSED=1', 'GEA_EMBEDDED_RTC_UNUSED=1')
-  assert.throws(() => prepareEsp32Build({ ctx, selection, app, dryRun: true }), /conflicts with the app RTC binding/)
   writeFileSync(compiler, original)
+  app.defines.push('GEA_EMBEDDED_H264_UNUSED=1')
   const pcmAndJpeg = prepareEsp32Build({ ctx, selection, app, dryRun: true })
   assert.equal(pcmAndJpeg.capabilities.h264, false)
   assert.equal(pcmAndJpeg.childEnv.GEA_EMBEDDED_CAPABILITY_H264, undefined)
   assert.equal(pcmAndJpeg.capabilities.rtc, false)
   assert.equal(pcmAndJpeg.childEnv.GEA_EMBEDDED_CAPABILITY_RTC, undefined)
-  assert.match(pcmAndJpeg.childEnv.GEA_EMBEDDED_APP_DEFINES, /GEA_EMBEDDED_RTC_UNUSED=1/)
+  assert.ok(pcmAndJpeg.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_RTC=0'))
   assert.ok(pcmAndJpeg.idfArgs.includes('-DGEA_EMBEDDED_CAPABILITY_H264=0'))
   assert.match(pcmAndJpeg.childEnv.GEA_EMBEDDED_APP_DEFINES, /GEA_EMBEDDED_H264_UNUSED=1/)
 })

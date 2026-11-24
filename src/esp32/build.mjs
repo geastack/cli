@@ -701,10 +701,12 @@ function preparePartitions(app, config, buildDir, targetId) {
     // `set(... CACHE STRING ...)`, so a -D of the same name, which exists before
     // the board's CMakeLists runs, wins without the board knowing about apps.
     const cssDpr = cssDevicePixelRatioLiteral(resolvedBuild.cssDevicePixelRatio)
-    const rtcExcluded = resolvedBuild.defines.includes('GEA_EMBEDDED_RTC_UNUSED=1')
-    if (rtcExcluded && capabilities.bindings.includes('rtc'))
-      fail('GEA_EMBEDDED_RTC_UNUSED=1 conflicts with the app RTC binding', ExitCode.usage)
-    const rtcUsed = capabilities.network && !rtcExcluded
+    // WebRTC (libjuice, libsrtp, the VP8 peer) links only for an app the
+    // analysis saw construct an RTCPeerConnection; networking alone does not
+    // need it, and those components require lwIP IPv6, which small boards
+    // leave off. The framework component compiles the RTC host code out to
+    // match, so there is nothing for an app to set.
+    const rtcUsed = capabilities.network && capabilities.bindings.includes('rtc')
     // Video reachability is not yet part of analysis. Keep H264 by default;
     // an app that only uses PCM/JPEG can explicitly exclude it.
     const h264Used = capabilities.network && !resolvedBuild.defines.includes('GEA_EMBEDDED_H264_UNUSED=1')

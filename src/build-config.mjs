@@ -234,7 +234,7 @@ export function resolveBuildConfig({ app, platform, board = '', targetsRoot = ''
     ...capabilities,
     aec: Boolean(capabilities.audio && (defines.includes('GEA_AUDIO_ECHO_CANCELLATION=1') ||
       (capabilities.aec && !defines.includes('GEA_AUDIO_ECHO_CANCELLATION=0')))),
-    rtc: capabilities.network && !defines.includes('GEA_EMBEDDED_RTC_UNUSED=1'),
+    rtc: capabilities.network && (capabilities.bindings || []).includes('rtc'),
     h264: capabilities.network && !defines.includes('GEA_EMBEDDED_H264_UNUSED=1'),
   }
   if (selectedCapabilities?.aec) {

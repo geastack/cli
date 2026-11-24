@@ -210,6 +210,40 @@ export const knownBoards = Object.freeze([
     }
   },
   {
+    id: 'm5stack-papers3',
+    label: 'M5Stack PaperS3 (C139)',
+    alias: 'papers3',
+    target: 'esp32-s3-m5stack-papers3',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3R8',
+    capabilities: {
+      display: '4.7 inch 540x960 e-paper, 16-level grayscale (ED047TC1, parallel)',
+      touch: 'GT911 two-point capacitive touch',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['16 MB flash', '8 MB PSRAM', 'microSD'],
+      audio: ['passive buzzer'],
+      gps: false,
+      sensors: ['BMI270 IMU', 'BM8563 RTC']
+    }
+  },
+  {
+    id: 'm5stack-sticks3',
+    label: 'M5Stack StickS3 (K150)',
+    alias: 'sticks3',
+    target: 'esp32-s3-m5stack-sticks3',
+    adapter: 'esp32-idf',
+    mcu: 'ESP32-S3-PICO-1-N8R8',
+    capabilities: {
+      display: '1.14 inch 135x240 IPS LCD (ST7789 SPI)',
+      touch: 'none (KEY1/KEY2 face buttons)',
+      wireless: ['WiFi', 'BLE'],
+      storage: ['8 MB flash', '8 MB PSRAM'],
+      audio: ['ES8311 speaker and microphone'],
+      gps: false,
+      sensors: ['BMI270 IMU', 'IR transmitter and receiver']
+    }
+  },
+  {
     id: 'm5stack-tab5',
     label: 'M5Stack Tab5',
     alias: 'm5tab',

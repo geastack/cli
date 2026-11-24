@@ -75,6 +75,8 @@ export function fetchGithubExample(example, targetDir, options = {}) {
   try {
     runGit(['clone', '--depth', '1', '--filter=blob:none', '--sparse', '--branch', ref, repo, tmp], options)
     runGit(['-C', tmp, 'sparse-checkout', 'set', example.path], options)
+    // A dry run only prints the git commands, so there is nothing to copy.
+    if (options.dryRun) return
     const sourceDir = path.join(tmp, example.path)
     if (!isDirectory(sourceDir)) throw new Error(`Example '${example.id}' was not found in ${repo} at ${example.path}.`)
     copyStarterFiles(sourceDir, targetDir)

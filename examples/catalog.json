@@ -168,6 +168,21 @@
       }
     },
     {
+      "id": "diagnostics",
+      "name": "Diagnostics",
+      "description": "hardware diagnostics: buttons, GPIO, IMU, audio, storage, Wi-Fi",
+      "path": "apps/diagnostics",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": true,
+        "esp32": true,
+        "geaos": true,
+        "macos": false,
+        "ios": false
+      }
+    },
+    {
       "id": "css-3d-cube",
       "name": "CSS 3D Cube",
       "description": "3D CSS demo",
@@ -347,6 +362,21 @@
         "geaos": false,
         "macos": false,
         "ios": true
+      }
+    },
+    {
+      "id": "m5-stopwatch",
+      "name": "M5 StopWatch",
+      "description": "M5Stack StopWatch (C152) factory app in Gea",
+      "path": "apps/m5-stopwatch",
+      "entry": "index.tsx",
+      "runtime": "gea",
+      "targets": {
+        "web": false,
+        "esp32": true,
+        "geaos": false,
+        "macos": false,
+        "ios": false
       }
     },
     {
