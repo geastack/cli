@@ -115,15 +115,20 @@ function runScript(command, args, { cwd, env, dryRun, stdout, failureMessage }) 
 
 // --- gea simulate ----------------------------------------------------------
 
-export function buildSimulatorApp({ app, env, dryRun = false, stdout }) {
+export function buildSimulatorApp({ app, env, dryRun = false, stdout, view = {} }) {
   requireWebTarget(app)
   requireEmscripten(env, app.id)
   const simulatorDir = resolveSimulatorDir(env)
   const script = path.join(simulatorDir, 'targets', 'web', 'build-web.sh')
   const paths = webPaths(app, env)
+  const simulatorEnv = buildEnv(app, nativeScriptBuildEnv(app, 'web', env, { dryRun, buildDir: paths.root }), paths)
+  const width = Number(view.width)
+  const height = Number(view.height)
+  if (Number.isFinite(width) && width > 0) simulatorEnv.GEA_WEB_FONT_VIEWPORT_WIDTH = String(Math.max(1, Math.round(width)))
+  if (Number.isFinite(height) && height > 0) simulatorEnv.GEA_WEB_FONT_VIEWPORT_HEIGHT = String(Math.max(1, Math.round(height)))
   runScript('bash', [script, app.id], {
     cwd: app.root,
-    env: buildEnv(app, nativeScriptBuildEnv(app, 'web', env, { dryRun, buildDir: paths.root }), paths),
+    env: simulatorEnv,
     dryRun,
     stdout,
     failureMessage: `Web build failed for '${app.id}'`
@@ -133,7 +138,7 @@ export function buildSimulatorApp({ app, env, dryRun = false, stdout }) {
 
 export async function runSimulate({ ctx, app, env, dryRun = false, stdout, port, open = true, view = {}, renderer = 'dom' }) {
   if (renderer === 'dom') return runWebDev({ app, env, dryRun, stdout, port, emulator: true, open, view })
-  const { simulatorDir, paths } = buildSimulatorApp({ app, env, dryRun, stdout })
+  const { simulatorDir, paths } = buildSimulatorApp({ app, env, dryRun, stdout, view })
   const url = await startSimulatorServer({ ctx, app, env, simulatorDir, paths, port, dryRun, stdout, view })
   if (dryRun) return 0
   stdout(`Simulating ${app.id}: ${url}`)
